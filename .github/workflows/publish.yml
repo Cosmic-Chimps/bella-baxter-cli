@@ -118,7 +118,7 @@ jobs:
           fi
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.artifact }}
           path: ${{ matrix.artifact }}
@@ -389,11 +389,30 @@ jobs:
           echo "✓ Homebrew formula updated to v${VERSION}"
 
   # ── 6. WinGet release ─────────────────────────────────────────────────────
+  # NOTE: Requires CosmicChimps.BellaBaxterCli to exist in microsoft/winget-pkgs first.
+  # Submit the initial PR manually using winget/manifests/ in this repo, then this
+  # job will auto-PR future releases. Until then it will be skipped gracefully.
   winget_release:
     runs-on: ubuntu-latest
     needs: [resolve_version, create_release]
+    continue-on-error: true
     steps:
+      - name: Check if package exists in winget-pkgs
+        id: check
+        run: |
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/microsoft/winget-pkgs/contents/manifests/c/CosmicChimps/BellaBaxterCli")
+          if [ "$STATUS" = "200" ]; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+            echo "⚠️ CosmicChimps.BellaBaxterCli not yet in microsoft/winget-pkgs — skipping."
+            echo "Submit the initial PR using the manifests in winget/manifests/ then this will run automatically."
+          fi
+
       - uses: vedantmgoyal2009/winget-releaser@v2
+        if: steps.check.outputs.exists == 'true'
         with:
           identifier: CosmicChimps.BellaBaxterCli
           release-tag: v${{ needs.resolve_version.outputs.version }}
@@ -403,10 +422,11 @@ jobs:
   # ── 7. Notify Slack ────────────────────────────────────────────────────────
   notify_slack:
     runs-on: ubuntu-latest
-    needs: [resolve_version, build, create_release, update_homebrew, winget_release]
+    needs:
+      [resolve_version, build, create_release, update_homebrew, winget_release]
     if: always() && needs.resolve_version.result != 'skipped'
     steps:
-      - uses: slackapi/slack-github-action@v2.1.1
+      - uses: slackapi/slack-github-action@v3.0.1
         with:
           webhook: ${{ secrets.SLACK_WEBHOOK_URL }}
           webhook-type: incoming-webhook
