@@ -11,30 +11,36 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT="$SCRIPT_DIR/BellaCli/BellaCli.csproj"
-NUPKG_DIR="$SCRIPT_DIR/BellaCli/nupkg"
+PROJECT="$SCRIPT_DIR/BellaBaxter.Cli/BellaBaxter.Cli.csproj"
+NUPKG_DIR="$SCRIPT_DIR/BellaBaxter.Cli/nupkg"
 DOTNET_TOOLS="${HOME}/.dotnet/tools"
 
-SDK_PROJECT="$(dirname "$SCRIPT_DIR")/sdk/dotnet-sdk/BellaClient.csproj"
+SDK_PROJECT="$(dirname "$SCRIPT_DIR")/sdk/dotnet/BellaBaxter.Client/BellaBaxter.Client.csproj"
 
 # Pre-build the SDK project reference. dotnet pack has a known quirk where
 # it fails to generate AssemblyInfo for project references on a cold (no obj/) build.
 # Explicit dotnet build primes obj/ first, then pack succeeds.
-echo "🔨 Building BellaCli (+ SDK dependency)..."
+echo "🔨 Building BellaBaxter.Cli (+ SDK dependency)..."
 dotnet build "$PROJECT" -c Debug --nologo
 
-echo "📦 Packing BellaCli..."
+echo "📦 Packing BellaBaxter.Cli..."
 dotnet pack "$PROJECT" -c Debug -o "$NUPKG_DIR" --nologo --no-build --no-restore
+
+# Remove legacy BellaCli (renamed to BellaBaxter.Cli) if still installed
+if dotnet tool list -g | grep -qi "^bellacli"; then
+  echo "🗑️  Removing legacy 'bellacli' tool (renamed to BellaBaxter.Cli)..."
+  dotnet tool uninstall -g BellaCli
+fi
 
 # Uninstall old version first so dotnet always picks up the fresh binary,
 # then reinstall (same-version updates are a no-op for dotnet tool update).
-if dotnet tool list -g | grep -q "bellacli"; then
+if dotnet tool list -g | grep -qi "bellabaxter.cli"; then
   echo "🔄 Reinstalling global tool..."
-  dotnet tool uninstall -g BellaCli
+  dotnet tool uninstall -g BellaBaxter.Cli
 else
   echo "📦 Installing global tool..."
 fi
-dotnet tool install -g BellaCli --add-source "$NUPKG_DIR"
+dotnet tool install -g BellaBaxter.Cli --add-source "$NUPKG_DIR"
 
 echo ""
 echo "✅ Done! The .NET bella is installed at: ${DOTNET_TOOLS}/bella"
