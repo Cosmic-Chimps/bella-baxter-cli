@@ -1,0 +1,292 @@
+name: Publish Bella CLI (.NET)
+
+# Triggered automatically by release-sdk.yml (monorepo) which:
+#   1. Bumps version in BellaBaxter.Cli.csproj, commits to main
+#   2. sync-cli.yml pushes main to this repo
+#   3. release-sdk.yml creates a tag (v0.2.0) on this repo
+#   4. This workflow fires → builds 7 platform binaries + Docker + GitHub Release
+#
+# Can also be triggered manually for one-off releases.
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version override (e.g. 0.2.0) — leave empty to use git tag'
+        required: false
+
+env:
+  PROJECT: BellaBaxter.Cli/BellaBaxter.Cli.csproj
+  DOTNET_VERSION: '10.0.x'
+  DOTNET_SKIP_FIRST_TIME_EXPERIENCE: 1
+  DOTNET_NOLOGO: 1
+
+jobs:
+  # ── 1. Resolve version ─────────────────────────────────────────────────────
+  resolve_version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.ver.outputs.version }}
+    steps:
+      - name: Extract version
+        id: ver
+        run: |
+          if [ -n "${{ inputs.version }}" ]; then
+            VERSION="${{ inputs.version }}"
+          else
+            # Strip 'v' prefix from tag (e.g. v0.2.0 → 0.2.0)
+            VERSION="${GITHUB_REF_NAME#v}"
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Building version: $VERSION"
+
+  # ── 2. Build self-contained binaries (matrix) ──────────────────────────────
+  build:
+    needs: resolve_version
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - rid: win-x64
+            os: windows-latest
+            artifact: cli-win-x64.exe
+            ext: .exe
+          - rid: win-arm64
+            os: windows-latest
+            artifact: cli-win-arm64.exe
+            ext: .exe
+          - rid: osx-x64
+            os: macos-13
+            artifact: cli-osx-x64
+            ext: ''
+          - rid: osx-arm64
+            os: macos-latest
+            artifact: cli-osx-arm64
+            ext: ''
+          - rid: linux-x64
+            os: ubuntu-latest
+            artifact: cli-linux-x64
+            ext: ''
+          - rid: linux-arm64
+            os: ubuntu-24.04-arm
+            artifact: cli-linux-arm64
+            ext: ''
+          - rid: linux-musl-x64
+            os: ubuntu-latest
+            artifact: cli-linux-musl-x64
+            ext: ''
+
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.ref }} # check out the tagged commit
+
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Restore
+        run: dotnet restore ${{ env.PROJECT }}
+
+      - name: Publish self-contained binary
+        shell: bash
+        run: |
+          dotnet publish ${{ env.PROJECT }} \
+            -c Release \
+            -r ${{ matrix.rid }} \
+            --self-contained true \
+            -p:PublishSingleFile=true \
+            -p:PublishTrimmed=true \
+            -p:SuppressTrimAnalysisWarnings=true \
+            -p:ILLinkTreatWarningsAsErrors=false \
+            -p:Version=${{ needs.resolve_version.outputs.version }} \
+            -p:InformationalVersion="${{ needs.resolve_version.outputs.version }}+${{ github.sha }}" \
+            -o publish/${{ matrix.rid }}
+
+      - name: Rename binary
+        shell: bash
+        run: |
+          SRC="publish/${{ matrix.rid }}/bella${{ matrix.ext }}"
+          DEST="${{ matrix.artifact }}"
+          mv "$SRC" "$DEST"
+          # Make executable on Unix
+          if [ -z "${{ matrix.ext }}" ]; then
+            chmod +x "$DEST"
+          fi
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: ${{ matrix.artifact }}
+          retention-days: 1
+
+  # ── 3. Publish Docker image (linux-x64 binary) ────────────────────────────
+  publish_docker:
+    runs-on: ubuntu-latest
+    needs: [resolve_version, build]
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.ref }}
+
+      - name: Download linux-x64 binary
+        uses: actions/download-artifact@v4
+        with:
+          name: cli-linux-x64
+          path: /tmp/bella-bin
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Create Dockerfile
+        run: |
+          cat > /tmp/bella-bin/Dockerfile << 'EOF'
+          FROM scratch
+          COPY cli-linux-x64 /usr/local/bin/bella
+          ENTRYPOINT ["/usr/local/bin/bella"]
+          EOF
+          chmod +x /tmp/bella-bin/cli-linux-x64
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: /tmp/bella-bin
+          push: true
+          tags: |
+            ghcr.io/cosmic-chimps/bella-baxter-cli:latest
+            ghcr.io/cosmic-chimps/bella-baxter-cli:${{ needs.resolve_version.outputs.version }}
+
+  # ── 4. Create GitHub Release ───────────────────────────────────────────────
+  create_release:
+    runs-on: ubuntu-latest
+    needs: [resolve_version, build]
+    permissions:
+      contents: write
+      id-token: write # required for artifact attestations (Sigstore OIDC)
+      attestations: write # required for artifact attestations
+    steps:
+      - name: Download all binary artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: binaries
+          merge-multiple: true
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: binaries/cli-*
+
+      - name: Generate SHA256 checksums
+        working-directory: binaries
+        run: |
+          sha256sum cli-* > checksums.txt
+          echo "=== checksums.txt ==="
+          cat checksums.txt
+
+      - name: Sign checksums with GPG
+        working-directory: binaries
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.BELLA_GPG_PRIVATE_KEY }}
+          GPG_PASSPHRASE: ${{ secrets.BELLA_GPG_PASSPHRASE }}
+        run: |
+          if [ -n "${GPG_PRIVATE_KEY}" ]; then
+            echo "${GPG_PRIVATE_KEY}" | gpg --batch --import 2>/dev/null
+            printf '%s' "${GPG_PASSPHRASE}" | gpg --batch --yes \
+              --pinentry-mode loopback \
+              --passphrase-fd 0 \
+              --armor --detach-sign \
+              checksums.txt
+            echo "checksums.txt.asc created"
+            gpg --verify checksums.txt.asc checksums.txt
+          else
+            echo "BELLA_GPG_PRIVATE_KEY not configured — skipping GPG signature"
+            echo "(add BELLA_GPG_PRIVATE_KEY + BELLA_GPG_PASSPHRASE repo secrets to enable; see scripts/SIGNING.md)"
+          fi
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ needs.resolve_version.outputs.version }}
+          name: v${{ needs.resolve_version.outputs.version }}
+          body: |
+            ## Install Bella CLI ${{ needs.resolve_version.outputs.version }}
+
+            ### Linux / macOS (one-liner)
+            ```bash
+            curl -sSfL https://raw.githubusercontent.com/cosmic-chimps/bella-baxter-cli/main/scripts/install-bella.sh | bash
+            ```
+
+            ### Windows (PowerShell)
+            ```powershell
+            irm https://raw.githubusercontent.com/cosmic-chimps/bella-baxter-cli/main/scripts/install-bella.ps1 | iex
+            ```
+
+            ### Docker (zero runtime dependencies)
+            ```dockerfile
+            COPY --from=ghcr.io/cosmic-chimps/bella-baxter-cli:${{ needs.resolve_version.outputs.version }} /usr/local/bin/bella /usr/local/bin/bella
+            ```
+
+            ### Manual download
+            Download the binary for your platform below, mark it executable and place it in your `$PATH`.
+
+            | Platform | File |
+            |---|---|
+            | Windows x64 | `cli-win-x64.exe` |
+            | Windows ARM64 | `cli-win-arm64.exe` |
+            | macOS Intel | `cli-osx-x64` |
+            | macOS Apple Silicon | `cli-osx-arm64` |
+            | Linux x64 | `cli-linux-x64` |
+            | Linux ARM64 | `cli-linux-arm64` |
+            | Linux (musl/Alpine) | `cli-linux-musl-x64` |
+
+            ### Verify your download
+            Every release ships a `checksums.txt` (SHA256) and, when the signing key is configured, a `checksums.txt.asc` (GPG detached signature).
+            Build provenance is attested via Sigstore and verifiable in your browser.
+
+            ```bash
+            # Verify SHA256
+            sha256sum --check --ignore-missing checksums.txt
+
+            # Verify GPG signature (requires gpg and the Cosmic Chimps public key)
+            gpg --import bella-signing-key.asc          # one-time import
+            gpg --verify checksums.txt.asc checksums.txt
+
+            # Verify build provenance (requires GitHub CLI)
+            gh attestation verify cli-linux-x64 --repo cosmic-chimps/bella-baxter-cli
+            ```
+
+            Browse all attestations: https://github.com/cosmic-chimps/bella-baxter-cli/attestations
+
+            ### Upgrade
+            ```bash
+            bella upgrade
+            ```
+          files: binaries/*
+          make_latest: true
+
+  # ── 5. Notify Slack ────────────────────────────────────────────────────────
+  notify_slack:
+    runs-on: ubuntu-latest
+    needs: [resolve_version, build, create_release]
+    if: always() && needs.resolve_version.result != 'skipped'
+    steps:
+      - uses: slackapi/slack-github-action@v2.1.1
+        with:
+          webhook: ${{ secrets.SLACK_WEBHOOK_URL }}
+          webhook-type: incoming-webhook
+          payload: |
+            text: "*Bella CLI (.NET) publish*: build=${{ needs.build.result }} | release=${{ needs.create_release.result }}\nv${{ needs.resolve_version.outputs.version }} — ${{ github.event.head_commit.url }}"

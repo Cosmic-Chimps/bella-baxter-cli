@@ -1,0 +1,51 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AssemblyName>bella</AssemblyName>
+    <RootNamespace>BellaBaxter.Cli</RootNamespace>
+    <Version>0.1.0</Version>
+
+    <!-- Global tool support (dev loop: dotnet pack + dotnet tool install -g) -->
+    <PackAsTool>true</PackAsTool>
+    <ToolCommandName>bella</ToolCommandName>
+    <PackageId>BellaBaxter.Cli</PackageId>
+
+    <!-- Single-file self-contained publish — only active during dotnet publish -r <RID> -->
+    <PublishSingleFile Condition="'$(RuntimeIdentifier)' != ''">true</PublishSingleFile>
+    <SelfContained Condition="'$(RuntimeIdentifier)' != ''">true</SelfContained>
+    <EnableCompressionInSingleFile Condition="'$(RuntimeIdentifier)' != ''">true</EnableCompressionInSingleFile>
+    <DebugType Condition="'$(RuntimeIdentifier)' != ''">embedded</DebugType>
+
+    <!-- Suppress AOT/trim analysis warnings — we accept runtime JSON reflection -->
+    <SuppressTrimAnalysisWarnings>true</SuppressTrimAnalysisWarnings>
+    <ILLinkTreatWarningsAsErrors>false</ILLinkTreatWarningsAsErrors>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.DataProtection" Version="10.0.5" />
+    <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.5" />
+    <PackageReference Include="Microsoft.Kiota.Http.HttpClientLibrary" Version="1.22.1" />
+    <PackageReference Include="Microsoft.Kiota.Serialization.Form" Version="1.22.1" />
+    <PackageReference Include="Microsoft.Kiota.Serialization.Json" Version="1.22.1" />
+    <PackageReference Include="Microsoft.Kiota.Serialization.Multipart" Version="1.22.1" />
+    <PackageReference Include="Microsoft.Kiota.Serialization.Text" Version="1.22.1" />
+    <PackageReference Include="ModelContextProtocol" Version="1.1.0" />
+    <PackageReference Include="Spectre.Console" Version="0.54.0" />
+    <PackageReference Include="Spectre.Console.Cli" Version="0.53.1" />
+    <PackageReference Include="YamlDotNet" Version="16.3.0" />
+  </ItemGroup>
+
+  <!-- Dev (monorepo): direct project reference when BellaBaxter.Client source is on disk -->
+  <ItemGroup Condition="Exists('$(MSBuildThisFileDirectory)../../sdk/dotnet/BellaBaxter.Client/BellaBaxter.Client.csproj')">
+    <ProjectReference Include="../../sdk/dotnet/BellaBaxter.Client/BellaBaxter.Client.csproj" />
+  </ItemGroup>
+  <!-- Publish (public repo bella-baxter-cli): resolve from NuGet when project is absent -->
+  <ItemGroup Condition="!Exists('$(MSBuildThisFileDirectory)../../sdk/dotnet/BellaBaxter.Client/BellaBaxter.Client.csproj')">
+    <PackageReference Include="BellaBaxter.Client" Version="0.1.0" />
+  </ItemGroup>
+
+</Project>
