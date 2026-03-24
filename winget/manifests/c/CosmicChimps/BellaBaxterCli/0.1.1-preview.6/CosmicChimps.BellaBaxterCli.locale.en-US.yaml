@@ -1,0 +1,27 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.defaultLocale.1.9.0.schema.json
+
+PackageIdentifier: CosmicChimps.BellaBaxterCli
+PackageVersion: 0.1.1-preview.6
+PackageLocale: en-US
+Publisher: Cosmic Chimps
+PublisherUrl: https://bella-baxter.io
+PublisherSupportUrl: https://github.com/cosmic-chimps/bella-baxter-cli/issues
+PackageName: Bella Baxter CLI
+PackageUrl: https://github.com/cosmic-chimps/bella-baxter-cli
+License: MIT
+LicenseUrl: https://github.com/cosmic-chimps/bella-baxter-cli/blob/main/LICENSE
+Copyright: Copyright (c) Cosmic Chimps
+ShortDescription: CLI for managing and consuming secrets from Bella Baxter
+Description: |-
+  Bella Baxter CLI (bella) is the command-line interface for the Bella Baxter
+  secrets management platform. It allows you to authenticate, pull secrets into
+  .env files, and manage projects and environments from your terminal.
+Moniker: bella
+Tags:
+  - secrets
+  - secret-management
+  - devops
+  - developer-tools
+  - environment-variables
+ManifestType: defaultLocale
+ManifestVersion: 1.9.0

@@ -225,7 +225,18 @@ jobs:
           body: |
             ## Install Bella CLI ${{ needs.resolve_version.outputs.version }}
 
-            ### Linux / macOS (one-liner)
+            ### Homebrew (macOS + Linux)
+            ```sh
+            brew tap cosmic-chimps/bella-baxter-cli
+            brew install bella
+            ```
+
+            ### WinGet (Windows)
+            ```sh
+            winget install CosmicChimps.BellaBaxterCli
+            ```
+
+            ### Linux / macOS (curl)
             ```bash
             curl -sSfL https://raw.githubusercontent.com/cosmic-chimps/bella-baxter-cli/main/scripts/install-bella.sh | bash
             ```
@@ -278,10 +289,121 @@ jobs:
           files: binaries/*
           make_latest: true
 
-  # ── 5. Notify Slack ────────────────────────────────────────────────────────
+  # ── 5. Update Homebrew tap ────────────────────────────────────────────────
+  update_homebrew:
+    runs-on: ubuntu-latest
+    needs: [resolve_version, create_release]
+    permissions:
+      contents: read
+    steps:
+      - name: Download macOS binaries
+        uses: actions/download-artifact@v4
+        with:
+          path: binaries
+          merge-multiple: true
+
+      - name: Compute SHA256 for macOS and Linux binaries
+        id: sha
+        working-directory: binaries
+        run: |
+          echo "osx_arm64=$(sha256sum cli-osx-arm64  | awk '{print $1}')" >> "$GITHUB_OUTPUT"
+          echo "osx_x64=$(sha256sum   cli-osx-x64    | awk '{print $1}')" >> "$GITHUB_OUTPUT"
+          echo "linux_arm64=$(sha256sum cli-linux-arm64 | awk '{print $1}')" >> "$GITHUB_OUTPUT"
+          echo "linux_x64=$(sha256sum   cli-linux-x64   | awk '{print $1}')" >> "$GITHUB_OUTPUT"
+
+      - name: Update Formula/bella.rb in homebrew tap
+        env:
+          GH_TOKEN: ${{ secrets.BOT_GITHUB_TOKEN }}
+          VERSION: ${{ needs.resolve_version.outputs.version }}
+          SHA_OSX_ARM64: ${{ steps.sha.outputs.osx_arm64 }}
+          SHA_OSX_X64: ${{ steps.sha.outputs.osx_x64 }}
+          SHA_LINUX_ARM64: ${{ steps.sha.outputs.linux_arm64 }}
+          SHA_LINUX_X64: ${{ steps.sha.outputs.linux_x64 }}
+        run: |
+          # Get current file SHA (required for GitHub contents API update)
+          FILE_SHA=$(gh api repos/Cosmic-Chimps/homebrew-bella-baxter-cli/contents/Formula/bella.rb \
+            --jq '.sha' 2>/dev/null || echo "")
+
+          FORMULA=$(cat <<FORMULA
+          # typed: false
+          # frozen_string_literal: true
+
+          # This formula is auto-updated by the CI pipeline after each release.
+          # Do not edit the version, url, or sha256 fields manually.
+
+          class Bella < Formula
+            desc "Bella Baxter CLI — manage and consume secrets from Bella Baxter"
+            homepage "https://bella-baxter.io"
+            version "${VERSION}"
+            license "MIT"
+
+            on_macos do
+              on_arm do
+                url "https://github.com/cosmic-chimps/bella-baxter-cli/releases/download/v${VERSION}/cli-osx-arm64"
+                sha256 "${SHA_OSX_ARM64}"
+              end
+
+              on_intel do
+                url "https://github.com/cosmic-chimps/bella-baxter-cli/releases/download/v${VERSION}/cli-osx-x64"
+                sha256 "${SHA_OSX_X64}"
+              end
+            end
+
+            on_linux do
+              on_arm do
+                url "https://github.com/cosmic-chimps/bella-baxter-cli/releases/download/v${VERSION}/cli-linux-arm64"
+                sha256 "${SHA_LINUX_ARM64}"
+              end
+
+              on_intel do
+                url "https://github.com/cosmic-chimps/bella-baxter-cli/releases/download/v${VERSION}/cli-linux-x64"
+                sha256 "${SHA_LINUX_X64}"
+              end
+            end
+
+            def install
+              bin.install Dir["cli-*"].first => "bella"
+            end
+
+            test do
+              assert_match version.to_s, shell_output("#{bin}/bella --version")
+            end
+          end
+          FORMULA
+          )
+
+          CONTENT_B64=$(printf '%s' "$FORMULA" | base64 -w 0)
+
+          if [ -n "$FILE_SHA" ]; then
+            gh api repos/Cosmic-Chimps/homebrew-bella-baxter-cli/contents/Formula/bella.rb \
+              --method PUT \
+              -f message="chore: update bella formula to v${VERSION}" \
+              -f content="$CONTENT_B64" \
+              -f sha="$FILE_SHA"
+          else
+            gh api repos/Cosmic-Chimps/homebrew-bella-baxter-cli/contents/Formula/bella.rb \
+              --method PUT \
+              -f message="chore: update bella formula to v${VERSION}" \
+              -f content="$CONTENT_B64"
+          fi
+          echo "✓ Homebrew formula updated to v${VERSION}"
+
+  # ── 6. WinGet release ─────────────────────────────────────────────────────
+  winget_release:
+    runs-on: ubuntu-latest
+    needs: [resolve_version, create_release]
+    steps:
+      - uses: vedantmgoyal2009/winget-releaser@v2
+        with:
+          identifier: CosmicChimps.BellaBaxterCli
+          release-tag: v${{ needs.resolve_version.outputs.version }}
+          installers-regex: 'cli-win-(x64|arm64)\.exe$'
+          token: ${{ secrets.BOT_GITHUB_TOKEN }}
+
+  # ── 7. Notify Slack ────────────────────────────────────────────────────────
   notify_slack:
     runs-on: ubuntu-latest
-    needs: [resolve_version, build, create_release]
+    needs: [resolve_version, build, create_release, update_homebrew, winget_release]
     if: always() && needs.resolve_version.result != 'skipped'
     steps:
       - uses: slackapi/slack-github-action@v2.1.1
@@ -289,4 +411,4 @@ jobs:
           webhook: ${{ secrets.SLACK_WEBHOOK_URL }}
           webhook-type: incoming-webhook
           payload: |
-            text: "*Bella CLI (.NET) publish*: build=${{ needs.build.result }} | release=${{ needs.create_release.result }}\nv${{ needs.resolve_version.outputs.version }} — ${{ github.event.head_commit.url }}"
+            text: "*Bella CLI (.NET) publish*: build=${{ needs.build.result }} | release=${{ needs.create_release.result }} | homebrew=${{ needs.update_homebrew.result }} | winget=${{ needs.winget_release.result }}\nv${{ needs.resolve_version.outputs.version }} — ${{ github.event.head_commit.url }}"
