@@ -58,7 +58,7 @@ jobs:
             artifact: cli-win-arm64.exe
             ext: .exe
           - rid: osx-x64
-            os: macos-13
+            os: macos-latest
             artifact: cli-osx-x64
             ext: ''
           - rid: osx-arm64
