@@ -13,6 +13,7 @@
     <PackAsTool>true</PackAsTool>
     <ToolCommandName>bella</ToolCommandName>
     <PackageId>BellaBaxter.Cli</PackageId>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
 
     <!-- Single-file self-contained publish — only active during dotnet publish -r <RID> -->
     <PublishSingleFile Condition="'$(RuntimeIdentifier)' != ''">true</PublishSingleFile>
