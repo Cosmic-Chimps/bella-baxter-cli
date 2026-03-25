@@ -15,6 +15,7 @@ using BellaCli.Commands.Run;
 using BellaCli.Commands.Secrets;
 using BellaCli.Commands.Shell;
 using BellaCli.Commands.Ssh;
+using BellaCli.Commands.Totp;
 using BellaCli.Commands.Upgrade;
 using BellaCli.Infrastructure;
 using BellaCli.Services;
@@ -256,6 +257,32 @@ app.Configure(config =>
                     "AppSecrets",
                     "--dry-run"
                 );
+        }
+    );
+
+    config.AddBranch(
+        "totp",
+        totp =>
+        {
+            totp.SetDescription("Manage TOTP/2FA keys stored in environments.");
+            totp.AddCommand<ListTotpCommand>("list")
+                .WithDescription("List TOTP keys in an environment.")
+                .WithExample("totp", "list")
+                .WithExample("totp", "list", "-p", "my-project", "-e", "prod");
+            totp.AddCommand<GetTotpCodeCommand>("code")
+                .WithDescription("Get the current TOTP code for a key.")
+                .WithExample("totp", "code", "github")
+                .WithExample("totp", "code", "github", "--quiet");
+            totp.AddCommand<ImportTotpCommand>("import")
+                .WithDescription("Import a TOTP key from an otpauth:// URL.")
+                .WithExample("totp", "import", "github", "otpauth://totp/GitHub:user@example.com?secret=BASE32SECRET&issuer=GitHub");
+            totp.AddCommand<GenerateTotpCommand>("generate")
+                .WithDescription("Generate a new TOTP key.")
+                .WithExample("totp", "generate", "myapp", "--issuer", "MyApp", "--account", "user@example.com");
+            totp.AddCommand<DeleteTotpCommand>("delete")
+                .WithDescription("Delete a TOTP key.")
+                .WithExample("totp", "delete", "github")
+                .WithExample("totp", "delete", "github", "--force");
         }
     );
 
