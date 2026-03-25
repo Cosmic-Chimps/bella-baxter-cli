@@ -35,8 +35,10 @@ public class McpCommand(ConfigService config, CredentialStore credentials)
     private const string ServerName = "bella-baxter";
     private const string CliVersion = "0.1.0";
 
-    private static readonly System.Text.Json.JsonSerializerOptions PrettyJson =
-        new() { WriteIndented = true };
+    private static readonly System.Text.Json.JsonSerializerOptions PrettyJson = new()
+    {
+        WriteIndented = true,
+    };
 
     public override async Task<int> ExecuteAsync(
         CommandContext ctx,
@@ -93,10 +95,10 @@ public class McpCommand(ConfigService config, CredentialStore credentials)
             if (string.IsNullOrEmpty(token))
             {
                 await Console.Error.WriteLineAsync(
-                    "[bella-mcp] ERROR: Not authenticated.\n" +
-                    "Options:\n" +
-                    "  1. Set BELLA_BAXTER_API_KEY=bax-... in the MCP server env config (recommended)\n" +
-                    "  2. Run 'bella login' for interactive browser login"
+                    "[bella-mcp] ERROR: Not authenticated.\n"
+                        + "Options:\n"
+                        + "  1. Set BELLA_BAXTER_API_KEY=bax-... in the MCP server env config (recommended)\n"
+                        + "  2. Run 'bella login' for interactive browser login"
                 );
                 return 1;
             }
@@ -175,25 +177,26 @@ public class McpCommand(ConfigService config, CredentialStore credentials)
         {
             command = "bella",
             args = new[] { "mcp" },
-            env = new Dictionary<string, string>
-            {
-                ["BELLA_BAXTER_API_KEY"] = "bax-<your-api-key>",
-            }.Concat(isDefault
-                ? []
-                : [new KeyValuePair<string, string>("BELLA_API_URL", apiBase)]
-            ).ToDictionary(kvp => kvp.Key, kvp => kvp.Value),
+            env = new Dictionary<string, string> { ["BELLA_BAXTER_API_KEY"] = "bax-<your-api-key>" }
+                .Concat(
+                    isDefault ? [] : [new KeyValuePair<string, string>("BELLA_API_URL", apiBase)]
+                )
+                .ToDictionary(kvp => kvp.Key, kvp => kvp.Value),
         };
 
         var claudeLogin = isDefault
-            ? new { command = "bella", args = new[] { "mcp" }, env = (Dictionary<string, string>?)null }
+            ? new
+            {
+                command = "bella",
+                args = new[] { "mcp" },
+                env = (Dictionary<string, string>?)null,
+            }
             : new
             {
                 command = "bella",
                 args = new[] { "mcp" },
-                env = (Dictionary<string, string>?)new Dictionary<string, string>
-                {
-                    ["BELLA_API_URL"] = apiBase,
-                },
+                env = (Dictionary<string, string>?)
+                    new Dictionary<string, string> { ["BELLA_API_URL"] = apiBase },
             };
 
         var claudeConfig = new
@@ -205,16 +208,12 @@ public class McpCommand(ConfigService config, CredentialStore credentials)
             },
         };
 
-        Console.WriteLine(
-            "\n── Claude Desktop ──────────────────────────────────────────"
-        );
+        Console.WriteLine("\n── Claude Desktop ──────────────────────────────────────────");
         Console.WriteLine(
             "File: ~/Library/Application Support/Claude/claude_desktop_config.json\n"
         );
         Console.WriteLine(System.Text.Json.JsonSerializer.Serialize(claudeConfig, PrettyJson));
-        Console.WriteLine(
-            "  ⓘ  Get an API key from the Bella Baxter WebApp → Settings → API Keys"
-        );
+        Console.WriteLine("  ⓘ  Get an API key from the Bella Baxter WebApp → Settings → API Keys");
 
         // ── VS Code / GitHub Copilot ──────────────────────────────────────────
         object vscodeEntry = new
@@ -222,13 +221,11 @@ public class McpCommand(ConfigService config, CredentialStore credentials)
             type = "stdio",
             command = "bella",
             args = new[] { "mcp" },
-            env = new Dictionary<string, string>
-            {
-                ["BELLA_BAXTER_API_KEY"] = "bax-<your-api-key>",
-            }.Concat(isDefault
-                ? []
-                : [new KeyValuePair<string, string>("BELLA_API_URL", apiBase)]
-            ).ToDictionary(kvp => kvp.Key, kvp => kvp.Value),
+            env = new Dictionary<string, string> { ["BELLA_BAXTER_API_KEY"] = "bax-<your-api-key>" }
+                .Concat(
+                    isDefault ? [] : [new KeyValuePair<string, string>("BELLA_API_URL", apiBase)]
+                )
+                .ToDictionary(kvp => kvp.Key, kvp => kvp.Value),
         };
 
         var vscodeConfig = new
@@ -236,16 +233,12 @@ public class McpCommand(ConfigService config, CredentialStore credentials)
             servers = new Dictionary<string, object> { [ServerName] = vscodeEntry },
         };
 
-        Console.WriteLine(
-            "\n── VS Code / GitHub Copilot ────────────────────────────────"
-        );
+        Console.WriteLine("\n── VS Code / GitHub Copilot ────────────────────────────────");
         Console.WriteLine("File: .vscode/mcp.json  (workspace)  or  User settings.json\n");
         Console.WriteLine(System.Text.Json.JsonSerializer.Serialize(vscodeConfig, PrettyJson));
 
         // ── Available tools ───────────────────────────────────────────────────
-        Console.WriteLine(
-            "\n── Available MCP tools ─────────────────────────────────────"
-        );
+        Console.WriteLine("\n── Available MCP tools ─────────────────────────────────────");
         Console.WriteLine(
             string.Join(
                 "\n",

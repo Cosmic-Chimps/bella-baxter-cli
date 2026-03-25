@@ -192,7 +192,21 @@ public class OrgSwitchCommand(
         if (output is HumanOutputWriter)
         {
             AnsiConsole.MarkupLine($"[green]✓[/] Switched to org: [bold]{Markup.Escape(newTokens?.OrgName ?? target.TenantName ?? "")}[/] [dim]({Markup.Escape(newTokens?.OrgSlug ?? target.Slug ?? "")})[/]");
-            AnsiConsole.MarkupLine("[dim]Run 'bella context init' to update your .bella file with the new org.[/]");
+
+            var newOrgSlug = newTokens?.OrgSlug;
+            if (newOrgSlug is not null)
+            {
+                var bellaFile = KeyContextService.FindBellaFile(Directory.GetCurrentDirectory());
+                if (bellaFile is not null)
+                {
+                    KeyContextService.UpdateBellaOrg(bellaFile, newOrgSlug);
+                    AnsiConsole.MarkupLine($"[dim]↺ Updated [cyan].bella[/] org → [cyan]{Markup.Escape(newOrgSlug)}[/][/]");
+                }
+                else
+                {
+                    AnsiConsole.MarkupLine("[dim]Run 'bella context init' to update your .bella file with the new org.[/]");
+                }
+            }
         }
         else
         {

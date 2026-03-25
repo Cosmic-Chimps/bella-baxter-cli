@@ -98,6 +98,7 @@ public class LoginCommand(AuthService auth, CredentialStore credentials, KeyCont
                 );
 
             output.WriteSuccess($"Logged in successfully. Token expires at {tokens.ExpiresAt:u}.");
+            TryUpdateBellaOrg(tokens.OrgSlug);
             return 0;
         }
         catch (OperationCanceledException)
@@ -110,6 +111,20 @@ public class LoginCommand(AuthService auth, CredentialStore credentials, KeyCont
             output.WriteError($"Login failed: {ex.Message}", "login_failed");
             return 1;
         }
+    }
+
+    /// <summary>
+    /// After OAuth login, if <paramref name="orgSlug"/> is known and a <c>.bella</c> file exists
+    /// in the current directory tree, updates the <c>org</c> field in it. Silently skips if
+    /// no <c>.bella</c> file is found or the slug is null.
+    /// </summary>
+    private static void TryUpdateBellaOrg(string? orgSlug)
+    {
+        if (orgSlug is null) return;
+        var bellaFile = KeyContextService.FindBellaFile(Directory.GetCurrentDirectory());
+        if (bellaFile is null) return;
+        KeyContextService.UpdateBellaOrg(bellaFile, orgSlug);
+        AnsiConsole.MarkupLine($"[dim]↺ Updated [cyan].bella[/] org → [cyan]{Markup.Escape(orgSlug)}[/][/]");
     }
 
     /// <summary>

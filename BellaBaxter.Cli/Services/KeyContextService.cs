@@ -79,4 +79,45 @@ public class KeyContextService(BellaClientProvider provider, CredentialStore cre
             sb.AppendLine($"environment = \"{ctx.EnvironmentSlug}\"");
         File.WriteAllText(path, sb.ToString());
     }
+
+    /// <summary>
+    /// Walks up the directory tree from <paramref name="startDirectory"/> to find the nearest
+    /// <c>.bella</c> file. Returns its full path, or <c>null</c> if none is found.
+    /// </summary>
+    public static string? FindBellaFile(string startDirectory)
+    {
+        var dir = new DirectoryInfo(startDirectory);
+        while (dir is not null)
+        {
+            var candidate = Path.Combine(dir.FullName, ".bella");
+            if (File.Exists(candidate))
+                return candidate;
+            dir = dir.Parent;
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// Updates the <c>org</c> field in an existing <c>.bella</c> file at <paramref name="bellaFilePath"/>.
+    /// If the file already has an <c>org</c> line it is replaced; otherwise <c>org = "..."</c> is
+    /// inserted as the first line. Other lines are preserved as-is.
+    /// </summary>
+    public static void UpdateBellaOrg(string bellaFilePath, string orgSlug)
+    {
+        var lines = File.Exists(bellaFilePath)
+            ? new System.Collections.Generic.List<string>(File.ReadAllLines(bellaFilePath))
+            : [];
+
+        var orgLine = $"org = \"{orgSlug}\"";
+        var existingIndex = lines.FindIndex(l =>
+            l.TrimStart().StartsWith("org", StringComparison.OrdinalIgnoreCase)
+            && l.Contains('='));
+
+        if (existingIndex >= 0)
+            lines[existingIndex] = orgLine;
+        else
+            lines.Insert(0, orgLine);
+
+        File.WriteAllText(bellaFilePath, string.Join(Environment.NewLine, lines) + Environment.NewLine);
+    }
 }

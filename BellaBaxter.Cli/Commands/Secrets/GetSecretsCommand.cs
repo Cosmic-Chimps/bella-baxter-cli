@@ -52,14 +52,25 @@ public class GetSecretsCommand(
 {
     private static readonly Regex HierarchySeparator = new(@"__|:", RegexOptions.Compiled);
 
-    public override async Task<int> ExecuteAsync(
+    public override Task<int> ExecuteAsync(
         CommandContext ctx,
         GetSecretsSettings settings,
+        CancellationToken ct
+    ) => RunAsync(settings, settings.OutputFile, ct);
+
+    /// <summary>
+    /// Core execution logic. <paramref name="effectiveOutputFile"/> overrides
+    /// <see cref="GetSecretsSettings.OutputFile"/>, allowing callers such as
+    /// <see cref="PullCommand"/> to supply a default path without mutating settings.
+    /// </summary>
+    internal async Task<int> RunAsync(
+        GetSecretsSettings settings,
+        string? effectiveOutputFile,
         CancellationToken ct
     )
     {
         // Resolve effective format
-        var effectiveFormat = ResolveFormat(settings);
+        var effectiveFormat = ResolveFormat(settings, effectiveOutputFile);
 
         // --json / --format json both suppress the spinner and table output
         var jsonMode = effectiveFormat is "json" or "json-nested";
@@ -130,7 +141,7 @@ public class GetSecretsCommand(
             }
 
             // ── Write to file ─────────────────────────────────────────────
-            if (!string.IsNullOrWhiteSpace(settings.OutputFile))
+            if (!string.IsNullOrWhiteSpace(effectiveOutputFile))
             {
                 var content = effectiveFormat switch
                 {
@@ -138,9 +149,9 @@ public class GetSecretsCommand(
                     "json-nested" => FormatJsonNested(allSecrets),
                     _             => FormatEnv(allSecrets),
                 };
-                await File.WriteAllTextAsync(settings.OutputFile, content, ct);
+                await File.WriteAllTextAsync(effectiveOutputFile, content, ct);
                 output.WriteSuccess(
-                    $"Secrets written to '{settings.OutputFile}' ({allSecrets.Count} keys)"
+                    $"Secrets written to '{effectiveOutputFile}' ({allSecrets.Count} keys)"
                 );
                 return 0;
             }
@@ -188,16 +199,16 @@ public class GetSecretsCommand(
     /// Resolves the effective format string from settings.
     /// Priority: explicit --format > auto-detect from -o extension > --json alias > "env"
     /// </summary>
-    private static string ResolveFormat(GetSecretsSettings settings)
+    private static string ResolveFormat(GetSecretsSettings settings, string? effectiveOutputFile)
     {
         // Explicit --format always wins
         if (!string.IsNullOrWhiteSpace(settings.Format))
             return settings.Format.ToLowerInvariant();
 
         // Auto-detect from output file extension
-        if (!string.IsNullOrWhiteSpace(settings.OutputFile))
+        if (!string.IsNullOrWhiteSpace(effectiveOutputFile))
         {
-            var ext = Path.GetExtension(settings.OutputFile).ToLowerInvariant();
+            var ext = Path.GetExtension(effectiveOutputFile).ToLowerInvariant();
             if (ext == ".json") return "json-nested";
         }
 

@@ -79,6 +79,7 @@ services.AddTransient<SetSecretCommand>();
 services.AddTransient<DeleteSecretCommand>();
 services.AddTransient<PushSecretsCommand>();
 services.AddTransient<GenerateSecretsCodeCommand>();
+services.AddTransient<PullCommand>();
 
 // Config commands
 services.AddTransient<ConfigShowCommand>();
@@ -285,6 +286,14 @@ app.Configure(config =>
         .WithExample("run", "--", "node", "index.js")
         .WithExample("run", "-p", "my-project", "-e", "production", "--", "npm", "start")
         .WithExample("run", "--watch", "--", "node", "server.js");
+
+    config
+        .AddCommand<PullCommand>("pull")
+        .WithDescription("Download all secrets and write to a file (default: .env). Shorthand for 'bella secrets get -o .env'.")
+        .WithExample("pull")
+        .WithExample("pull", "-o", ".env")
+        .WithExample("pull", "-o", "secrets.json")
+        .WithExample("pull", "-p", "my-project", "-e", "production", "-o", ".env");
 
     config
         .AddCommand<ExecCommand>("exec")
