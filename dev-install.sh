@@ -14,6 +14,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT="$SCRIPT_DIR/BellaBaxter.Cli/BellaBaxter.Cli.csproj"
 NUPKG_DIR="$SCRIPT_DIR/BellaBaxter.Cli/nupkg"
 DOTNET_TOOLS="${HOME}/.dotnet/tools"
+CLI_VERSION="$(sed -n 's:.*<Version>\(.*\)</Version>.*:\1:p' "$PROJECT" | head -n1)"
 
 SDK_PROJECT="$(dirname "$SCRIPT_DIR")/sdk/dotnet/BellaBaxter.Client/BellaBaxter.Client.csproj"
 
@@ -40,7 +41,7 @@ if dotnet tool list -g | grep -qi "bellabaxter.cli"; then
 else
   echo "📦 Installing global tool..."
 fi
-dotnet tool install -g BellaBaxter.Cli --add-source "$NUPKG_DIR"
+dotnet tool install -g BellaBaxter.Cli --version "$CLI_VERSION" --add-source "$NUPKG_DIR"
 
 echo ""
 echo "✅ Done! The .NET bella is installed at: ${DOTNET_TOOLS}/bella"

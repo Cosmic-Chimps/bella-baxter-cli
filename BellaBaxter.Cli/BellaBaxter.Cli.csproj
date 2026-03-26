@@ -1,5 +1,4 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
-
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <TargetFramework>net10.0</TargetFramework>
@@ -18,7 +17,9 @@
     <!-- Single-file self-contained publish — only active during dotnet publish -r <RID> -->
     <PublishSingleFile Condition="'$(RuntimeIdentifier)' != ''">true</PublishSingleFile>
     <SelfContained Condition="'$(RuntimeIdentifier)' != ''">true</SelfContained>
-    <EnableCompressionInSingleFile Condition="'$(RuntimeIdentifier)' != ''">true</EnableCompressionInSingleFile>
+    <EnableCompressionInSingleFile Condition="'$(RuntimeIdentifier)' != ''"
+      >true</EnableCompressionInSingleFile
+    >
     <DebugType Condition="'$(RuntimeIdentifier)' != ''">embedded</DebugType>
 
     <!-- Suppress AOT/trim analysis warnings — we accept runtime JSON reflection -->
@@ -48,5 +49,4 @@
   <ItemGroup Condition="!Exists('$(MSBuildThisFileDirectory)../../sdk/dotnet/BellaBaxter.Client/BellaBaxter.Client.csproj')">
     <PackageReference Include="BellaBaxter.Client" Version="0.1.1-preview.17" />
   </ItemGroup>
-
 </Project>

@@ -89,16 +89,13 @@ public class GetSecretsCommand(
 
         try
         {
-            var (projectSlug, _, _) = await context.ResolveProjectAsync(
+            var (projectSlug, _, _, envSlug, _, _) = await context.ResolveProjectEnvironmentAsync(
                 settings.Project,
-                client,
-                ct
-            );
-            var (envSlug, _, _) = await context.ResolveEnvironmentAsync(
                 settings.Environment,
-                projectSlug,
                 client,
-                ct
+                ct,
+                strictJwtLocal: true,
+                bootstrapBellaFromExplicit: true
             );
 
             Dictionary<string, string> allSecrets = new();
@@ -145,9 +142,9 @@ public class GetSecretsCommand(
             {
                 var content = effectiveFormat switch
                 {
-                    "json"        => FormatJson(allSecrets, indented: true),
+                    "json" => FormatJson(allSecrets, indented: true),
                     "json-nested" => FormatJsonNested(allSecrets),
-                    _             => FormatEnv(allSecrets),
+                    _ => FormatEnv(allSecrets),
                 };
                 await File.WriteAllTextAsync(effectiveOutputFile, content, ct);
                 output.WriteSuccess(
@@ -209,11 +206,13 @@ public class GetSecretsCommand(
         if (!string.IsNullOrWhiteSpace(effectiveOutputFile))
         {
             var ext = Path.GetExtension(effectiveOutputFile).ToLowerInvariant();
-            if (ext == ".json") return "json-nested";
+            if (ext == ".json")
+                return "json-nested";
         }
 
         // Deprecated --json flag
-        if (settings.Json) return "json";
+        if (settings.Json)
+            return "json";
 
         return "env";
     }
@@ -225,9 +224,10 @@ public class GetSecretsCommand(
             .Select(kv =>
             {
                 var v = kv.Value;
-                var safe = v.Contains(' ') || v.Contains('#') || v.Contains('"') || v.Contains('\n')
-                    ? $"\"{v.Replace("\\", "\\\\").Replace("\"", "\\\"")}\""
-                    : v;
+                var safe =
+                    v.Contains(' ') || v.Contains('#') || v.Contains('"') || v.Contains('\n')
+                        ? $"\"{v.Replace("\\", "\\\\").Replace("\"", "\\\"")}\""
+                        : v;
                 return $"{kv.Key}={safe}";
             });
         return string.Join(Environment.NewLine, lines) + Environment.NewLine;

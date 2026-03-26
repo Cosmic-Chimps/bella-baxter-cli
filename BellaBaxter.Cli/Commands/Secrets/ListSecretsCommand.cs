@@ -46,17 +46,15 @@ public class ListSecretsCommand(
 
         try
         {
-            var (projectSlug, projectName, _) = await context.ResolveProjectAsync(
-                settings.Project,
-                client,
-                ct
-            );
-            var (envSlug, envName, _) = await context.ResolveEnvironmentAsync(
-                settings.Environment,
-                projectSlug,
-                client,
-                ct
-            );
+            var (projectSlug, projectName, _, envSlug, envName, _) =
+                await context.ResolveProjectEnvironmentAsync(
+                    settings.Project,
+                    settings.Environment,
+                    client,
+                    ct,
+                    strictJwtLocal: true,
+                    bootstrapBellaFromExplicit: true
+                );
 
             List<EnvironmentProviderResponse>? providers = null;
             ListGlobalSecretsResponse? globalResp = null;
@@ -78,7 +76,9 @@ public class ListSecretsCommand(
                                 .Api.V1.Projects[projectSlug]
                                 .Secrets.GetAsync(cancellationToken: ct);
                         }
-                        catch { /* global secrets may not be configured for this project */ }
+                        catch
+                        { /* global secrets may not be configured for this project */
+                        }
                     }
                 );
 
@@ -87,7 +87,9 @@ public class ListSecretsCommand(
 
             if (providerList.Count == 0 && globalSecrets.Count == 0)
             {
-                output.WriteInfo($"No providers or global secrets found for environment '{envName}'.");
+                output.WriteInfo(
+                    $"No providers or global secrets found for environment '{envName}'."
+                );
                 return 0;
             }
 
@@ -99,12 +101,7 @@ public class ListSecretsCommand(
                 output.WriteInfo("\n  Global secrets (project-level):");
                 output.WriteTable(
                     ["Key", "Type", "Value"],
-                    globalSecrets.Select(s => new[]
-                    {
-                        s.Key ?? "",
-                        s.Type ?? "string",
-                        "***"
-                    })
+                    globalSecrets.Select(s => new[] { s.Key ?? "", s.Type ?? "string", "***" })
                 );
             }
 

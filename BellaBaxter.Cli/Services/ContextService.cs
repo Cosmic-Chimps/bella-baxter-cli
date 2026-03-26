@@ -6,8 +6,106 @@ using Spectre.Console;
 
 namespace BellaCli.Services;
 
-public class ContextService(ConfigService config, IOutputWriter output, CredentialStore credentials, KeyContextService keyContext)
+public class ContextService(
+    ConfigService config,
+    IOutputWriter output,
+    CredentialStore credentials,
+    KeyContextService keyContext
+)
 {
+    public async Task<(
+        string projectSlug,
+        string projectName,
+        string projectId,
+        string envSlug,
+        string envName,
+        string envId
+    )> ResolveProjectEnvironmentAsync(
+        string? projectArg,
+        string? envArg,
+        BellaClient client,
+        CancellationToken ct,
+        bool strictJwtLocal = false,
+        bool bootstrapBellaFromExplicit = false
+    )
+    {
+        // API keys remain authoritative regardless of strict JWT mode.
+        if (!strictJwtLocal || credentials.LoadApiKey() is not null)
+        {
+            var (projectSlug, projectName, projectId) = await ResolveProjectAsync(
+                projectArg,
+                client,
+                ct
+            );
+            var (envSlug, envName, envId) = await ResolveEnvironmentAsync(
+                envArg,
+                projectSlug,
+                client,
+                ct
+            );
+            return (projectSlug, projectName, projectId, envSlug, envName, envId);
+        }
+
+        var explicitProject = !string.IsNullOrWhiteSpace(projectArg);
+        var explicitEnv = !string.IsNullOrWhiteSpace(envArg);
+        var hasLocalContext =
+            KeyContextService.FindBellaFile(Directory.GetCurrentDirectory()) is not null;
+
+        if (!hasLocalContext && !(explicitProject && explicitEnv))
+        {
+            throw new InvalidOperationException(
+                "No local context found for OAuth login. Run 'bella context init' or pass both --project and --environment once to bootstrap a .bella file."
+            );
+        }
+
+        var (bellaProject, bellaEnv, _) = ContextCommand.ResolveContext(config);
+        var projectCandidate = !string.IsNullOrWhiteSpace(projectArg) ? projectArg : bellaProject;
+        var envCandidate = !string.IsNullOrWhiteSpace(envArg) ? envArg : bellaEnv;
+
+        if (string.IsNullOrWhiteSpace(projectCandidate) || string.IsNullOrWhiteSpace(envCandidate))
+        {
+            throw new InvalidOperationException(
+                "Missing local context. Run 'bella context init' or pass both --project and --environment once to bootstrap a .bella file."
+            );
+        }
+
+        var (resolvedProjectSlug, resolvedProjectName, resolvedProjectId) =
+            await ResolveProjectAsync(projectCandidate, client, ct);
+        var (resolvedEnvSlug, resolvedEnvName, resolvedEnvId) = await ResolveEnvironmentAsync(
+            envCandidate,
+            resolvedProjectSlug,
+            client,
+            ct
+        );
+
+        if (!hasLocalContext && bootstrapBellaFromExplicit && explicitProject && explicitEnv)
+        {
+            WriteBellaFileForJwt(
+                resolvedProjectSlug,
+                resolvedEnvSlug,
+                credentials.LoadTokens()?.OrgSlug
+            );
+        }
+
+        return (
+            resolvedProjectSlug,
+            resolvedProjectName,
+            resolvedProjectId,
+            resolvedEnvSlug,
+            resolvedEnvName,
+            resolvedEnvId
+        );
+    }
+
+    private static void WriteBellaFileForJwt(string projectSlug, string envSlug, string? orgSlug)
+    {
+        var bellaFile = Path.Combine(Directory.GetCurrentDirectory(), ".bella");
+        var content = orgSlug is not null
+            ? $"org = \"{orgSlug}\"{Environment.NewLine}project = \"{projectSlug}\"{Environment.NewLine}environment = \"{envSlug}\"{Environment.NewLine}"
+            : $"project = \"{projectSlug}\"{Environment.NewLine}environment = \"{envSlug}\"{Environment.NewLine}";
+        File.WriteAllText(bellaFile, content);
+    }
+
     public async Task<(string slug, string name, string id)> ResolveProjectAsync(
         string? projectArg,
         BellaClient client,
@@ -62,9 +160,15 @@ public class ContextService(ConfigService config, IOutputWriter output, Credenti
             {
                 var p = await client.Api.V1.Projects[bellaProject].GetAsync(cancellationToken: ct);
                 if (p is not null)
-                    return (p.Slug ?? bellaProject, p.Name ?? bellaProject, p.Id?.ToString() ?? bellaProject);
+                    return (
+                        p.Slug ?? bellaProject,
+                        p.Name ?? bellaProject,
+                        p.Id?.ToString() ?? bellaProject
+                    );
             }
-            catch { /* fall through to interactive */ }
+            catch
+            { /* fall through to interactive */
+            }
             return (bellaProject, bellaProject, bellaProject);
         }
 
@@ -131,7 +235,11 @@ public class ContextService(ConfigService config, IOutputWriter output, Credenti
         {
             var ctx = await keyContext.DiscoverAsync(ct);
             if (ctx?.EnvironmentSlug is not null)
-                return (ctx.EnvironmentSlug, ctx.EnvironmentName ?? ctx.EnvironmentSlug, ctx.EnvironmentSlug);
+                return (
+                    ctx.EnvironmentSlug,
+                    ctx.EnvironmentName ?? ctx.EnvironmentSlug,
+                    ctx.EnvironmentSlug
+                );
             // Manager/Admin API keys have no env scope — let them pick
         }
         else

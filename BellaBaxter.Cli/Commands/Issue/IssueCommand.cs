@@ -1,13 +1,13 @@
-using BellaBaxter.Client;
-using BellaCli.Infrastructure;
-using BellaCli.Services;
-using Spectre.Console;
-using Spectre.Console.Cli;
 using System.ComponentModel;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using BellaBaxter.Client;
+using BellaCli.Infrastructure;
+using BellaCli.Services;
+using Spectre.Console;
+using Spectre.Console.Cli;
 
 namespace BellaCli.Commands.Issue;
 
@@ -16,8 +16,8 @@ public class IssueCommand(
     CredentialStore credentials,
     ContextService contextService,
     ConfigService config,
-    IOutputWriter output)
-    : AsyncCommand<IssueCommand.Settings>
+    IOutputWriter output
+) : AsyncCommand<IssueCommand.Settings>
 {
     public class Settings : CommandSettings
     {
@@ -36,15 +36,21 @@ public class IssueCommand(
         public string Reason { get; set; } = "cli-issued-token";
 
         [CommandOption("-p|--project <slug>")]
-        [Description("Project slug. Falls back to context (.bella file / BELLA_BAXTER_PROJECT env var)")]
+        [Description(
+            "Project slug. Falls back to context (.bella file / BELLA_BAXTER_PROJECT env var)"
+        )]
         public string? Project { get; set; }
 
         [CommandOption("-e|--environment <slug>")]
-        [Description("Environment slug. Falls back to context (.bella file / BELLA_BAXTER_ENV env var)")]
+        [Description(
+            "Environment slug. Falls back to context (.bella file / BELLA_BAXTER_ENV env var)"
+        )]
         public string? Environment { get; set; }
 
         [CommandOption("-o|--output <format>")]
-        [Description("Output format: token (default, just the token string) or json (full response)")]
+        [Description(
+            "Output format: token (default, just the token string) or json (full response)"
+        )]
         [DefaultValue("token")]
         public string Output { get; set; } = "token";
     }
@@ -69,7 +75,11 @@ public class IssueCommand(
         WriteIndented = true,
     };
 
-    public override async Task<int> ExecuteAsync(CommandContext context, Settings settings, CancellationToken ct)
+    public override async Task<int> ExecuteAsync(
+        CommandContext context,
+        Settings settings,
+        CancellationToken ct
+    )
     {
         // ── Validate --scope ────────────────────────────────────────────────
         if (string.IsNullOrWhiteSpace(settings.Scope))
@@ -78,8 +88,10 @@ public class IssueCommand(
             return 1;
         }
 
-        var scopes = settings.Scope
-            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        var scopes = settings.Scope.Split(
+            ',',
+            StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries
+        );
 
         if (scopes.Length == 0)
         {
@@ -113,11 +125,20 @@ public class IssueCommand(
         }
 
         // ── Resolve project + environment ────────────────────────────────────
-        string projectSlug, envSlug, envId;
+        string projectSlug,
+            envSlug,
+            envId;
         try
         {
-            (projectSlug, _, _) = await contextService.ResolveProjectAsync(settings.Project, wrapper.BellaClient, ct);
-            (envSlug, _, envId) = await contextService.ResolveEnvironmentAsync(settings.Environment, projectSlug, wrapper.BellaClient, ct);
+            (projectSlug, _, _, envSlug, _, envId) =
+                await contextService.ResolveProjectEnvironmentAsync(
+                    settings.Project,
+                    settings.Environment,
+                    wrapper.BellaClient,
+                    ct,
+                    strictJwtLocal: true,
+                    bootstrapBellaFromExplicit: true
+                );
         }
         catch (Exception ex)
         {
@@ -154,7 +175,10 @@ public class IssueCommand(
         IssueTokenResponse? tokenResponse;
         try
         {
-            tokenResponse = await httpResponse.Content.ReadFromJsonAsync<IssueTokenResponse>(JsonOptions, ct);
+            tokenResponse = await httpResponse.Content.ReadFromJsonAsync<IssueTokenResponse>(
+                JsonOptions,
+                ct
+            );
         }
         catch (Exception ex)
         {
@@ -182,7 +206,9 @@ public class IssueCommand(
 
             // Contextual info goes to stderr so it doesn't pollute the captured token value
             var scopeList = string.Join(", ", scopes);
-            Console.Error.WriteLine($"✓ Scoped token issued (scopes: {scopeList} | expires: {settings.Ttl} min)");
+            Console.Error.WriteLine(
+                $"✓ Scoped token issued (scopes: {scopeList} | expires: {settings.Ttl} min)"
+            );
             Console.Error.WriteLine("  Save it now — this token will not be shown again.");
         }
 
@@ -203,15 +229,17 @@ public class IssueCommand(
             var appClient = System.Environment.GetEnvironmentVariable("BELLA_BAXTER_APP_CLIENT");
             var signingHandler = new HmacSigningHandler(rawAccessToken, "bella-cli", appClient)
             {
-                InnerHandler = new HttpClientHandler()
+                InnerHandler = new HttpClientHandler(),
             };
             http = new HttpClient(signingHandler);
         }
         else
         {
             http = new HttpClient();
-            http.DefaultRequestHeaders.Authorization =
-                new AuthenticationHeaderValue("Bearer", rawAccessToken);
+            http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
+                "Bearer",
+                rawAccessToken
+            );
         }
 
         http.DefaultRequestHeaders.Add("Accept", "application/json");

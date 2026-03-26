@@ -1,15 +1,20 @@
-using BellaCli.Infrastructure;
+using System.ComponentModel;
+using System.Diagnostics;
 using BellaBaxter.Client;
+using BellaCli.Infrastructure;
 using BellaCli.Services;
 using Spectre.Console;
 using Spectre.Console.Cli;
-using System.ComponentModel;
-using System.Diagnostics;
 
 namespace BellaCli.Commands.Run;
 
-public class RunCommand(BellaClientProvider clientProvider, CredentialStore credentials, ContextService contextService, WorkloadIdentityService workloadIdentity, IOutputWriter output)
-    : AsyncCommand<RunCommand.Settings>
+public class RunCommand(
+    BellaClientProvider clientProvider,
+    CredentialStore credentials,
+    ContextService contextService,
+    WorkloadIdentityService workloadIdentity,
+    IOutputWriter output
+) : AsyncCommand<RunCommand.Settings>
 {
     public class Settings : CommandSettings
     {
@@ -40,7 +45,9 @@ public class RunCommand(BellaClientProvider clientProvider, CredentialStore cred
         public string Signal { get; set; } = "restart";
 
         [CommandOption("--app <name>")]
-        [Description("Application name injected as BELLA_BAXTER_APP_CLIENT (useful for audit logs)")]
+        [Description(
+            "Application name injected as BELLA_BAXTER_APP_CLIENT (useful for audit logs)"
+        )]
         public string? App { get; set; }
 
         [CommandArgument(0, "[cmd...]")]
@@ -48,7 +55,11 @@ public class RunCommand(BellaClientProvider clientProvider, CredentialStore cred
         public string[] Cmd { get; set; } = [];
     }
 
-    public override async Task<int> ExecuteAsync(CommandContext context, Settings settings, CancellationToken ct)
+    public override async Task<int> ExecuteAsync(
+        CommandContext context,
+        Settings settings,
+        CancellationToken ct
+    )
     {
         var args = settings.Cmd.Where(a => a != "--").ToArray();
 
@@ -58,14 +69,19 @@ public class RunCommand(BellaClientProvider clientProvider, CredentialStore cred
 
         if (args.Length == 0)
         {
-            output.WriteError("No command specified.\nUsage: bella run [options] -- <command> [args...]");
+            output.WriteError(
+                "No command specified.\nUsage: bella run [options] -- <command> [args...]"
+            );
             return 1;
         }
 
         // ── Try workload identity first (GitHub Actions / Kubernetes) ─────────
         BellaClient client;
         var workloadResult = await workloadIdentity.TryAutoExchangeAsync(
-            settings.Project, settings.Environment, ct: ct);
+            settings.Project,
+            settings.Environment,
+            ct: ct
+        );
 
         if (workloadResult is not null)
         {
@@ -80,16 +96,33 @@ public class RunCommand(BellaClientProvider clientProvider, CredentialStore cred
                 output.WriteError("Not logged in. Run 'bella login' first.");
                 return 1;
             }
-            try { client = clientProvider.CreateClient(settings.App); }
-            catch (Exception ex) { output.WriteError($"Authentication error: {ex.Message}"); return 1; }
+            try
+            {
+                client = clientProvider.CreateClient(settings.App);
+            }
+            catch (Exception ex)
+            {
+                output.WriteError($"Authentication error: {ex.Message}");
+                return 1;
+            }
         }
 
         // Resolve project + environment
-        string projectSlug, envSlug;
+        string projectSlug,
+            envSlug;
         try
         {
-            (projectSlug, _, _) = await contextService.ResolveProjectAsync(settings.Project, client, ct);
-            (envSlug, _, _) = await contextService.ResolveEnvironmentAsync(settings.Environment, projectSlug, client, ct);
+            var (resolvedProjectSlug, _, _, resolvedEnvSlug, _, _) =
+                await contextService.ResolveProjectEnvironmentAsync(
+                    settings.Project,
+                    settings.Environment,
+                    client,
+                    ct,
+                    strictJwtLocal: workloadResult is null,
+                    bootstrapBellaFromExplicit: workloadResult is null
+                );
+            projectSlug = resolvedProjectSlug;
+            envSlug = resolvedEnvSlug;
         }
         catch (Exception ex)
         {
@@ -102,7 +135,13 @@ public class RunCommand(BellaClientProvider clientProvider, CredentialStore cred
         long? initialVersion;
         try
         {
-            (secrets, initialVersion) = await FetchSecretsAsync(client, projectSlug, envSlug, settings.Provider, ct);
+            (secrets, initialVersion) = await FetchSecretsAsync(
+                client,
+                projectSlug,
+                envSlug,
+                settings.Provider,
+                ct
+            );
         }
         catch (Exception ex)
         {
@@ -112,27 +151,45 @@ public class RunCommand(BellaClientProvider clientProvider, CredentialStore cred
 
         AnsiConsole.MarkupLine($"[dim]✓ Loaded [green]{secrets.Count}[/] secret(s) from Bella[/]");
 
-        var appClient = settings.App
-                        ?? System.Environment.GetEnvironmentVariable("BELLA_BAXTER_APP_CLIENT");
+        var appClient =
+            settings.App ?? System.Environment.GetEnvironmentVariable("BELLA_BAXTER_APP_CLIENT");
         if (appClient is not null)
             secrets["BELLA_BAXTER_APP_CLIENT"] = appClient;
 
         if (settings.Watch)
         {
-            return await RunWithWatchAsync(client, args, secrets, initialVersion, projectSlug, envSlug, settings, ct);
+            return await RunWithWatchAsync(
+                client,
+                args,
+                secrets,
+                initialVersion,
+                projectSlug,
+                envSlug,
+                settings,
+                ct
+            );
         }
 
         return SpawnProcess(args, secrets);
     }
 
     private async Task<(Dictionary<string, string> Secrets, long? Version)> FetchSecretsAsync(
-        BellaClient client, string projectSlug, string envSlug, string? providerFilter, CancellationToken ct)
+        BellaClient client,
+        string projectSlug,
+        string envSlug,
+        string? providerFilter,
+        CancellationToken ct
+    )
     {
         // Use the env-level endpoint — aggregates all providers, works with API keys,
         // and does not require the E2E encryption header needed by per-provider endpoints.
-        var resp = await client.Api.V1.Projects[projectSlug].Environments[envSlug].Secrets.GetAsync(cancellationToken: ct);
-        var secrets = resp?.Secrets?.AdditionalData?.ToStringDict()
-                      ?? new Dictionary<string, string>(StringComparer.Ordinal);
+        var resp = await client
+            .Api.V1.Projects[projectSlug]
+            .Environments[envSlug]
+            .Secrets.GetAsync(cancellationToken: ct);
+        var secrets =
+            resp?.Secrets?.AdditionalData?.ToStringDict()
+            ?? new Dictionary<string, string>(StringComparer.Ordinal);
 
         if (secrets.Count == 0)
             AnsiConsole.MarkupLine("[yellow]⚠ No secrets found in this environment.[/]");
@@ -141,54 +198,78 @@ public class RunCommand(BellaClientProvider clientProvider, CredentialStore cred
     }
 
     private async Task<int> RunWithWatchAsync(
-        BellaClient client, string[] args, Dictionary<string, string> initialSecrets, long? initialVersion,
-        string projectSlug, string envSlug, Settings settings, CancellationToken ct)
+        BellaClient client,
+        string[] args,
+        Dictionary<string, string> initialSecrets,
+        long? initialVersion,
+        string projectSlug,
+        string envSlug,
+        Settings settings,
+        CancellationToken ct
+    )
     {
         var currentSecrets = initialSecrets;
         var lastVersion = initialVersion;
         var pollMs = Math.Max(5, settings.PollInterval) * 1000;
         var useSighup = settings.Signal.Equals("sighup", StringComparison.OrdinalIgnoreCase);
 
-        AnsiConsole.MarkupLine($"[dim]👁  Watching for secret changes (poll every {settings.PollInterval}s)[/]");
+        AnsiConsole.MarkupLine(
+            $"[dim]👁  Watching for secret changes (poll every {settings.PollInterval}s)[/]"
+        );
 
         Process? child = SpawnChild(args, currentSecrets);
         var stopping = false;
         using var timer = new PeriodicTimer(TimeSpan.FromMilliseconds(pollMs));
 
-        _ = Task.Run(async () =>
-        {
-            while (!stopping && await timer.WaitForNextTickAsync(ct).ConfigureAwait(false))
+        _ = Task.Run(
+            async () =>
             {
-                try
+                while (!stopping && await timer.WaitForNextTickAsync(ct).ConfigureAwait(false))
                 {
-                    // Lightweight version check — no secrets payload transferred unless something changed
-                    var versionResp = await client.Api.V1.Projects[projectSlug]
-                        .Environments[envSlug].Secrets.Version.GetAsync(cancellationToken: ct);
-                    var newVersion = versionResp?.Version;
-
-                    if (newVersion is null || newVersion == lastVersion)
-                        continue;
-
-                    lastVersion = newVersion;
-
-                    // Version changed — fetch the full secrets payload
-                    var (fresh, _) = await FetchSecretsAsync(client, projectSlug, envSlug, settings.Provider, ct);
-                    currentSecrets = fresh;
-                    AnsiConsole.MarkupLine($"[yellow]🔄 Secrets changed — {(useSighup ? "sending SIGHUP" : "restarting")}[/]");
-                    if (useSighup)
+                    try
                     {
-                        child?.Kill(entireProcessTree: false); // sends SIGTERM on Unix — best effort
+                        // Lightweight version check — no secrets payload transferred unless something changed
+                        var versionResp = await client
+                            .Api.V1.Projects[projectSlug]
+                            .Environments[envSlug]
+                            .Secrets.Version.GetAsync(cancellationToken: ct);
+                        var newVersion = versionResp?.Version;
+
+                        if (newVersion is null || newVersion == lastVersion)
+                            continue;
+
+                        lastVersion = newVersion;
+
+                        // Version changed — fetch the full secrets payload
+                        var (fresh, _) = await FetchSecretsAsync(
+                            client,
+                            projectSlug,
+                            envSlug,
+                            settings.Provider,
+                            ct
+                        );
+                        currentSecrets = fresh;
+                        AnsiConsole.MarkupLine(
+                            $"[yellow]🔄 Secrets changed — {(useSighup ? "sending SIGHUP" : "restarting")}[/]"
+                        );
+                        if (useSighup)
+                        {
+                            child?.Kill(entireProcessTree: false); // sends SIGTERM on Unix — best effort
+                        }
+                        else
+                        {
+                            child?.Kill(entireProcessTree: true);
+                            child?.WaitForExit();
+                            child = SpawnChild(args, currentSecrets);
+                        }
                     }
-                    else
-                    {
-                        child?.Kill(entireProcessTree: true);
-                        child?.WaitForExit();
-                        child = SpawnChild(args, currentSecrets);
+                    catch
+                    { /* polling errors are non-fatal */
                     }
                 }
-                catch { /* polling errors are non-fatal */ }
-            }
-        }, ct);
+            },
+            ct
+        );
 
         child?.WaitForExit();
         stopping = true;
@@ -199,19 +280,19 @@ public class RunCommand(BellaClientProvider clientProvider, CredentialStore cred
     {
         var env = new Dictionary<string, string?>(StringComparer.Ordinal);
         // Inherit current environment
-        foreach (System.Collections.DictionaryEntry entry in System.Environment.GetEnvironmentVariables())
+        foreach (
+            System.Collections.DictionaryEntry entry in System.Environment.GetEnvironmentVariables()
+        )
             env[entry.Key?.ToString() ?? ""] = entry.Value?.ToString();
         // Overlay secrets
         foreach (var (k, v) in secrets)
             env[k] = v;
 
-        var psi = new ProcessStartInfo
-        {
-            FileName = args[0],
-            UseShellExecute = false,
-        };
-        for (int i = 1; i < args.Length; i++) psi.ArgumentList.Add(args[i]);
-        foreach (var (k, v) in env) psi.Environment[k] = v;
+        var psi = new ProcessStartInfo { FileName = args[0], UseShellExecute = false };
+        for (int i = 1; i < args.Length; i++)
+            psi.ArgumentList.Add(args[i]);
+        foreach (var (k, v) in env)
+            psi.Environment[k] = v;
 
         var p = Process.Start(psi);
         return p;
@@ -220,18 +301,18 @@ public class RunCommand(BellaClientProvider clientProvider, CredentialStore cred
     private static int SpawnProcess(string[] args, Dictionary<string, string> secrets)
     {
         var env = new Dictionary<string, string?>(StringComparer.Ordinal);
-        foreach (System.Collections.DictionaryEntry entry in System.Environment.GetEnvironmentVariables())
+        foreach (
+            System.Collections.DictionaryEntry entry in System.Environment.GetEnvironmentVariables()
+        )
             env[entry.Key?.ToString() ?? ""] = entry.Value?.ToString();
         foreach (var (k, v) in secrets)
             env[k] = v;
 
-        var psi = new ProcessStartInfo
-        {
-            FileName = args[0],
-            UseShellExecute = false,
-        };
-        for (int i = 1; i < args.Length; i++) psi.ArgumentList.Add(args[i]);
-        foreach (var (k, v) in env) psi.Environment[k] = v;
+        var psi = new ProcessStartInfo { FileName = args[0], UseShellExecute = false };
+        for (int i = 1; i < args.Length; i++)
+            psi.ArgumentList.Add(args[i]);
+        foreach (var (k, v) in env)
+            psi.Environment[k] = v;
 
         var p = Process.Start(psi);
         p?.WaitForExit();

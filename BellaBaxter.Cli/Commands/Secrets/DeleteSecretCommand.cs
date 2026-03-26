@@ -24,15 +24,25 @@ public class DeleteSecretSettings : CommandSettings
     public bool Json { get; init; }
 }
 
-public class DeleteSecretCommand(BellaClientProvider provider, ContextService context, IOutputWriter output)
-    : AsyncCommand<DeleteSecretSettings>
+public class DeleteSecretCommand(
+    BellaClientProvider provider,
+    ContextService context,
+    IOutputWriter output
+) : AsyncCommand<DeleteSecretSettings>
 {
-    public override async Task<int> ExecuteAsync(CommandContext ctx, DeleteSecretSettings settings, CancellationToken ct)
+    public override async Task<int> ExecuteAsync(
+        CommandContext ctx,
+        DeleteSecretSettings settings,
+        CancellationToken ct
+    )
     {
         provider.ApplyOutputModeOverrides(settings.Json);
 
         BellaClient client;
-        try { client = provider.CreateClient(); }
+        try
+        {
+            client = provider.CreateClient();
+        }
         catch (InvalidOperationException)
         {
             output.WriteError("Not logged in. Run 'bella login' first.");
@@ -41,8 +51,14 @@ public class DeleteSecretCommand(BellaClientProvider provider, ContextService co
 
         try
         {
-            var (projectSlug, _, _) = await context.ResolveProjectAsync(settings.Project, client, ct);
-            var (envSlug, _, _) = await context.ResolveEnvironmentAsync(settings.Environment, projectSlug, client, ct);
+            var (projectSlug, _, _, envSlug, _, _) = await context.ResolveProjectEnvironmentAsync(
+                settings.Project,
+                settings.Environment,
+                client,
+                ct,
+                strictJwtLocal: true,
+                bootstrapBellaFromExplicit: true
+            );
 
             if (!settings.Force)
             {
@@ -51,7 +67,10 @@ public class DeleteSecretCommand(BellaClientProvider provider, ContextService co
                     output.WriteError("Use --force to delete without confirmation.");
                     return 1;
                 }
-                var confirm = AnsiConsole.Confirm($"Delete secret [bold]{settings.Key}[/]?", defaultValue: false);
+                var confirm = AnsiConsole.Confirm(
+                    $"Delete secret [bold]{settings.Key}[/]?",
+                    defaultValue: false
+                );
                 if (!confirm)
                 {
                     output.WriteInfo("Cancelled.");
@@ -59,7 +78,10 @@ public class DeleteSecretCommand(BellaClientProvider provider, ContextService co
                 }
             }
 
-            var providers = await client.Api.V1.Projects[projectSlug].Environments[envSlug].Providers.GetAsync(cancellationToken: ct);
+            var providers = await client
+                .Api.V1.Projects[projectSlug]
+                .Environments[envSlug]
+                .Providers.GetAsync(cancellationToken: ct);
             var providerList = providers ?? [];
             if (providerList.Count == 0)
             {
@@ -69,11 +91,20 @@ public class DeleteSecretCommand(BellaClientProvider provider, ContextService co
 
             var providerSlug = providerList[0].ProviderSlug ?? providerList[0].ProviderId ?? "";
 
-            await AnsiConsole.Status().StartAsync($"Deleting secret {settings.Key}...", async _ =>
-            {
-                await client.Api.V1.Projects[projectSlug].Environments[envSlug]
-                    .Providers[providerSlug].Secrets[settings.Key].DeleteAsync(cancellationToken: ct);
-            });
+            await AnsiConsole
+                .Status()
+                .StartAsync(
+                    $"Deleting secret {settings.Key}...",
+                    async _ =>
+                    {
+                        await client
+                            .Api.V1.Projects[projectSlug]
+                            .Environments[envSlug]
+                            .Providers[providerSlug]
+                            .Secrets[settings.Key]
+                            .DeleteAsync(cancellationToken: ct);
+                    }
+                );
 
             output.WriteSuccess($"Secret '{settings.Key}' deleted.");
             return 0;

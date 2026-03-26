@@ -53,7 +53,9 @@ public class GenerateSecretsCodeSettings : CommandSettings
     public bool DryRun { get; init; }
 
     [CommandOption("--types")]
-    [System.ComponentModel.Description("Generate a bella-secrets.ts TypeScript module augmentation file for @bella-baxter/config SDK (enables app.bella.DATABASE_URL typed property access). Exports BELLA_COERCIONS for runtime type coercion.")]
+    [System.ComponentModel.Description(
+        "Generate a bella-secrets.ts TypeScript module augmentation file for @bella-baxter/config SDK (enables app.bella.DATABASE_URL typed property access). Exports BELLA_COERCIONS for runtime type coercion."
+    )]
     public bool Types { get; init; }
 }
 
@@ -77,20 +79,36 @@ public class GenerateSecretsCodeCommand(
 {
     private static readonly string[] SupportedLanguages =
     [
-        "dotnet", "python", "go", "typescript", "dart", "php", "ruby", "swift"
+        "dotnet",
+        "python",
+        "go",
+        "typescript",
+        "dart",
+        "php",
+        "ruby",
+        "swift",
     ];
 
-    public override async Task<int> ExecuteAsync(CommandContext ctx, GenerateSecretsCodeSettings settings, CancellationToken ct)
+    public override async Task<int> ExecuteAsync(
+        CommandContext ctx,
+        GenerateSecretsCodeSettings settings,
+        CancellationToken ct
+    )
     {
         var lang = settings.Language.ToLowerInvariant();
         if (!Array.Exists(SupportedLanguages, l => l == lang))
         {
-            output.WriteError($"Unknown language '{settings.Language}'. Supported: {string.Join(", ", SupportedLanguages)}");
+            output.WriteError(
+                $"Unknown language '{settings.Language}'. Supported: {string.Join(", ", SupportedLanguages)}"
+            );
             return 1;
         }
 
         BellaClientProvider.BellaClientWrapper client;
-        try { client = provider.CreateClientWrapper(); }
+        try
+        {
+            client = provider.CreateClientWrapper();
+        }
         catch (InvalidOperationException)
         {
             output.WriteError("Not logged in. Run 'bella login' first.");
@@ -101,27 +119,42 @@ public class GenerateSecretsCodeCommand(
 
         try
         {
-            var (projectSlug, _, _) = await context.ResolveProjectAsync(settings.Project, client.BellaClient, ct);
-            var (envSlug, _, _) = await context.ResolveEnvironmentAsync(settings.Environment, projectSlug, client.BellaClient, ct);
+            var (projectSlug, _, _, envSlug, _, _) = await context.ResolveProjectEnvironmentAsync(
+                settings.Project,
+                settings.Environment,
+                client.BellaClient,
+                ct,
+                strictJwtLocal: true,
+                bootstrapBellaFromExplicit: true
+            );
 
-            await AnsiConsole.Status().StartAsync("Fetching secrets manifest...", async _ =>
-            {
-                var sdkManifest = await client.BellaClient.Api.V1.Projects[projectSlug]
-                    .Environments[envSlug].Secrets.Manifest
-                    .GetAsync(cancellationToken: ct)
-                    ?? throw new InvalidOperationException("Empty manifest response.");
+            await AnsiConsole
+                .Status()
+                .StartAsync(
+                    "Fetching secrets manifest...",
+                    async _ =>
+                    {
+                        var sdkManifest =
+                            await client
+                                .BellaClient.Api.V1.Projects[projectSlug]
+                                .Environments[envSlug]
+                                .Secrets.Manifest.GetAsync(cancellationToken: ct)
+                            ?? throw new InvalidOperationException("Empty manifest response.");
 
-                manifest = new SecretsManifest(
-                    sdkManifest.ProjectSlug ?? projectSlug,
-                    sdkManifest.EnvironmentSlug ?? envSlug,
-                    sdkManifest.GeneratedAt ?? DateTimeOffset.UtcNow,
-                    (sdkManifest.Secrets ?? []).Select(s => new ManifestItem(
-                        s.Key ?? "",
-                        s.Type ?? "string",
-                        s.Description
-                    )).ToList()
+                        manifest = new SecretsManifest(
+                            sdkManifest.ProjectSlug ?? projectSlug,
+                            sdkManifest.EnvironmentSlug ?? envSlug,
+                            sdkManifest.GeneratedAt ?? DateTimeOffset.UtcNow,
+                            (sdkManifest.Secrets ?? [])
+                                .Select(s => new ManifestItem(
+                                    s.Key ?? "",
+                                    s.Type ?? "string",
+                                    s.Description
+                                ))
+                                .ToList()
+                        );
+                    }
                 );
-            });
         }
         catch (InvalidOperationException ex)
         {
@@ -142,8 +175,12 @@ public class GenerateSecretsCodeCommand(
 
         if (manifest.Secrets.Count == 0)
         {
-            output.WriteWarning($"No secrets found for {manifest.ProjectSlug}/{manifest.EnvironmentSlug}.");
-            output.WriteInfo("Secrets must be created via Bella (bella secrets set ...) to appear in the manifest.");
+            output.WriteWarning(
+                $"No secrets found for {manifest.ProjectSlug}/{manifest.EnvironmentSlug}."
+            );
+            output.WriteInfo(
+                "Secrets must be created via Bella (bella secrets set ...) to appear in the manifest."
+            );
             return 0;
         }
 
@@ -161,14 +198,16 @@ public class GenerateSecretsCodeCommand(
             "python" => GeneratePython(manifest, className),
             "go" => GenerateGo(manifest, className, namespaceName),
             "typescript" when settings.Types => GenerateTypeScriptDeclaration(manifest),
-            "typescript" => GenerateTypeScript(manifest, className),            "dart" => GenerateDart(manifest, className),
+            "typescript" => GenerateTypeScript(manifest, className),
+            "dart" => GenerateDart(manifest, className),
             "php" => GeneratePhp(manifest, className),
             "ruby" => GenerateRuby(manifest, className),
             "swift" => GenerateSwift(manifest, className),
-            _ => throw new InvalidOperationException($"Unsupported language: {lang}")
+            _ => throw new InvalidOperationException($"Unsupported language: {lang}"),
         };
 
-        var outputFile = settings.OutputFile ?? GetDefaultOutputFile(lang, className, settings.Types);
+        var outputFile =
+            settings.OutputFile ?? GetDefaultOutputFile(lang, className, settings.Types);
 
         if (settings.DryRun)
         {
@@ -192,51 +231,72 @@ public class GenerateSecretsCodeCommand(
         {
             var coercionsFile = Path.Combine(
                 Path.GetDirectoryName(Path.GetFullPath(outputFile)) ?? ".",
-                "bella-coercions.ts");
+                "bella-coercions.ts"
+            );
             var coercionsCode = GenerateTypeScriptCoercions(manifest);
             if (!settings.DryRun)
                 await File.WriteAllTextAsync(coercionsFile, coercionsCode, Encoding.UTF8, ct);
 
             if (output is HumanOutputWriter)
             {
-                AnsiConsole.MarkupLine($"[bold green]✓[/] Generated [bold]{outputFile}[/] (ambient types — add to tsconfig include)");
-                AnsiConsole.MarkupLine($"[bold green]✓[/] Generated [bold]{coercionsFile}[/] (runtime coercions — import in setup file)");
-                AnsiConsole.MarkupLine($"[dim]  {manifest.Secrets.Count} secrets | Project: {manifest.ProjectSlug}/{manifest.EnvironmentSlug}[/]");
-                AnsiConsole.MarkupLine($"[dim]  Generated at: {manifest.GeneratedAt:yyyy-MM-dd HH:mm:ss} UTC[/]");
-                AnsiConsole.MarkupLine($"\n[dim]  Tip: Re-run after adding/renaming secrets to regenerate.[/]");
+                AnsiConsole.MarkupLine(
+                    $"[bold green]✓[/] Generated [bold]{outputFile}[/] (ambient types — add to tsconfig include)"
+                );
+                AnsiConsole.MarkupLine(
+                    $"[bold green]✓[/] Generated [bold]{coercionsFile}[/] (runtime coercions — import in setup file)"
+                );
+                AnsiConsole.MarkupLine(
+                    $"[dim]  {manifest.Secrets.Count} secrets | Project: {manifest.ProjectSlug}/{manifest.EnvironmentSlug}[/]"
+                );
+                AnsiConsole.MarkupLine(
+                    $"[dim]  Generated at: {manifest.GeneratedAt:yyyy-MM-dd HH:mm:ss} UTC[/]"
+                );
+                AnsiConsole.MarkupLine(
+                    $"\n[dim]  Tip: Re-run after adding/renaming secrets to regenerate.[/]"
+                );
             }
             else
             {
-                output.WriteObject(new
-                {
-                    declarationFile = outputFile,
-                    coercionsFile,
-                    secretCount = manifest.Secrets.Count,
-                    projectSlug = manifest.ProjectSlug,
-                    environmentSlug = manifest.EnvironmentSlug,
-                    
-                });
+                output.WriteObject(
+                    new
+                    {
+                        declarationFile = outputFile,
+                        coercionsFile,
+                        secretCount = manifest.Secrets.Count,
+                        projectSlug = manifest.ProjectSlug,
+                        environmentSlug = manifest.EnvironmentSlug,
+                    }
+                );
             }
             return 0;
         }
 
         if (output is HumanOutputWriter)
         {
-            AnsiConsole.MarkupLine($"[bold green]✓[/] Generated [bold]{outputFile}[/] ({manifest.Secrets.Count} secrets, language: {lang})");
-            AnsiConsole.MarkupLine($"[dim]  Generated at: {manifest.GeneratedAt:yyyy-MM-dd HH:mm:ss} UTC[/]");
-            AnsiConsole.MarkupLine($"[dim]  Project: {manifest.ProjectSlug} / {manifest.EnvironmentSlug} [/]");
-            AnsiConsole.MarkupLine($"\n[dim]  Tip: Re-run this command after adding/renaming secrets to regenerate.[/]");
+            AnsiConsole.MarkupLine(
+                $"[bold green]✓[/] Generated [bold]{outputFile}[/] ({manifest.Secrets.Count} secrets, language: {lang})"
+            );
+            AnsiConsole.MarkupLine(
+                $"[dim]  Generated at: {manifest.GeneratedAt:yyyy-MM-dd HH:mm:ss} UTC[/]"
+            );
+            AnsiConsole.MarkupLine(
+                $"[dim]  Project: {manifest.ProjectSlug} / {manifest.EnvironmentSlug} [/]"
+            );
+            AnsiConsole.MarkupLine(
+                $"\n[dim]  Tip: Re-run this command after adding/renaming secrets to regenerate.[/]"
+            );
         }
         else
         {
-            output.WriteObject(new
-            {
-                file = outputFile,
-                secretCount = manifest.Secrets.Count,
-                projectSlug = manifest.ProjectSlug,
-                environmentSlug = manifest.EnvironmentSlug,
-                
-            });
+            output.WriteObject(
+                new
+                {
+                    file = outputFile,
+                    secretCount = manifest.Secrets.Count,
+                    projectSlug = manifest.ProjectSlug,
+                    environmentSlug = manifest.EnvironmentSlug,
+                }
+            );
         }
 
         return 0;
@@ -274,15 +334,16 @@ public class GenerateSecretsCodeCommand(
         return sb.ToString();
     }
 
-    private static (string csType, string body) GetDotnetProperty(string key, string type) => type.ToLowerInvariant() switch
-    {
-        "int" => ("int", $"return int.Parse(GetRequired(\"{key}\"));"),
-        "bool" => ("bool", $"return bool.Parse(GetRequired(\"{key}\"));"),
-        "uri" => ("Uri", $"return new Uri(GetRequired(\"{key}\"));"),
-        "guid" => ("Guid", $"return Guid.Parse(GetRequired(\"{key}\"));"),
-        "base64" => ("byte[]", $"return Convert.FromBase64String(GetRequired(\"{key}\"));"),
-        _ => ("string", $"return GetRequired(\"{key}\");"),
-    };
+    private static (string csType, string body) GetDotnetProperty(string key, string type) =>
+        type.ToLowerInvariant() switch
+        {
+            "int" => ("int", $"return int.Parse(GetRequired(\"{key}\"));"),
+            "bool" => ("bool", $"return bool.Parse(GetRequired(\"{key}\"));"),
+            "uri" => ("Uri", $"return new Uri(GetRequired(\"{key}\"));"),
+            "guid" => ("Guid", $"return Guid.Parse(GetRequired(\"{key}\"));"),
+            "base64" => ("byte[]", $"return Convert.FromBase64String(GetRequired(\"{key}\"));"),
+            _ => ("string", $"return GetRequired(\"{key}\");"),
+        };
 
     private static string GeneratePython(SecretsManifest manifest, string className)
     {
@@ -301,7 +362,9 @@ public class GenerateSecretsCodeCommand(
         sb.AppendLine($"    def _require(key: str) -> str:");
         sb.AppendLine($"        v = os.environ.get(key)");
         sb.AppendLine($"        if v is None:");
-        sb.AppendLine($"            raise RuntimeError(f\"Required environment variable '{{key}}' is not set.\")");
+        sb.AppendLine(
+            $"            raise RuntimeError(f\"Required environment variable '{{key}}' is not set.\")"
+        );
         sb.AppendLine($"        return v");
         sb.AppendLine();
         foreach (var s in manifest.Secrets)
@@ -317,15 +380,19 @@ public class GenerateSecretsCodeCommand(
         return sb.ToString();
     }
 
-    private static (string pyType, string body) GetPythonProperty(string key, string type) => type.ToLowerInvariant() switch
-    {
-        "int" => ("int", $"return int(self._require(\"{key}\"))"),
-        "bool" => ("bool", $"return self._require(\"{key}\").lower() == \"true\""),
-        "uri" => ("str", $"return self._require(\"{key}\")  # URI"),
-        "guid" => ("str", $"return self._require(\"{key}\")  # UUID"),
-        "base64" => ("bytes", $"import base64; return base64.b64decode(self._require(\"{key}\"))"),
-        _ => ("str", $"return self._require(\"{key}\")"),
-    };
+    private static (string pyType, string body) GetPythonProperty(string key, string type) =>
+        type.ToLowerInvariant() switch
+        {
+            "int" => ("int", $"return int(self._require(\"{key}\"))"),
+            "bool" => ("bool", $"return self._require(\"{key}\").lower() == \"true\""),
+            "uri" => ("str", $"return self._require(\"{key}\")  # URI"),
+            "guid" => ("str", $"return self._require(\"{key}\")  # UUID"),
+            "base64" => (
+                "bytes",
+                $"import base64; return base64.b64decode(self._require(\"{key}\"))"
+            ),
+            _ => ("str", $"return self._require(\"{key}\")"),
+        };
 
     private static string GenerateGo(SecretsManifest manifest, string className, string? pkg)
     {
@@ -348,7 +415,9 @@ public class GenerateSecretsCodeCommand(
         sb.AppendLine("func mustGetenv(key string) string {");
         sb.AppendLine("\tv := os.Getenv(key)");
         sb.AppendLine("\tif v == \"\" {");
-        sb.AppendLine($"\t\tpanic(fmt.Sprintf(\"Required environment variable '%s' is not set.\", key))");
+        sb.AppendLine(
+            $"\t\tpanic(fmt.Sprintf(\"Required environment variable '%s' is not set.\", key))"
+        );
         sb.AppendLine("\t}");
         sb.AppendLine("\treturn v");
         sb.AppendLine("}");
@@ -363,15 +432,19 @@ public class GenerateSecretsCodeCommand(
         return sb.ToString();
     }
 
-    private static (string goType, string body) GetGoMethod(string key, string type) => type.ToLowerInvariant() switch
-    {
-        "int" => ("int", $"v, _ := strconv.Atoi(mustGetenv(\"{key}\")); return v"),
-        "bool" => ("bool", $"return mustGetenv(\"{key}\") == \"true\""),
-        "uri" => ("string", $"return mustGetenv(\"{key}\") // URI"),
-        "guid" => ("string", $"return mustGetenv(\"{key}\") // UUID"),
-        "base64" => ("[]byte", $"import \"encoding/base64\"; v, _ := base64.StdEncoding.DecodeString(mustGetenv(\"{key}\")); return v"),
-        _ => ("string", $"return mustGetenv(\"{key}\")"),
-    };
+    private static (string goType, string body) GetGoMethod(string key, string type) =>
+        type.ToLowerInvariant() switch
+        {
+            "int" => ("int", $"v, _ := strconv.Atoi(mustGetenv(\"{key}\")); return v"),
+            "bool" => ("bool", $"return mustGetenv(\"{key}\") == \"true\""),
+            "uri" => ("string", $"return mustGetenv(\"{key}\") // URI"),
+            "guid" => ("string", $"return mustGetenv(\"{key}\") // UUID"),
+            "base64" => (
+                "[]byte",
+                $"import \"encoding/base64\"; v, _ := base64.StdEncoding.DecodeString(mustGetenv(\"{key}\")); return v"
+            ),
+            _ => ("string", $"return mustGetenv(\"{key}\")"),
+        };
 
     private static string GenerateTypeScript(SecretsManifest manifest, string className)
     {
@@ -379,11 +452,15 @@ public class GenerateSecretsCodeCommand(
         sb.AppendLine("// auto-generated by: bella secrets generate typescript");
         sb.AppendLine($"// project: {manifest.ProjectSlug}/{manifest.EnvironmentSlug}");
         sb.AppendLine($"// generated: {manifest.GeneratedAt:yyyy-MM-dd HH:mm:ss} UTC");
-        sb.AppendLine("// DO NOT edit manually — re-run bella secrets generate typescript to update.");
+        sb.AppendLine(
+            "// DO NOT edit manually — re-run bella secrets generate typescript to update."
+        );
         sb.AppendLine();
         sb.AppendLine("function requireEnv(key: string): string {");
         sb.AppendLine("  const v = process.env[key];");
-        sb.AppendLine("  if (v === undefined) throw new Error(`Required env var '${key}' is not set.`);");
+        sb.AppendLine(
+            "  if (v === undefined) throw new Error(`Required env var '${key}' is not set.`);"
+        );
         sb.AppendLine("  return v;");
         sb.AppendLine("}");
         sb.AppendLine();
@@ -399,15 +476,16 @@ public class GenerateSecretsCodeCommand(
         return sb.ToString();
     }
 
-    private static (string tsType, string body) GetTypeScriptGetter(string key, string type) => type.ToLowerInvariant() switch
-    {
-        "int" => ("number", $"return parseInt(requireEnv(\"{key}\"), 10);"),
-        "bool" => ("boolean", $"return requireEnv(\"{key}\") === \"true\";"),
-        "uri" => ("string", $"return requireEnv(\"{key}\"); // URI"),
-        "guid" => ("string", $"return requireEnv(\"{key}\"); // UUID"),
-        "base64" => ("Buffer", $"return Buffer.from(requireEnv(\"{key}\"), \"base64\");"),
-        _ => ("string", $"return requireEnv(\"{key}\");"),
-    };
+    private static (string tsType, string body) GetTypeScriptGetter(string key, string type) =>
+        type.ToLowerInvariant() switch
+        {
+            "int" => ("number", $"return parseInt(requireEnv(\"{key}\"), 10);"),
+            "bool" => ("boolean", $"return requireEnv(\"{key}\") === \"true\";"),
+            "uri" => ("string", $"return requireEnv(\"{key}\"); // URI"),
+            "guid" => ("string", $"return requireEnv(\"{key}\"); // UUID"),
+            "base64" => ("Buffer", $"return Buffer.from(requireEnv(\"{key}\"), \"base64\");"),
+            _ => ("string", $"return requireEnv(\"{key}\");"),
+        };
 
     private static string GenerateDart(SecretsManifest manifest, string className)
     {
@@ -415,13 +493,17 @@ public class GenerateSecretsCodeCommand(
         sb.AppendLine("// auto-generated by: bella secrets generate dart --types");
         sb.AppendLine($"// project: {manifest.ProjectSlug}/{manifest.EnvironmentSlug}");
         sb.AppendLine($"// generated: {manifest.GeneratedAt:yyyy-MM-dd HH:mm:ss} UTC");
-        sb.AppendLine("// DO NOT edit manually — re-run bella secrets generate dart --types to update.");
+        sb.AppendLine(
+            "// DO NOT edit manually — re-run bella secrets generate dart --types to update."
+        );
         sb.AppendLine("import 'dart:io';");
         sb.AppendLine();
         sb.AppendLine($"class {className} {{");
         sb.AppendLine($"  final Map<String, String>? _map;");
         sb.AppendLine();
-        sb.AppendLine($"  /// Env-var mode: reads from [Platform.environment] (injected by `bella run`).");
+        sb.AppendLine(
+            $"  /// Env-var mode: reads from [Platform.environment] (injected by `bella run`)."
+        );
         sb.AppendLine($"  {className}() : _map = null;");
         sb.AppendLine($"  {className}._fromSecrets(this._map);");
         sb.AppendLine();
@@ -437,11 +519,15 @@ public class GenerateSecretsCodeCommand(
         sb.AppendLine();
         sb.AppendLine("  String _require(String key) {");
         sb.AppendLine("    final v = _map != null ? _map[key] : Platform.environment[key];");
-        sb.AppendLine("    if (v == null) throw Exception('Required secret \"$key\" is not set.');");
+        sb.AppendLine(
+            "    if (v == null) throw Exception('Required secret \"$key\" is not set.');"
+        );
         sb.AppendLine("    return v;");
         sb.AppendLine("  }");
         sb.AppendLine();
-        sb.AppendLine("  /// Number of secrets in the pulled map (SDK mode only; 0 in env-var mode).");
+        sb.AppendLine(
+            "  /// Number of secrets in the pulled map (SDK mode only; 0 in env-var mode)."
+        );
         sb.AppendLine("  int get secretCount => _map?.length ?? 0;");
         sb.AppendLine();
         foreach (var s in manifest.Secrets)
@@ -455,15 +541,16 @@ public class GenerateSecretsCodeCommand(
         return sb.ToString();
     }
 
-    private static (string dartType, string body) GetDartGetter(string key, string type) => type.ToLowerInvariant() switch
-    {
-        "int" => ("int", $"int.parse(_require(\"{key}\"))"),
-        "bool" => ("bool", $"_require(\"{key}\") == \"true\""),
-        "uri" => ("Uri", $"Uri.parse(_require(\"{key}\"))"),
-        "guid" => ("String", $"_require(\"{key}\")  /* UUID */"),
-        "base64" => ("String", $"_require(\"{key}\")  /* base64 */"),
-        _ => ("String", $"_require(\"{key}\")"),
-    };
+    private static (string dartType, string body) GetDartGetter(string key, string type) =>
+        type.ToLowerInvariant() switch
+        {
+            "int" => ("int", $"int.parse(_require(\"{key}\"))"),
+            "bool" => ("bool", $"_require(\"{key}\") == \"true\""),
+            "uri" => ("Uri", $"Uri.parse(_require(\"{key}\"))"),
+            "guid" => ("String", $"_require(\"{key}\")  /* UUID */"),
+            "base64" => ("String", $"_require(\"{key}\")  /* base64 */"),
+            _ => ("String", $"_require(\"{key}\")"),
+        };
 
     private static string GeneratePhp(SecretsManifest manifest, string className)
     {
@@ -479,7 +566,9 @@ public class GenerateSecretsCodeCommand(
         sb.AppendLine("    private static function require(string $key): string");
         sb.AppendLine("    {");
         sb.AppendLine("        $v = getenv($key);");
-        sb.AppendLine("        if ($v === false) throw new \\RuntimeException(\"Required env var '$key' is not set.\");");
+        sb.AppendLine(
+            "        if ($v === false) throw new \\RuntimeException(\"Required env var '$key' is not set.\");"
+        );
         sb.AppendLine("        return $v;");
         sb.AppendLine("    }");
         sb.AppendLine();
@@ -488,21 +577,24 @@ public class GenerateSecretsCodeCommand(
             if (s.Description is not null)
                 sb.AppendLine($"    /** {s.Description} */");
             var (phpType, body) = GetPhpGetter(s.Key, s.Type);
-            sb.AppendLine($"    public function {ToCamelCase(s.Key)}(): {phpType} {{ return {body}; }}");
+            sb.AppendLine(
+                $"    public function {ToCamelCase(s.Key)}(): {phpType} {{ return {body}; }}"
+            );
         }
         sb.AppendLine("}");
         return sb.ToString();
     }
 
-    private static (string phpType, string body) GetPhpGetter(string key, string type) => type.ToLowerInvariant() switch
-    {
-        "int" => ("int", $"(int) self::require(\"{key}\")"),
-        "bool" => ("bool", $"self::require(\"{key}\") === \"true\""),
-        "uri" => ("string", $"self::require(\"{key}\") /* URI */"),
-        "guid" => ("string", $"self::require(\"{key}\") /* UUID */"),
-        "base64" => ("string", $"base64_decode(self::require(\"{key}\"))"),
-        _ => ("string", $"self::require(\"{key}\")"),
-    };
+    private static (string phpType, string body) GetPhpGetter(string key, string type) =>
+        type.ToLowerInvariant() switch
+        {
+            "int" => ("int", $"(int) self::require(\"{key}\")"),
+            "bool" => ("bool", $"self::require(\"{key}\") === \"true\""),
+            "uri" => ("string", $"self::require(\"{key}\") /* URI */"),
+            "guid" => ("string", $"self::require(\"{key}\") /* UUID */"),
+            "base64" => ("string", $"base64_decode(self::require(\"{key}\"))"),
+            _ => ("string", $"self::require(\"{key}\")"),
+        };
 
     private static string GenerateRuby(SecretsManifest manifest, string className)
     {
@@ -531,15 +623,16 @@ public class GenerateSecretsCodeCommand(
         return sb.ToString();
     }
 
-    private static string GetRubyMethod(string key, string type) => type.ToLowerInvariant() switch
-    {
-        "int" => $"_require(\"{key}\").to_i",
-        "bool" => $"_require(\"{key}\") == \"true\"",
-        "uri" => $"URI.parse(_require(\"{key}\"))",
-        "guid" => $"_require(\"{key}\")  # UUID",
-        "base64" => $"Base64.strict_decode64(_require(\"{key}\"))",
-        _ => $"_require(\"{key}\")",
-    };
+    private static string GetRubyMethod(string key, string type) =>
+        type.ToLowerInvariant() switch
+        {
+            "int" => $"_require(\"{key}\").to_i",
+            "bool" => $"_require(\"{key}\") == \"true\"",
+            "uri" => $"URI.parse(_require(\"{key}\"))",
+            "guid" => $"_require(\"{key}\")  # UUID",
+            "base64" => $"Base64.strict_decode64(_require(\"{key}\"))",
+            _ => $"_require(\"{key}\")",
+        };
 
     private static string GenerateSwift(SecretsManifest manifest, string className)
     {
@@ -569,15 +662,16 @@ public class GenerateSecretsCodeCommand(
         return sb.ToString();
     }
 
-    private static (string swiftType, string body) GetSwiftProperty(string key, string type) => type.ToLowerInvariant() switch
-    {
-        "int" => ("Int", $"Int(require(\"{key}\"))!"),
-        "bool" => ("Bool", $"require(\"{key}\") == \"true\""),
-        "uri" => ("URL", $"URL(string: require(\"{key}\"))!"),
-        "guid" => ("UUID", $"UUID(uuidString: require(\"{key}\"))!"),
-        "base64" => ("Data", $"Data(base64Encoded: require(\"{key}\"))!"),
-        _ => ("String", $"require(\"{key}\")"),
-    };
+    private static (string swiftType, string body) GetSwiftProperty(string key, string type) =>
+        type.ToLowerInvariant() switch
+        {
+            "int" => ("Int", $"Int(require(\"{key}\"))!"),
+            "bool" => ("Bool", $"require(\"{key}\") == \"true\""),
+            "uri" => ("URL", $"URL(string: require(\"{key}\"))!"),
+            "guid" => ("UUID", $"UUID(uuidString: require(\"{key}\"))!"),
+            "base64" => ("Data", $"Data(base64Encoded: require(\"{key}\"))!"),
+            _ => ("String", $"require(\"{key}\")"),
+        };
 
     private static string GenerateTypeScriptDeclaration(SecretsManifest manifest)
     {
@@ -589,17 +683,27 @@ public class GenerateSecretsCodeCommand(
         sb.AppendLine("// auto-generated by: bella secrets generate typescript --types");
         sb.AppendLine($"// project: {manifest.ProjectSlug}/{manifest.EnvironmentSlug}");
         sb.AppendLine($"// generated: {manifest.GeneratedAt:yyyy-MM-dd HH:mm:ss} UTC");
-        sb.AppendLine("// DO NOT edit manually — re-run bella secrets generate typescript --types to update.");
+        sb.AppendLine(
+            "// DO NOT edit manually — re-run bella secrets generate typescript --types to update."
+        );
         sb.AppendLine("// Safe to commit: contains key names only, never secret values.");
         sb.AppendLine("//");
         sb.AppendLine("// TypeScript picks this up automatically via tsconfig 'include'.");
-        sb.AppendLine("// No import needed in route/controller files — types are available project-wide.");
+        sb.AppendLine(
+            "// No import needed in route/controller files — types are available project-wide."
+        );
         sb.AppendLine("//");
-        sb.AppendLine("// ⚠️  ts-node / tsx users: add this to your entry file (e.g. main.ts / server.ts):");
+        sb.AppendLine(
+            "// ⚠️  ts-node / tsx users: add this to your entry file (e.g. main.ts / server.ts):"
+        );
         sb.AppendLine("//   /// <reference path=\"./bella-secrets.d.ts\" />");
-        sb.AppendLine("//   (ts-node only includes imported files; tsconfig include is ignored at runtime)");
+        sb.AppendLine(
+            "//   (ts-node only includes imported files; tsconfig include is ignored at runtime)"
+        );
         sb.AppendLine("//");
-        sb.AppendLine("// Runtime coercions are in bella-coercions.ts — import that once in your framework setup.");
+        sb.AppendLine(
+            "// Runtime coercions are in bella-coercions.ts — import that once in your framework setup."
+        );
         sb.AppendLine();
         sb.AppendLine("export {}; // required: makes this a module so 'declare global' is valid");
         sb.AppendLine();
@@ -622,18 +726,22 @@ public class GenerateSecretsCodeCommand(
         // bella-coercions.ts — runtime coercion map.
         // Import BELLA_COERCIONS and pass as `coercions` to createBellaConfig() /
         // framework plugin once (in instrumentation.ts, app.module.ts, config/bella.ts, etc.).
-        var coercions = manifest.Secrets
-            .Where(s => GetTypeScriptCoercionTag(s.Type) is not null)
+        var coercions = manifest
+            .Secrets.Where(s => GetTypeScriptCoercionTag(s.Type) is not null)
             .ToList();
 
         var sb = new StringBuilder();
         sb.AppendLine("// auto-generated by: bella secrets generate typescript --types");
         sb.AppendLine($"// project: {manifest.ProjectSlug}/{manifest.EnvironmentSlug}");
         sb.AppendLine($"// generated: {manifest.GeneratedAt:yyyy-MM-dd HH:mm:ss} UTC");
-        sb.AppendLine("// DO NOT edit manually — re-run bella secrets generate typescript --types to update.");
+        sb.AppendLine(
+            "// DO NOT edit manually — re-run bella secrets generate typescript --types to update."
+        );
         sb.AppendLine("// Safe to commit: contains key names only, never secret values.");
         sb.AppendLine("//");
-        sb.AppendLine("// Import BELLA_COERCIONS and pass as `coercions` to createBellaConfig() so the");
+        sb.AppendLine(
+            "// Import BELLA_COERCIONS and pass as `coercions` to createBellaConfig() so the"
+        );
         sb.AppendLine("// Proxy returns number/boolean at runtime instead of raw strings.");
         sb.AppendLine("//");
         sb.AppendLine("// Example:");
@@ -651,59 +759,67 @@ public class GenerateSecretsCodeCommand(
         else
         {
             sb.AppendLine("// No coercions needed — all secrets are strings.");
-            sb.AppendLine("export const BELLA_COERCIONS: Record<string, 'number' | 'boolean'> = {};");
+            sb.AppendLine(
+                "export const BELLA_COERCIONS: Record<string, 'number' | 'boolean'> = {};"
+            );
         }
 
         return sb.ToString();
     }
 
-    private static string? GetTypeScriptCoercionTag(string type) => type.ToLowerInvariant() switch
-    {
-        "int"   => "number",
-        "float" => "number",
-        "bool"  => "boolean",
-        _       => null,
-    };
+    private static string? GetTypeScriptCoercionTag(string type) =>
+        type.ToLowerInvariant() switch
+        {
+            "int" => "number",
+            "float" => "number",
+            "bool" => "boolean",
+            _ => null,
+        };
 
     /// <summary>
     /// Maps a Bella secret type to a TypeScript type for declaration files.
     /// The SDK Proxy coerces values at runtime to match these types.
     /// </summary>
-    private static string GetTypeScriptDeclarationType(string type) => type.ToLowerInvariant() switch
-    {
-        "int"    => "number",
-        "float"  => "number",
-        "bool"   => "boolean",
-        "uri"    => "string",
-        "guid"   => "string",
-        "base64" => "string",
-        "json"   => "string",  // raw JSON string — parse manually
-        _        => "string",
-    };
+    private static string GetTypeScriptDeclarationType(string type) =>
+        type.ToLowerInvariant() switch
+        {
+            "int" => "number",
+            "float" => "number",
+            "bool" => "boolean",
+            "uri" => "string",
+            "guid" => "string",
+            "base64" => "string",
+            "json" => "string", // raw JSON string — parse manually
+            _ => "string",
+        };
 
     // ============================================
     // HELPERS
     // ============================================
 
-    private static string GetDefaultOutputFile(string lang, string className, bool types = false) => lang switch
-    {
-        "dotnet" => $"{className}.cs",
-        "python" => "secrets.py",
-        "go" => "secrets.go",
-        "typescript" when types => "bella-secrets.d.ts",
-        "typescript" => "secrets.ts",
-        "dart" => $"{ToSnakeCase(className)}.dart",
-        "php" => "secrets.php",
-        "ruby" => "secrets.rb",
-        "swift" => $"{className}.swift",
-        _ => "secrets.txt"
-    };
+    private static string GetDefaultOutputFile(string lang, string className, bool types = false) =>
+        lang switch
+        {
+            "dotnet" => $"{className}.cs",
+            "python" => "secrets.py",
+            "go" => "secrets.go",
+            "typescript" when types => "bella-secrets.d.ts",
+            "typescript" => "secrets.ts",
+            "dart" => $"{ToSnakeCase(className)}.dart",
+            "php" => "secrets.php",
+            "ruby" => "secrets.rb",
+            "swift" => $"{className}.swift",
+            _ => "secrets.txt",
+        };
 
     private static string ToPascalCase(string s)
     {
-        if (string.IsNullOrEmpty(s)) return s;
-        return string.Concat(s.Split(['_', '-', ' '])
-            .Select(w => w.Length > 0 ? char.ToUpper(w[0]) + w[1..].ToLower() : w));
+        if (string.IsNullOrEmpty(s))
+            return s;
+        return string.Concat(
+            s.Split(['_', '-', ' '])
+                .Select(w => w.Length > 0 ? char.ToUpper(w[0]) + w[1..].ToLower() : w)
+        );
     }
 
     private static string ToCamelCase(string s)
@@ -714,11 +830,18 @@ public class GenerateSecretsCodeCommand(
 
     private static string ToSnakeCase(string s)
     {
-        return string.Concat(s.Select((c, i) =>
-            i > 0 && char.IsUpper(c) ? "_" + char.ToLower(c) : char.ToLower(c).ToString()))
-            .Replace('-', '_').Replace(' ', '_');
+        return string.Concat(
+                s.Select(
+                    (c, i) =>
+                        i > 0 && char.IsUpper(c)
+                            ? "_" + char.ToLower(c)
+                            : char.ToLower(c).ToString()
+                )
+            )
+            .Replace('-', '_')
+            .Replace(' ', '_');
     }
 
-    private static string EscapeXmlComment(string s)
-        => s.Replace("&", "&amp;").Replace("<", "&lt;").Replace(">", "&gt;");
+    private static string EscapeXmlComment(string s) =>
+        s.Replace("&", "&amp;").Replace("<", "&lt;").Replace(">", "&gt;");
 }

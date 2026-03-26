@@ -1,16 +1,17 @@
+using System.Reflection;
 using BellaCli.Commands;
 using BellaCli.Commands.Agent;
 using BellaCli.Commands.Auth;
 using BellaCli.Commands.Config;
 using BellaCli.Commands.Environments;
+using BellaCli.Commands.Exec;
 using BellaCli.Commands.Generate;
+using BellaCli.Commands.Issue;
 using BellaCli.Commands.Mcp;
 using BellaCli.Commands.Me;
 using BellaCli.Commands.Orgs;
 using BellaCli.Commands.Projects;
 using BellaCli.Commands.Providers;
-using BellaCli.Commands.Exec;
-using BellaCli.Commands.Issue;
 using BellaCli.Commands.Run;
 using BellaCli.Commands.Secrets;
 using BellaCli.Commands.Shell;
@@ -126,10 +127,18 @@ services.AddTransient<ConnectSshCommand>();
 var registrar = new TypeRegistrar(services);
 var app = new CommandApp(registrar);
 
+var applicationVersion =
+    Assembly
+        .GetExecutingAssembly()
+        .GetCustomAttribute<AssemblyInformationalVersionAttribute>()
+        ?.InformationalVersion?.Split('+')[0]
+    ?? Assembly.GetExecutingAssembly().GetName().Version?.ToString()
+    ?? "0.0.0";
+
 app.Configure(config =>
 {
     config.SetApplicationName("bella");
-    config.SetApplicationVersion("0.1.0");
+    config.SetApplicationVersion(applicationVersion);
     config.ValidateExamples();
 
     config
@@ -275,10 +284,23 @@ app.Configure(config =>
                 .WithExample("totp", "code", "github", "--quiet");
             totp.AddCommand<ImportTotpCommand>("import")
                 .WithDescription("Import a TOTP key from an otpauth:// URL.")
-                .WithExample("totp", "import", "github", "otpauth://totp/GitHub:user@example.com?secret=BASE32SECRET&issuer=GitHub");
+                .WithExample(
+                    "totp",
+                    "import",
+                    "github",
+                    "otpauth://totp/GitHub:user@example.com?secret=BASE32SECRET&issuer=GitHub"
+                );
             totp.AddCommand<GenerateTotpCommand>("generate")
                 .WithDescription("Generate a new TOTP key.")
-                .WithExample("totp", "generate", "myapp", "--issuer", "MyApp", "--account", "user@example.com");
+                .WithExample(
+                    "totp",
+                    "generate",
+                    "myapp",
+                    "--issuer",
+                    "MyApp",
+                    "--account",
+                    "user@example.com"
+                );
             totp.AddCommand<DeleteTotpCommand>("delete")
                 .WithDescription("Delete a TOTP key.")
                 .WithExample("totp", "delete", "github")
@@ -316,7 +338,9 @@ app.Configure(config =>
 
     config
         .AddCommand<PullCommand>("pull")
-        .WithDescription("Download all secrets and write to a file (default: .env). Shorthand for 'bella secrets get -o .env'.")
+        .WithDescription(
+            "Download all secrets and write to a file (default: .env). Shorthand for 'bella secrets get -o .env'."
+        )
         .WithExample("pull")
         .WithExample("pull", "-o", ".env")
         .WithExample("pull", "-o", "secrets.json")
@@ -324,7 +348,9 @@ app.Configure(config =>
 
     config
         .AddCommand<ExecCommand>("exec")
-        .WithDescription("Inject Bella connection credentials (API key + URL) and run a command. The subprocess uses the Bella SDK to discover its project/environment context from the API key.")
+        .WithDescription(
+            "Inject Bella connection credentials (API key + URL) and run a command. The subprocess uses the Bella SDK to discover its project/environment context from the API key."
+        )
         .WithExample("exec", "--", "node", "server.js")
         .WithExample("exec", "--", "npm", "start")
         .WithExample("exec", "--", "dotnet", "run")
@@ -335,11 +361,23 @@ app.Configure(config =>
         .WithDescription("Issue a short-lived scoped API token for a specific environment.")
         .WithExample("issue", "--scope", "stripe,payment")
         .WithExample("issue", "--scope", "stripe", "--ttl", "30", "--reason", "Stripe refund agent")
-        .WithExample("issue", "-s", "payment", "-p", "my-project", "-e", "production", "--output", "json");
+        .WithExample(
+            "issue",
+            "-s",
+            "payment",
+            "-p",
+            "my-project",
+            "-e",
+            "production",
+            "--output",
+            "json"
+        );
 
     config
         .AddCommand<EnvCommand>("env")
-        .WithDescription("Output eval-able export statements for BELLA_BAXTER_PROJECT, BELLA_BAXTER_ENV (and legacy BELLA_PROJECT/BELLA_ENV aliases). Usage: eval $(bella env)")
+        .WithDescription(
+            "Output eval-able export statements for BELLA_BAXTER_PROJECT, BELLA_BAXTER_ENV (and legacy BELLA_PROJECT/BELLA_ENV aliases). Usage: eval $(bella env)"
+        )
         .WithExample("env")
         .WithExample("env", "camino/dev")
         .WithExample("env", "--shell", "fish")
@@ -355,7 +393,9 @@ app.Configure(config =>
     // Shortcut: `bella init` → same as `bella context init`
     config
         .AddCommand<ContextInitCommand>("init")
-        .WithDescription("Create a .bella context file in the current directory (shortcut for 'bella context init').")
+        .WithDescription(
+            "Create a .bella context file in the current directory (shortcut for 'bella context init')."
+        )
         .WithExample("init")
         .WithExample("init", "my-project", "dev");
 
@@ -381,7 +421,9 @@ app.Configure(config =>
             ctx.AddCommand<ContextClearCommand>("clear")
                 .WithDescription("Remove the .bella file from the current directory.");
             ctx.AddCommand<ContextUseCommand>("use")
-                .WithDescription("Set an ephemeral session context (no file written). Requires shell function from 'bella shell init'.")
+                .WithDescription(
+                    "Set an ephemeral session context (no file written). Requires shell function from 'bella shell init'."
+                )
                 .WithExample("context", "use", "camino/dev")
                 .WithExample("context", "use");
         }
@@ -399,7 +441,9 @@ app.Configure(config =>
                 .WithExample("shell", "init", "fish")
                 .WithExample("shell", "init", "bash");
             sh.AddCommand<ShellOpenCommand>("open")
-                .WithDescription("Spawn an interactive subshell with BELLA_API_KEY, BELLA_PROJECT, BELLA_ENV pre-set.")
+                .WithDescription(
+                    "Spawn an interactive subshell with BELLA_API_KEY, BELLA_PROJECT, BELLA_ENV pre-set."
+                )
                 .WithExample("shell", "open")
                 .WithExample("shell", "open", "camino/dev")
                 .WithExample("shell", "open", "--shell", "/bin/zsh");

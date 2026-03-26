@@ -1,10 +1,10 @@
+using System.Text.RegularExpressions;
 using BellaBaxter.Client;
 using BellaBaxter.Client.Models;
 using BellaCli.Infrastructure;
 using BellaCli.Services;
 using Spectre.Console;
 using Spectre.Console.Cli;
-using System.Text.RegularExpressions;
 
 namespace BellaCli.Commands.Secrets;
 
@@ -35,8 +35,11 @@ public class PushSecretsSettings : CommandSettings
     }
 }
 
-public class PushSecretsCommand(BellaClientProvider provider, ContextService context, IOutputWriter output)
-    : AsyncCommand<PushSecretsSettings>
+public class PushSecretsCommand(
+    BellaClientProvider provider,
+    ContextService context,
+    IOutputWriter output
+) : AsyncCommand<PushSecretsSettings>
 {
     private static readonly Regex KeyPattern = new(@"^[A-Z][A-Z0-9_]*$", RegexOptions.Compiled);
     private static readonly Regex CommentPattern = new(@"^\s*#", RegexOptions.Compiled);
@@ -46,28 +49,43 @@ public class PushSecretsCommand(BellaClientProvider provider, ContextService con
         var result = new Dictionary<string, string>();
         foreach (var line in File.ReadAllLines(path))
         {
-            if (string.IsNullOrWhiteSpace(line) || CommentPattern.IsMatch(line)) continue;
+            if (string.IsNullOrWhiteSpace(line) || CommentPattern.IsMatch(line))
+                continue;
             var idx = line.IndexOf('=');
-            if (idx < 0) continue;
+            if (idx < 0)
+                continue;
             var key = line[..idx].Trim();
             var val = line[(idx + 1)..];
             // Skip non-uppercase keys
-            if (!KeyPattern.IsMatch(key)) continue;
+            if (!KeyPattern.IsMatch(key))
+                continue;
             // Remove surrounding quotes if present
-            if (val.Length >= 2 && ((val.StartsWith('"') && val.EndsWith('"')) ||
-                                     (val.StartsWith('\'') && val.EndsWith('\''))))
+            if (
+                val.Length >= 2
+                && (
+                    (val.StartsWith('"') && val.EndsWith('"'))
+                    || (val.StartsWith('\'') && val.EndsWith('\''))
+                )
+            )
                 val = val[1..^1];
             result[key] = val;
         }
         return result;
     }
 
-    public override async Task<int> ExecuteAsync(CommandContext ctx, PushSecretsSettings settings, CancellationToken ct)
+    public override async Task<int> ExecuteAsync(
+        CommandContext ctx,
+        PushSecretsSettings settings,
+        CancellationToken ct
+    )
     {
         provider.ApplyOutputModeOverrides(settings.Json);
 
         BellaClient client;
-        try { client = provider.CreateClient(); }
+        try
+        {
+            client = provider.CreateClient();
+        }
         catch (InvalidOperationException)
         {
             output.WriteError("Not logged in. Run 'bella login' first.");
@@ -76,8 +94,15 @@ public class PushSecretsCommand(BellaClientProvider provider, ContextService con
 
         try
         {
-            var (projectSlug, _, _) = await context.ResolveProjectAsync(settings.Project, client, ct);
-            var (envSlug, envName, _) = await context.ResolveEnvironmentAsync(settings.Environment, projectSlug, client, ct);
+            var (projectSlug, _, _, envSlug, envName, _) =
+                await context.ResolveProjectEnvironmentAsync(
+                    settings.Project,
+                    settings.Environment,
+                    client,
+                    ct,
+                    strictJwtLocal: true,
+                    bootstrapBellaFromExplicit: true
+                );
 
             var secrets = ParseEnvFile(settings.InputFile);
             if (secrets.Count == 0)
@@ -86,11 +111,16 @@ public class PushSecretsCommand(BellaClientProvider provider, ContextService con
                 return 0;
             }
 
-            var providers = await client.Api.V1.Projects[projectSlug].Environments[envSlug].Providers.GetAsync(cancellationToken: ct);
+            var providers = await client
+                .Api.V1.Projects[projectSlug]
+                .Environments[envSlug]
+                .Providers.GetAsync(cancellationToken: ct);
             var providerList = providers ?? [];
             if (providerList.Count == 0)
             {
-                output.WriteError("No providers assigned to this environment. Assign a provider first.");
+                output.WriteError(
+                    "No providers assigned to this environment. Assign a provider first."
+                );
                 return 1;
             }
 
@@ -101,7 +131,8 @@ public class PushSecretsCommand(BellaClientProvider provider, ContextService con
             var success = 0;
             var failed = 0;
 
-            await AnsiConsole.Progress()
+            await AnsiConsole
+                .Progress()
                 .StartAsync(async progressCtx =>
                 {
                     var task = progressCtx.AddTask($"Uploading secrets", maxValue: secrets.Count);
@@ -111,15 +142,35 @@ public class PushSecretsCommand(BellaClientProvider provider, ContextService con
                         {
                             try
                             {
-                                await client.Api.V1.Projects[projectSlug].Environments[envSlug]
-                                    .Providers[providerSlug].Secrets[kvp.Key].PutAsync(
-                                        new UpdateSecretRequest { Value = kvp.Value, Description = settings.Description }, cancellationToken: ct);
+                                await client
+                                    .Api.V1.Projects[projectSlug]
+                                    .Environments[envSlug]
+                                    .Providers[providerSlug]
+                                    .Secrets[kvp.Key]
+                                    .PutAsync(
+                                        new UpdateSecretRequest
+                                        {
+                                            Value = kvp.Value,
+                                            Description = settings.Description,
+                                        },
+                                        cancellationToken: ct
+                                    );
                             }
                             catch
                             {
-                                await client.Api.V1.Projects[projectSlug].Environments[envSlug]
-                                    .Providers[providerSlug].Secrets.PostAsync(
-                                        new CreateSecretRequest { Key = kvp.Key, Value = kvp.Value, Description = settings.Description }, cancellationToken: ct);
+                                await client
+                                    .Api.V1.Projects[projectSlug]
+                                    .Environments[envSlug]
+                                    .Providers[providerSlug]
+                                    .Secrets.PostAsync(
+                                        new CreateSecretRequest
+                                        {
+                                            Key = kvp.Key,
+                                            Value = kvp.Value,
+                                            Description = settings.Description,
+                                        },
+                                        cancellationToken: ct
+                                    );
                             }
                             success++;
                         }
