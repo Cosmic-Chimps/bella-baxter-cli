@@ -250,8 +250,8 @@ jobs:
       - name: Sign checksums with GPG
         working-directory: binaries
         env:
-          GPG_PRIVATE_KEY: ${{ secrets.BELLA_GPG_PRIVATE_KEY }}
-          GPG_PASSPHRASE: ${{ secrets.BELLA_GPG_PASSPHRASE }}
+          GPG_PRIVATE_KEY: ${{ secrets.BELLA_BAXTER_GPG_PRIVATE_KEY }}
+          GPG_PASSPHRASE: ${{ secrets.BELLA_BAXTER_GPG_PASSPHRASE }}
         run: |
           if [ -n "${GPG_PRIVATE_KEY}" ]; then
             echo "${GPG_PRIVATE_KEY}" | gpg --batch --import 2>/dev/null
@@ -263,8 +263,8 @@ jobs:
             echo "checksums.txt.asc created"
             gpg --verify checksums.txt.asc checksums.txt
           else
-            echo "BELLA_GPG_PRIVATE_KEY not configured — skipping GPG signature"
-            echo "(add BELLA_GPG_PRIVATE_KEY + BELLA_GPG_PASSPHRASE repo secrets to enable; see scripts/SIGNING.md)"
+            echo "BELLA_BAXTER_GPG_PRIVATE_KEY not configured — skipping GPG signature"
+            echo "(add BELLA_BAXTER_GPG_PRIVATE_KEY + BELLA_BAXTER_GPG_PASSPHRASE repo secrets to enable; see scripts/SIGNING.md)"
           fi
 
       - name: Create GitHub Release
