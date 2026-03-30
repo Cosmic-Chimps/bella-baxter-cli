@@ -6,7 +6,7 @@
     <Nullable>enable</Nullable>
     <AssemblyName>bella</AssemblyName>
     <RootNamespace>BellaBaxter.Cli</RootNamespace>
-    <Version>0.1.1-preview.35</Version>
+    <Version>0.1.1-preview.36</Version>
 
     <!-- Global tool support (dev loop: dotnet pack + dotnet tool install -g) -->
     <PackAsTool>true</PackAsTool>
@@ -47,6 +47,6 @@
   </ItemGroup>
   <!-- Publish (public repo bella-baxter-cli): resolve from NuGet when project is absent -->
   <ItemGroup Condition="!Exists('$(MSBuildThisFileDirectory)../../sdk/dotnet/BellaBaxter.Client/BellaBaxter.Client.csproj')">
-    <PackageReference Include="BellaBaxter.Client" Version="0.1.1-preview.35" />
+    <PackageReference Include="BellaBaxter.Client" Version="0.1.1-preview.36" />
   </ItemGroup>
 </Project>
