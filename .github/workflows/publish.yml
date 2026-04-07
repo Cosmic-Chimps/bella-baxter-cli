@@ -121,6 +121,10 @@ jobs:
             os: ubuntu-latest
             artifact: cli-linux-musl-x64
             ext: ''
+          - rid: linux-musl-arm64
+            os: ubuntu-24.04-arm
+            artifact: cli-linux-musl-arm64
+            ext: ''
 
     runs-on: ${{ matrix.os }}
     steps:
@@ -168,7 +172,7 @@ jobs:
           path: ${{ matrix.artifact }}
           retention-days: 1
 
-  # ── 4. Publish Docker image (linux-x64 binary) ────────────────────────────
+  # ── 4. Publish Docker image (glibc + musl/Alpine) ────────────────────────────
   publish_docker:
     runs-on: ubuntu-latest
     needs: [resolve_version, build]
@@ -186,6 +190,12 @@ jobs:
           name: cli-linux-x64
           path: /tmp/bella-bin
 
+      - name: Download linux-musl-x64 binary
+        uses: actions/download-artifact@v8
+        with:
+          name: cli-linux-musl-x64
+          path: /tmp/bella-bin-musl
+
       - name: Log in to GHCR
         uses: docker/login-action@v3
         with:
@@ -196,7 +206,7 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Create Dockerfile
+      - name: Create glibc Dockerfile
         run: |
           cat > /tmp/bella-bin/Dockerfile << 'EOF'
           FROM scratch
@@ -205,7 +215,7 @@ jobs:
           EOF
           chmod +x /tmp/bella-bin/cli-linux-x64
 
-      - name: Build and push
+      - name: Build and push glibc image (:latest / :version)
         uses: docker/build-push-action@v6
         with:
           context: /tmp/bella-bin
@@ -213,6 +223,24 @@ jobs:
           tags: |
             ghcr.io/cosmic-chimps/bella-baxter-cli:latest
             ghcr.io/cosmic-chimps/bella-baxter-cli:${{ needs.resolve_version.outputs.version }}
+
+      - name: Create musl/Alpine Dockerfile
+        run: |
+          cat > /tmp/bella-bin-musl/Dockerfile << 'EOF'
+          FROM scratch
+          COPY cli-linux-musl-x64 /usr/local/bin/bella
+          ENTRYPOINT ["/usr/local/bin/bella"]
+          EOF
+          chmod +x /tmp/bella-bin-musl/cli-linux-musl-x64
+
+      - name: Build and push musl/Alpine image (:alpine / :version-alpine)
+        uses: docker/build-push-action@v6
+        with:
+          context: /tmp/bella-bin-musl
+          push: true
+          tags: |
+            ghcr.io/cosmic-chimps/bella-baxter-cli:alpine
+            ghcr.io/cosmic-chimps/bella-baxter-cli:${{ needs.resolve_version.outputs.version }}-alpine
 
   # ── 5. Create GitHub Release ───────────────────────────────────────────────
   create_release:
@@ -308,7 +336,11 @@ jobs:
 
             ### Docker (zero runtime dependencies)
             ```dockerfile
+            # glibc (Debian, Ubuntu, most distros)
             COPY --from=ghcr.io/cosmic-chimps/bella-baxter-cli:${{ needs.resolve_version.outputs.version }} /usr/local/bin/bella /usr/local/bin/bella
+
+            # musl (Alpine Linux)
+            COPY --from=ghcr.io/cosmic-chimps/bella-baxter-cli:${{ needs.resolve_version.outputs.version }}-alpine /usr/local/bin/bella /usr/local/bin/bella
             ```
 
             ### Manual download
@@ -322,7 +354,8 @@ jobs:
             | macOS Apple Silicon | `cli-osx-arm64` |
             | Linux x64 | `cli-linux-x64` |
             | Linux ARM64 | `cli-linux-arm64` |
-            | Linux (musl/Alpine) | `cli-linux-musl-x64` |
+            | Linux (musl/Alpine) x64 | `cli-linux-musl-x64` |
+            | Linux (musl/Alpine) ARM64 | `cli-linux-musl-arm64` |
             | NuGet dotnet tool | `BellaBaxter.Cli.${{ needs.resolve_version.outputs.version }}.nupkg` |
 
             ### Verify your download

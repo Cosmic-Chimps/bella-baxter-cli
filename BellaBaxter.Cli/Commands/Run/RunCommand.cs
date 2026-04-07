@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.Diagnostics;
+using System.Security.Cryptography;
 using BellaBaxter.Client;
 using BellaCli.Infrastructure;
 using BellaCli.Services;
@@ -13,6 +14,8 @@ public class RunCommand(
     CredentialStore credentials,
     ContextService contextService,
     WorkloadIdentityService workloadIdentity,
+    ZkeService zke,
+    DekLeaseCache dekCache,
     IOutputWriter output
 ) : AsyncCommand<RunCommand.Settings>
 {
@@ -49,6 +52,13 @@ public class RunCommand(
             "Application name injected as BELLA_BAXTER_APP_CLIENT (useful for audit logs)"
         )]
         public string? App { get; set; }
+
+        [CommandOption("--private-key <url>")]
+        [Description(
+            "Private key URL for M2M zero-knowledge decryption. " +
+            "Schemes: file:///path/key.pem  env://VAR_NAME  (future: aws-kms:// vault:// azure-kv://)"
+        )]
+        public string? PrivateKey { get; set; }
 
         [CommandArgument(0, "[cmd...]")]
         [Description("Command and arguments to run (prefix with --)")]
@@ -107,6 +117,54 @@ public class RunCommand(
             }
         }
 
+        // ── ZKE: upgrade client to ZkeDekHandler if device key or --private-key present ──
+        // This replaces E2EEncryptionHandler (ephemeral key) with ZkeDekHandler (persistent key)
+        // so the server can wrap the project DEK for this identity.
+        // Workload identity flows skip ZKE (they manage their own keys externally).
+        ECDiffieHellman? zkeEcdh = null;
+        if (workloadResult is null)
+        {
+            if (!string.IsNullOrEmpty(settings.PrivateKey))
+            {
+                // M2M: --private-key provided — derive ECDH key from URL
+                var pkcs8b64 = ZkeService.ResolvePrivateKeyFromUrl(settings.PrivateKey);
+                if (pkcs8b64 is not null)
+                {
+                    zkeEcdh = ECDiffieHellman.Create();
+                    zkeEcdh.ImportPkcs8PrivateKey(Convert.FromBase64String(pkcs8b64), out _);
+                }
+                else
+                {
+                    AnsiConsole.MarkupLine("[yellow]⚠ Could not resolve --private-key; ZKE disabled.[/]");
+                }
+            }
+            else
+            {
+                // Developer: use device key from bella auth setup
+                zkeEcdh = zke.LoadEcdhKey(); // null if not set up
+            }
+
+            if (zkeEcdh is not null)
+            {
+                var zkeHandler = new ZkeDekHandler(
+                    zkeEcdh,
+                    onWrappedDekReceived: (project, env, wrappedDek, expires) =>
+                        dekCache.Store(project, env, wrappedDek, expires));
+
+                try
+                {
+                    client = clientProvider.CreateClientWithZke(zkeHandler, settings.App);
+                    AnsiConsole.MarkupLine("[dim]🔐 ZKE enabled — secrets will be decrypted locally.[/]");
+                }
+                catch (Exception ex)
+                {
+                    AnsiConsole.MarkupLine($"[yellow]⚠ ZKE client setup failed ({ex.Message}); using standard client.[/]");
+                    zkeEcdh.Dispose();
+                    zkeEcdh = null;
+                }
+            }
+        }
+
         // Resolve project + environment
         string projectSlug,
             envSlug;
@@ -127,26 +185,27 @@ public class RunCommand(
         catch (Exception ex)
         {
             output.WriteError(ex.Message);
+            zkeEcdh?.Dispose();
             return 1;
         }
 
-        // Fetch providers for environment
+        // Fetch secrets — ZkeDekHandler (if active) handles ECIES + DEK transparently
         Dictionary<string, string> secrets;
         long? initialVersion;
         try
         {
-            (secrets, initialVersion) = await FetchSecretsAsync(
-                client,
-                projectSlug,
-                envSlug,
-                settings.Provider,
-                ct
-            );
+            (secrets, initialVersion) = await FetchSecretsAsync(client, projectSlug, envSlug, ct);
         }
         catch (Exception ex)
         {
             output.WriteError($"Failed to fetch secrets: {ex.Message}");
+            zkeEcdh?.Dispose();
             return 1;
+        }
+        finally
+        {
+            // Key used — dispose after secrets are fetched (handler no longer needs it)
+            // Note: ZkeDekHandler holds a reference but we own the key's lifetime
         }
 
         AnsiConsole.MarkupLine($"[dim]✓ Loaded [green]{secrets.Count}[/] secret(s) from Bella[/]");
@@ -170,23 +229,27 @@ public class RunCommand(
             );
         }
 
+        zkeEcdh?.Dispose();
         return SpawnProcess(args, secrets);
     }
 
-    private async Task<(Dictionary<string, string> Secrets, long? Version)> FetchSecretsAsync(
+    /// <summary>
+    /// Fetches secrets via the Bella API. When the client was created with
+    /// <see cref="ZkeDekHandler"/>, ECIES decryption and ZKE bellabaxter:v1: decryption
+    /// happen automatically inside the handler — this method just calls Kiota normally.
+    /// </summary>
+    private static async Task<(Dictionary<string, string> Secrets, long? Version)> FetchSecretsAsync(
         BellaClient client,
         string projectSlug,
         string envSlug,
-        string? providerFilter,
         CancellationToken ct
     )
     {
-        // Use the env-level endpoint — aggregates all providers, works with API keys,
-        // and does not require the E2E encryption header needed by per-provider endpoints.
         var resp = await client
             .Api.V1.Projects[projectSlug]
             .Environments[envSlug]
-            .Secrets.GetAsync(cancellationToken: ct);
+            .Secrets.GetAsync(null, ct);
+
         var secrets =
             resp?.Secrets?.AdditionalData?.ToStringDict()
             ?? new Dictionary<string, string>(StringComparer.Ordinal);
@@ -245,7 +308,6 @@ public class RunCommand(
                             client,
                             projectSlug,
                             envSlug,
-                            settings.Provider,
                             ct
                         );
                         currentSecrets = fresh;

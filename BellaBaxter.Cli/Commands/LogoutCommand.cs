@@ -11,7 +11,7 @@ public class LogoutSettings : CommandSettings
     public bool Force { get; init; }
 }
 
-public class LogoutCommand(AuthService auth, CredentialStore credentials, IOutputWriter output)
+public class LogoutCommand(AuthService auth, CredentialStore credentials, DekLeaseCache dekCache, IOutputWriter output)
     : Command<LogoutSettings>
 {
     public override int Execute(CommandContext context, LogoutSettings settings, CancellationToken ct)
@@ -33,6 +33,7 @@ public class LogoutCommand(AuthService auth, CredentialStore credentials, IOutpu
         }
 
         auth.Logout();
+        dekCache.Clear(); // evict all cached DEK leases on logout
         output.WriteSuccess("Logged out successfully.");
         return 0;
     }

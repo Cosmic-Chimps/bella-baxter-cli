@@ -5,6 +5,7 @@ using BellaCli.Commands.Auth;
 using BellaCli.Commands.Config;
 using BellaCli.Commands.Environments;
 using BellaCli.Commands.Exec;
+using BellaCli.Commands.Sdk;
 using BellaCli.Commands.Generate;
 using BellaCli.Commands.Issue;
 using BellaCli.Commands.Mcp;
@@ -31,8 +32,11 @@ services.AddSingleton<ConfigService>();
 services.AddSingleton<CredentialStore>();
 services.AddSingleton<BellaClientProvider>();
 services.AddSingleton<ContextService>();
+services.AddSingleton<ZkeService>();
+services.AddSingleton<DekLeaseCache>();
 services.AddHttpClient<AuthService>();
 services.AddHttpClient<WorkloadIdentityService>();
+services.AddHttpClient<AuthSetupCommand>();
 
 // OutputMode is resolved at runtime based on auth type / --json flag / TTY
 services.AddSingleton<IOutputWriter>(sp =>
@@ -52,6 +56,7 @@ services.AddTransient<LoginCommand>();
 services.AddTransient<LogoutCommand>();
 services.AddTransient<AuthStatusCommand>();
 services.AddTransient<AuthRefreshCommand>();
+services.AddTransient<AuthSetupCommand>();
 services.AddTransient<KeyContextService>();
 
 // Project commands
@@ -87,10 +92,11 @@ services.AddTransient<PullCommand>();
 services.AddTransient<ConfigShowCommand>();
 services.AddTransient<ConfigSetServerCommand>();
 
-// Generate + Run + Exec + Issue + Upgrade
+// Generate + Run + Exec (deprecated) + SDK + Issue + Upgrade
 services.AddTransient<GenerateCommand>();
 services.AddTransient<RunCommand>();
-services.AddTransient<ExecCommand>();
+services.AddTransient<SdkRunCommand>();
+services.AddTransient<DeprecatedExecCommand>();
 services.AddTransient<IssueCommand>();
 services.AddTransient<UpgradeCommand>();
 
@@ -182,6 +188,15 @@ app.Configure(config =>
                 .WithDescription("Show current authentication status.");
             auth.AddCommand<AuthRefreshCommand>("refresh")
                 .WithDescription("Manually refresh the OAuth2 access token.");
+            auth.AddCommand<AuthSetupCommand>("setup")
+                .WithDescription(
+                    "Set up per-device zero-knowledge encryption key. " +
+                    "Generates a P-256 keypair, stores the private key securely in your OS credential store, " +
+                    "and registers the public key with Bella so secrets can be decrypted locally."
+                )
+                .WithExample("auth", "setup")
+                .WithExample("auth", "setup", "--device-name", "\"MacBook Pro\"")
+                .WithExample("auth", "setup", "--force");
         }
     );
 
@@ -347,14 +362,34 @@ app.Configure(config =>
         .WithExample("pull", "-p", "my-project", "-e", "production", "-o", ".env");
 
     config
-        .AddCommand<ExecCommand>("exec")
+        .AddCommand<DeprecatedExecCommand>("exec")
         .WithDescription(
-            "Inject Bella connection credentials (API key + URL) and run a command. The subprocess uses the Bella SDK to discover its project/environment context from the API key."
+            "[[deprecated: use 'bella sdk run']] Inject Bella connection credentials (API key + URL) and run a command. The subprocess uses the Bella SDK to discover its project/environment context from the API key."
         )
         .WithExample("exec", "--", "node", "server.js")
         .WithExample("exec", "--", "npm", "start")
         .WithExample("exec", "--", "dotnet", "run")
         .WithExample("exec", "-p", "my-project", "-e", "production", "--", "node", "server.js");
+
+    config.AddBranch(
+        "sdk",
+        sdk =>
+        {
+            sdk.SetDescription(
+                "SDK integration commands — run apps that embed the Bella SDK and own their own secret lifecycle."
+            );
+            sdk.AddCommand<SdkRunCommand>("run")
+                .WithDescription(
+                    "Inject Bella connection credentials (API key + URL) and run a command. "
+                        + "The subprocess uses the Bella SDK to fetch and hot-reload secrets. "
+                        + "Unlike 'bella run', secrets are never fetched by the CLI — the app's SDK owns the lifecycle."
+                )
+                .WithExample("sdk", "run", "--", "node", "server.js")
+                .WithExample("sdk", "run", "--", "npm", "start")
+                .WithExample("sdk", "run", "--", "dotnet", "run")
+                .WithExample("sdk", "run", "-p", "my-project", "-e", "production", "--", "node", "server.js");
+        }
+    );
 
     config
         .AddCommand<IssueCommand>("issue")

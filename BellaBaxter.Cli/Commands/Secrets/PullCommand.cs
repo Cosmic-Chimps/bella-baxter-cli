@@ -12,10 +12,12 @@ namespace BellaCli.Commands.Secrets;
 public class PullCommand(
     BellaClientProvider provider,
     ContextService context,
-    IOutputWriter output
+    IOutputWriter output,
+    ZkeService zke,
+    DekLeaseCache dekCache
 ) : AsyncCommand<GetSecretsSettings>
 {
-    private readonly GetSecretsCommand _inner = new(provider, context, output);
+    private readonly GetSecretsCommand _inner = new(provider, context, output, zke, dekCache);
 
     public override Task<int> ExecuteAsync(
         CommandContext ctx,

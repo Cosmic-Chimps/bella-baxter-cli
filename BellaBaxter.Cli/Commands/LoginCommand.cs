@@ -17,7 +17,7 @@ public class LoginSettings : CommandSettings
     public bool Json { get; init; }
 }
 
-public class LoginCommand(AuthService auth, CredentialStore credentials, KeyContextService keyContext, IOutputWriter output)
+public class LoginCommand(AuthService auth, CredentialStore credentials, KeyContextService keyContext, ZkeService zke, IOutputWriter output)
     : AsyncCommand<LoginSettings>
 {
     public override async Task<int> ExecuteAsync(
@@ -99,6 +99,13 @@ public class LoginCommand(AuthService auth, CredentialStore credentials, KeyCont
 
             output.WriteSuccess($"Logged in successfully. Token expires at {tokens.ExpiresAt:u}.");
             TryUpdateBellaOrg(tokens.OrgSlug);
+
+            // ZKE hint — show once if device key not yet set up
+            if (!zke.HasKeypair())
+                AnsiConsole.MarkupLine(
+                    "[dim]💡 Tip: run [cyan]bella auth setup[/] to enable zero-knowledge secret " +
+                    "decryption so your secrets are decrypted locally by the CLI.[/]");
+
             return 0;
         }
         catch (OperationCanceledException)

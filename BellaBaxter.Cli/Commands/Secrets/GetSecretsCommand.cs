@@ -1,3 +1,4 @@
+using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using BellaBaxter.Client;
@@ -42,12 +43,22 @@ public class GetSecretsSettings : CommandSettings
     /// </summary>
     [CommandOption("--app <NAME>")]
     public string? App { get; init; }
+
+    /// <summary>
+    /// Path or URL to the PKCS#8 P-256 private key for ZKE (Zero-Knowledge Encryption).
+    /// Supports: file:///path/key.pem, env://VAR_NAME, or a bare file path.
+    /// When omitted, the device key from <c>bella auth setup</c> is used if available.
+    /// </summary>
+    [CommandOption("--private-key <URL>")]
+    public string? PrivateKey { get; init; }
 }
 
 public class GetSecretsCommand(
     BellaClientProvider provider,
     ContextService context,
-    IOutputWriter output
+    IOutputWriter output,
+    ZkeService zke,
+    DekLeaseCache dekCache
 ) : AsyncCommand<GetSecretsSettings>
 {
     private static readonly Regex HierarchySeparator = new(@"__|:", RegexOptions.Compiled);
@@ -76,10 +87,42 @@ public class GetSecretsCommand(
         var jsonMode = effectiveFormat is "json" or "json-nested";
         provider.ApplyOutputModeOverrides(settings.Json || jsonMode);
 
+        // ZKE: upgrade to a ZkeDekHandler client when a device key or --private-key is available.
+        ECDiffieHellman? zkeEcdh = null;
+        if (!string.IsNullOrEmpty(settings.PrivateKey))
+        {
+            var pkcs8b64 = ZkeService.ResolvePrivateKeyFromUrl(settings.PrivateKey);
+            if (pkcs8b64 is not null)
+            {
+                zkeEcdh = ECDiffieHellman.Create();
+                zkeEcdh.ImportPkcs8PrivateKey(Convert.FromBase64String(pkcs8b64), out _);
+            }
+            else
+            {
+                AnsiConsole.MarkupLine("[yellow]⚠ Could not resolve --private-key; ZKE disabled.[/]");
+            }
+        }
+        else
+        {
+            zkeEcdh = zke.LoadEcdhKey();
+        }
+
         BellaClient client;
         try
         {
-            client = provider.CreateClient(settings.App);
+            if (zkeEcdh is not null)
+            {
+                var zkeHandler = new ZkeDekHandler(
+                    zkeEcdh,
+                    onWrappedDekReceived: (project, env, wrappedDek, expires) =>
+                        dekCache.Store(project, env, wrappedDek, expires));
+                client = provider.CreateClientWithZke(zkeHandler, settings.App);
+                AnsiConsole.MarkupLine("[dim]🔐 ZKE enabled — secrets will be decrypted locally.[/]");
+            }
+            else
+            {
+                client = provider.CreateClient(settings.App);
+            }
         }
         catch (InvalidOperationException)
         {

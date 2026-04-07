@@ -170,7 +170,56 @@ public class BellaClientProvider(
         throw new InvalidOperationException("Not authenticated. Run 'bella login' first.");
     }
 
-    /// <summary>Applies OutputMode.Json if --json flag was passed or stdout is redirected.</summary>
+    /// <summary>
+    /// Creates a ZKE-enabled BellaClient using the provided <see cref="ZkeDekHandler"/>.
+    /// Uses <c>CreateWithHmacApiKeyAndZke</c> / <c>CreateWithBearerTokenAndZke</c> so the
+    /// handler handles both ECIES transport decryption and ZKE wrapped-DEK capture in one pass.
+    /// </summary>
+    public BellaClient CreateClientWithZke(ZkeDekHandler zkeHandler, string? appClientOverride = null)
+    {
+        var apiUrl = config.ApiUrl;
+        var appClient = appClientOverride ?? Environment.GetEnvironmentVariable("BELLA_BAXTER_APP_CLIENT");
+
+        var envApiKey = Environment.GetEnvironmentVariable("BELLA_BAXTER_API_KEY");
+        if (envApiKey is not null)
+        {
+            settings.OutputMode = OutputMode.Json;
+            return BellaClientFactory.CreateWithHmacApiKeyAndZke(
+                apiUrl, envApiKey, zkeHandler,
+                DebugLoggingHandler.IsEnabled ? new DebugLoggingHandler() : null,
+                bellaClient: "bella-cli", appClient: appClient);
+        }
+
+        var envToken = Environment.GetEnvironmentVariable("BELLA_BAXTER_ACCESS_TOKEN");
+        if (envToken is not null)
+        {
+            if (WorkloadIdentityService.IsWorkloadEnvironment())
+                throw new InvalidOperationException(CiJwtError);
+            return BellaClientFactory.CreateWithBearerTokenAndZke(apiUrl, envToken, zkeHandler);
+        }
+
+        var apiKey = credentials.LoadApiKey();
+        if (apiKey is not null)
+        {
+            settings.OutputMode = OutputMode.Json;
+            return BellaClientFactory.CreateWithHmacApiKeyAndZke(
+                apiUrl, apiKey.Raw, zkeHandler,
+                DebugLoggingHandler.IsEnabled ? new DebugLoggingHandler() : null,
+                bellaClient: "bella-cli", appClient: appClient);
+        }
+
+        var tokens = credentials.LoadTokens();
+        if (tokens is not null)
+        {
+            if (WorkloadIdentityService.IsWorkloadEnvironment())
+                throw new InvalidOperationException(CiJwtError);
+            return BellaClientFactory.CreateWithBearerTokenAndZke(apiUrl, tokens.AccessToken, zkeHandler);
+        }
+
+        throw new InvalidOperationException("Not authenticated. Run 'bella login' first.");
+    }
+
+
     public void ApplyOutputModeOverrides(bool jsonFlag)
     {
         if (jsonFlag || Console.IsOutputRedirected)

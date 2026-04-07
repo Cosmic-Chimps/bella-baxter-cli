@@ -29,7 +29,7 @@ Bella CLI is a **self-contained binary** with zero runtime dependencies. No Node
     - [Fish Shell](#fish-shell)
     - [PowerShell (Windows)](#powershell-windows)
   - [Commands Reference](#commands-reference)
-  - [`bella run` vs `bella exec`](#bella-run-vs-bella-exec)
+  - [`bella run` vs `bella sdk run`](#bella-run-vs-bella-sdk-run)
   - [Workload Identity (GitHub Actions / Kubernetes)](#workload-identity-github-actions--kubernetes)
   - [Issuing Scoped Tokens (`bella issue`)](#issuing-scoped-tokens-bella-issue)
   - [Shell Credential Export (`bella env`)](#shell-credential-export-bella-env)
@@ -620,7 +620,7 @@ bella generate --quiet        Output raw value only (for piping/clipboard)
 bella run -- <command>        Run a command with secrets injected as env vars
 bella run --watch -- <cmd>    Re-run on secret changes
 
-bella exec -- <command>       Inject API key only; SDK inside the app fetches secrets
+bella sdk run -- <command>    Inject API key only; SDK inside the app fetches secrets
 
 bella issue --scope <names>   Issue a short-lived scoped API token for a task/agent
 
@@ -643,7 +643,7 @@ bella mcp --print-config      Print Claude Desktop / VS Code config snippets
 
 ---
 
-## `bella run` vs `bella exec`
+## `bella run` vs `bella sdk run`
 
 Both commands spawn a subprocess with Bella credentials available. They differ in **who fetches the secrets** — the CLI or the app itself.
 
@@ -681,10 +681,10 @@ bella run -p myapp -e prod --watch --signal sighup -- gunicorn app:app
 
 ---
 
-### `bella exec` — inject API key only, SDK fetches secrets inside the app
+### `bella sdk run` — inject API key only, SDK fetches secrets inside the app
 
 ```bash
-bella exec -- node server.js
+bella sdk run -- node server.js
 ```
 
 1. CLI resolves the stored API key (`bax-…` token)
@@ -696,36 +696,38 @@ bella exec -- node server.js
 
 ```bash
 # Typical usage — app uses the Bella SDK
-bella exec -- node server.js
+bella sdk run -- node server.js
 
-# The API key can also be supplied via env var (bella exec respects it too)
-BELLA_BAXTER_API_KEY=bax-xxx bella exec -- ./deploy.sh
+# The API key can also be supplied via env var
+BELLA_BAXTER_API_KEY=bax-xxx bella sdk run -- ./deploy.sh
 ```
 
 **Good for:** Apps that use the Bella SDK (`bella-js`, `bella-dotnet`, etc.). The app controls when and how secrets are fetched — enabling patterns like deferred loading, per-request secret refresh, and automatic retries.
+
+> **Note:** `bella exec` still works but is deprecated. It will print a warning and behave identically to `bella sdk run`.
 
 ---
 
 ### Which one should I use?
 
-| | `bella run` | `bella exec` |
+| | `bella run` | `bella sdk run` |
 |---|---|---|
 | **Bella SDK required in child** | No | Yes |
 | **What gets injected** | All secrets as individual env vars | Only `BELLA_BAXTER_API_KEY` + `BELLA_BAXTER_URL` |
 | **Secrets ever in CLI process** | Yes (fetched before spawn) | Never |
-| **Watch / auto-reload** | ✅ `--watch` flag | ❌ |
+| **Watch / auto-reload** | ✅ `--watch` flag | ❌ (SDK polls internally) |
 | **Project/env flags needed** | Yes (or `.bella` file) | No — encoded in the API key¹ |
 | **Best for** | Any process, no SDK needed | SDK-powered apps, long-running services |
 
-**Rule of thumb:** Use `bella run` for scripts and legacy apps. Use `bella exec` when your app already integrates the Bella SDK and you want the app to own its own secret lifecycle.
+**Rule of thumb:** Use `bella run` for scripts and legacy apps. Use `bella sdk run` when your app already integrates the Bella SDK and you want the app to own its own secret lifecycle.
 
-> ¹ `bella exec` is designed for API key auth — the SDK inside the app calls `/api/v1/keys/me` to resolve project + environment directly from the key. Human developers using OAuth should use `bella run` with a `.bella` file instead.
+> ¹ `bella sdk run` is designed for API key auth — the SDK inside the app calls `/api/v1/keys/me` to resolve project + environment directly from the key. Human developers using OAuth should use `bella run` with a `.bella` file instead.
 
 ---
 
 ## Workload Identity (GitHub Actions / Kubernetes)
 
-When running inside **GitHub Actions** (with `id-token: write` permission) or a **Kubernetes Pod**, `bella exec` and `bella run` automatically exchange the platform-issued OIDC token for a short-lived Bella API key — no stored credentials required.
+When running inside **GitHub Actions** (with `id-token: write` permission) or a **Kubernetes Pod**, `bella sdk run` and `bella run` automatically exchange the platform-issued OIDC token for a short-lived Bella API key — no stored credentials required.
 
 ### GitHub Actions
 
@@ -738,7 +740,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - name: Deploy with Bella secrets
-        run: bella exec -p my-project -e production -- ./deploy.sh
+        run: bella sdk run -p my-project -e production -- ./deploy.sh
 ```
 
 No `bella login` step is needed. When `ACTIONS_ID_TOKEN_REQUEST_URL` and `ACTIONS_ID_TOKEN_REQUEST_TOKEN` are set, the CLI requests a GitHub OIDC token and exchanges it for a `bax-…` key scoped to the specified project and environment.
@@ -749,12 +751,12 @@ Any pod that mounts a ServiceAccount token (`/var/run/secrets/kubernetes.io/serv
 
 ```yaml
 # No extra config — the SA token is auto-detected
-command: ["bella", "exec", "-p", "my-project", "-e", "production", "--", "node", "server.js"]
+command: ["bella", "sdk", "run", "-p", "my-project", "-e", "production", "--", "node", "server.js"]
 ```
 
 ### Priority order for credentials
 
-`bella exec` and `bella run` resolve credentials in this order:
+`bella sdk run` and `bella run` resolve credentials in this order:
 
 1. **Workload identity** — GitHub Actions OIDC or Kubernetes SA token (automatic, no config)
 2. **Stored API key** — from `bella login --api-key`
