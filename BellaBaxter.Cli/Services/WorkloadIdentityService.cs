@@ -365,15 +365,19 @@ public class WorkloadIdentityService(HttpClient httpClient, ConfigService config
         if (DetectPlatform() == WorkloadPlatform.None)
             return null;
 
-        var (projectSlug, environmentSlug) = ResolveSlugs(explicitProject, explicitEnvironment);
-        if (string.IsNullOrWhiteSpace(projectSlug) || string.IsNullOrWhiteSpace(environmentSlug))
-            return null;
-
         var oidcToken = await GetOidcTokenAsync(audience, ct);
         if (string.IsNullOrEmpty(oidcToken))
             return null;
 
-        return await ExchangeBySlugAsync(projectSlug, environmentSlug, oidcToken, ct);
+        var (projectSlug, environmentSlug) = ResolveSlugs(explicitProject, explicitEnvironment);
+
+        // If both slugs are known, use scoped exchange (slightly cheaper).
+        // Otherwise fall back to global exchange — the server finds the matching
+        // TrustDomain by issuer and the returned token carries the environment context.
+        if (!string.IsNullOrWhiteSpace(projectSlug) && !string.IsNullOrWhiteSpace(environmentSlug))
+            return await ExchangeBySlugAsync(projectSlug, environmentSlug, oidcToken, ct);
+
+        return await ExchangeGlobalAsync(oidcToken, ct);
     }
 }
 

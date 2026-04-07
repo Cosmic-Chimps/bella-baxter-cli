@@ -9,8 +9,7 @@ namespace BellaCli.Services;
 public class ContextService(
     ConfigService config,
     IOutputWriter output,
-    CredentialStore credentials,
-    KeyContextService keyContext
+    CredentialStore credentials
 )
 {
     public async Task<(
@@ -141,16 +140,22 @@ public class ContextService(
             throw new InvalidOperationException($"Project '{projectArg}' not found.");
         }
 
-        // 2. API key mode → context comes from the key itself (GET /api/v1/keys/me)
-        if (credentials.LoadApiKey() is not null)
+        // 2. API key context — works for stored API keys AND OIDC workload identity tokens.
+        //    JWT/SSO clients return a null ProjectSlug → fall through to .bella file.
+        try
         {
-            var ctx = await keyContext.DiscoverAsync(ct);
-            if (ctx?.ProjectSlug is not null)
-                return (ctx.ProjectSlug, ctx.ProjectName, ctx.ProjectSlug);
-            throw new InvalidOperationException(
-                "Could not resolve project from API key. Is the server reachable?"
-            );
+            var keyCtx = await client.Api.V1.Keys.Me.GetAsync(cancellationToken: ct);
+            if (keyCtx?.ProjectSlug is not null)
+                return (keyCtx.ProjectSlug, keyCtx.ProjectName ?? keyCtx.ProjectSlug, keyCtx.ProjectSlug);
+
+            // Stored API key with no project context is an error; JWT falls through silently.
+            if (credentials.LoadApiKey() is not null)
+                throw new InvalidOperationException(
+                    "Could not resolve project from API key. Is the server reachable?"
+                );
         }
+        catch (InvalidOperationException) { throw; }
+        catch { /* JWT mode or network error — fall through to .bella file */ }
 
         // 3. .bella file in current directory or any parent (directory-scoped, like .git)
         var (bellaProject, _, _) = ContextCommand.ResolveContext(config);
@@ -230,25 +235,25 @@ public class ContextService(
             );
         }
 
-        // 2. API key mode → environment from the key itself
-        if (credentials.LoadApiKey() is not null)
+        // 2. API key context (stored or OIDC workload) — GET /api/v1/keys/me
+        //    JWT/SSO clients return null EnvironmentSlug → fall through to .bella file.
+        try
         {
-            var ctx = await keyContext.DiscoverAsync(ct);
-            if (ctx?.EnvironmentSlug is not null)
+            var keyCtx = await client.Api.V1.Keys.Me.GetAsync(cancellationToken: ct);
+            if (keyCtx?.EnvironmentSlug is not null)
                 return (
-                    ctx.EnvironmentSlug,
-                    ctx.EnvironmentName ?? ctx.EnvironmentSlug,
-                    ctx.EnvironmentSlug
+                    keyCtx.EnvironmentSlug,
+                    keyCtx.EnvironmentName ?? keyCtx.EnvironmentSlug,
+                    keyCtx.EnvironmentSlug
                 );
-            // Manager/Admin API keys have no env scope — let them pick
+            // Manager/Admin API keys have no env scope — let them pick interactively.
         }
-        else
-        {
-            // 3. .bella file
-            var (_, bellaEnv, _) = ContextCommand.ResolveContext(config);
-            if (bellaEnv is not null)
-                return (bellaEnv, bellaEnv, bellaEnv);
-        }
+        catch { /* fall through */ }
+
+        // 3. .bella file
+        var (_, bellaEnv, _) = ContextCommand.ResolveContext(config);
+        if (bellaEnv is not null)
+            return (bellaEnv, bellaEnv, bellaEnv);
 
         // 4. Interactive
         if (Console.IsOutputRedirected || output is JsonOutputWriter)
