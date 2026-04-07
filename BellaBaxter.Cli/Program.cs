@@ -57,6 +57,7 @@ services.AddTransient<LogoutCommand>();
 services.AddTransient<AuthStatusCommand>();
 services.AddTransient<AuthRefreshCommand>();
 services.AddTransient<AuthSetupCommand>();
+services.AddTransient<AuthOidcCommand>();
 services.AddTransient<KeyContextService>();
 
 // Project commands
@@ -197,6 +198,14 @@ app.Configure(config =>
                 .WithExample("auth", "setup")
                 .WithExample("auth", "setup", "--device-name", "\"MacBook Pro\"")
                 .WithExample("auth", "setup", "--force");
+            auth.AddCommand<AuthOidcCommand>("oidc")
+                .WithDescription(
+                    "Exchange a platform OIDC token for a short-lived Bella API key and export it " +
+                    "to the CI environment (BELLA_API_KEY). The role of the issued key (Consumer or Manager) " +
+                    "is determined by the TrustDomain configured in Bella for this project/environment."
+                )
+                .WithExample("auth", "oidc", "--project", "my-api", "--env", "production")
+                .WithExample("auth", "oidc", "-p", "my-api", "-e", "production", "--json");
         }
     );
 

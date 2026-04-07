@@ -302,12 +302,7 @@ public class WorkloadIdentityService(HttpClient httpClient, ConfigService config
         {
             var response = await httpClient.PostAsJsonAsync(
                 url,
-                new
-                {
-                    oidcToken,
-                    projectSlug,
-                    environmentSlug,
-                },
+                new { oidcToken, projectSlug, environmentSlug },
                 JsonOpts,
                 ct
             );
@@ -316,10 +311,34 @@ public class WorkloadIdentityService(HttpClient httpClient, ConfigService config
                 ? await response.Content.ReadFromJsonAsync<OidcExchangeResult>(JsonOpts, ct)
                 : null;
         }
-        catch
+        catch { return null; }
+    }
+
+    /// <summary>
+    /// Global exchange — no project/environment context required.
+    /// The server finds the matching TrustDomain by OIDC issuer across all environments.
+    /// The role of the issued key (Consumer/Manager) is determined by the TrustDomain.
+    /// </summary>
+    public async Task<OidcExchangeResult?> ExchangeGlobalAsync(
+        string oidcToken,
+        CancellationToken ct = default
+    )
+    {
+        var url = $"{config.ApiUrl.TrimEnd('/')}/api/v1/token";
+        try
         {
-            return null;
+            var response = await httpClient.PostAsJsonAsync(
+                url,
+                new { oidcToken },
+                JsonOpts,
+                ct
+            );
+
+            return response.IsSuccessStatusCode
+                ? await response.Content.ReadFromJsonAsync<OidcExchangeResult>(JsonOpts, ct)
+                : null;
         }
+        catch { return null; }
     }
 
     // ── High-level auto-exchange ──────────────────────────────────────────────
