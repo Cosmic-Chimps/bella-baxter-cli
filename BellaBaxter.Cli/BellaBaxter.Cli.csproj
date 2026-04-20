@@ -6,7 +6,7 @@
     <Nullable>enable</Nullable>
     <AssemblyName>bella</AssemblyName>
     <RootNamespace>BellaBaxter.Cli</RootNamespace>
-    <Version>0.1.1-preview.50</Version>
+    <Version>0.1.1-preview.51</Version>
 
     <!-- Global tool support (dev loop: dotnet pack + dotnet tool install -g) -->
     <PackAsTool>true</PackAsTool>
@@ -47,7 +47,7 @@
   </ItemGroup>
   <!-- Publish (public repo bella-baxter-cli): resolve from NuGet when project is absent -->
   <ItemGroup Condition="!Exists('$(MSBuildThisFileDirectory)../../sdk/dotnet/BellaBaxter.Client/BellaBaxter.Client.csproj')">
-    <PackageReference Include="BellaBaxter.Client" Version="0.1.1-preview.50" />
+    <PackageReference Include="BellaBaxter.Client" Version="0.1.1-preview.51" />
   </ItemGroup>
 
   <!-- Dev (monorepo): direct project reference when BellaBaxter.Crypto source is on disk -->
@@ -56,6 +56,6 @@
   </ItemGroup>
   <!-- Publish (public repo): resolve from NuGet when project is absent -->
   <ItemGroup Condition="!Exists('$(MSBuildThisFileDirectory)../../sdk/crypto/BellaBaxter.Crypto.csproj')">
-    <PackageReference Include="BellaBaxter.Crypto" Version="0.1.1-preview.50" />
+    <PackageReference Include="BellaBaxter.Crypto" Version="0.1.1-preview.51" />
   </ItemGroup>
 </Project>
