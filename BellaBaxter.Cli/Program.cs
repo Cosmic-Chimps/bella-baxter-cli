@@ -5,7 +5,6 @@ using BellaCli.Commands.Auth;
 using BellaCli.Commands.Config;
 using BellaCli.Commands.Environments;
 using BellaCli.Commands.Exec;
-using BellaCli.Commands.Sdk;
 using BellaCli.Commands.Generate;
 using BellaCli.Commands.Issue;
 using BellaCli.Commands.Mcp;
@@ -14,11 +13,13 @@ using BellaCli.Commands.Orgs;
 using BellaCli.Commands.Projects;
 using BellaCli.Commands.Providers;
 using BellaCli.Commands.Run;
+using BellaCli.Commands.Sdk;
 using BellaCli.Commands.Secrets;
 using BellaCli.Commands.Shell;
 using BellaCli.Commands.Ssh;
 using BellaCli.Commands.Totp;
 using BellaCli.Commands.Upgrade;
+using BellaCli.Commands.Usage;
 using BellaCli.Infrastructure;
 using BellaCli.Services;
 using Microsoft.Extensions.DependencyInjection;
@@ -100,6 +101,7 @@ services.AddTransient<SdkRunCommand>();
 services.AddTransient<DeprecatedExecCommand>();
 services.AddTransient<IssueCommand>();
 services.AddTransient<UpgradeCommand>();
+services.AddTransient<UsageCommand>();
 
 // Context + Shell commands
 services.AddTransient<ContextCommand>();
@@ -191,21 +193,22 @@ app.Configure(config =>
                 .WithDescription("Manually refresh the OAuth2 access token.");
             auth.AddCommand<AuthSetupCommand>("setup")
                 .WithDescription(
-                    "Set up per-device zero-knowledge encryption key. " +
-                    "Generates a P-256 keypair, stores the private key securely in your OS credential store, " +
-                    "and registers the public key with Bella so secrets can be decrypted locally."
+                    "Set up per-device zero-knowledge encryption key. "
+                        + "Generates a P-256 keypair, stores the private key securely in your OS credential store, "
+                        + "and registers the public key with Bella so secrets can be decrypted locally."
                 )
                 .WithExample("auth", "setup")
                 .WithExample("auth", "setup", "--device-name", "\"MacBook Pro\"")
                 .WithExample("auth", "setup", "--force");
             auth.AddCommand<AuthOidcCommand>("oidc")
                 .WithDescription(
-                    "Exchange a platform OIDC token for a short-lived Bella API key and export it " +
-                    "to the CI environment (BELLA_API_KEY). The role of the issued key (Consumer or Manager) " +
-                    "is determined by the TrustDomain configured in Bella for this project/environment."
+                    "Exchange a platform OIDC token for a short-lived Bella API key and export it "
+                        + "to the CI environment (BELLA_API_KEY). The role of the issued key (Consumer or Manager) "
+                        + "is determined by the TrustDomain configured in Bella for this project/environment."
                 )
-                .WithExample("auth", "oidc", "--project", "my-api", "--env", "production")
-                .WithExample("auth", "oidc", "-p", "my-api", "-e", "production", "--json");
+                .WithExample("auth", "oidc")
+                .WithExample("auth", "oidc", "--json")
+                .WithExample("auth", "oidc", "--audience", "my-audience");
         }
     );
 
@@ -396,7 +399,17 @@ app.Configure(config =>
                 .WithExample("sdk", "run", "--", "node", "server.js")
                 .WithExample("sdk", "run", "--", "npm", "start")
                 .WithExample("sdk", "run", "--", "dotnet", "run")
-                .WithExample("sdk", "run", "-p", "my-project", "-e", "production", "--", "node", "server.js");
+                .WithExample(
+                    "sdk",
+                    "run",
+                    "-p",
+                    "my-project",
+                    "-e",
+                    "production",
+                    "--",
+                    "node",
+                    "server.js"
+                );
         }
     );
 
@@ -554,6 +567,12 @@ app.Configure(config =>
                 .WithExample("ssh", "connect", "ubuntu@myserver.example.com", "--role", "ops");
         }
     );
+
+    config
+        .AddCommand<UsageCommand>("usage")
+        .WithDescription("Show API usage and billing status for the current month.")
+        .WithExample("usage")
+        .WithExample("usage", "--json");
 
     config
         .AddCommand<AgentCommand>("agent")
