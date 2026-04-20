@@ -36,16 +36,21 @@ public class GetProviderCommand(BellaClientProvider provider, IOutputWriter outp
             ProviderResponse? prov = null;
             await AnsiConsole.Status().StartAsync("Loading provider...", async _ =>
             {
-                // Try direct lookup first
-                try
+                if (Guid.TryParse(settings.Identifier, out var guid))
                 {
-                    prov = await client.Api.V1.Providers[settings.Identifier].GetAsync(cancellationToken: ct);
+                    // Direct GUID lookup
+                    prov = await client.Api.V1.Providers[guid].GetAsync(cancellationToken: ct);
                 }
-                catch
+                else
                 {
-                    // Fall back to list search by name
+                    // Slug or name — resolve via list
                     var all = await client.Api.V1.Providers.GetAsync(cancellationToken: ct);
-                    prov = all?.FirstOrDefault(p => string.Equals(p.Name, settings.Identifier, StringComparison.OrdinalIgnoreCase));
+                    prov = all?.FirstOrDefault(p =>
+                        string.Equals(p.Slug, settings.Identifier, StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(p.Name, settings.Identifier, StringComparison.OrdinalIgnoreCase));
+                    // Fetch full detail via GUID once resolved
+                    if (prov?.Id is string idStr && Guid.TryParse(idStr, out var resolvedId))
+                        prov = await client.Api.V1.Providers[resolvedId].GetAsync(cancellationToken: ct);
                 }
             });
 
