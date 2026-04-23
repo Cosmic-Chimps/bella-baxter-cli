@@ -16,6 +16,7 @@ using BellaCli.Commands.Run;
 using BellaCli.Commands.Sdk;
 using BellaCli.Commands.Secrets;
 using BellaCli.Commands.Shell;
+using BellaCli.Commands.Pki;
 using BellaCli.Commands.Ssh;
 using BellaCli.Commands.Totp;
 using BellaCli.Commands.Upgrade;
@@ -131,6 +132,14 @@ services.AddTransient<CreateSshRoleCommand>();
 services.AddTransient<DeleteSshRoleCommand>();
 services.AddTransient<SignSshKeyCommand>();
 services.AddTransient<ConnectSshCommand>();
+
+services.AddTransient<ConfigurePkiCaCommand>();
+services.AddTransient<GetPkiCaCommand>();
+services.AddTransient<IssuePkiCertCommand>();
+services.AddTransient<RevokePkiCertCommand>();
+services.AddTransient<ListPkiRolesCommand>();
+services.AddTransient<CreatePkiRoleCommand>();
+services.AddTransient<DeletePkiRoleCommand>();
 
 // ── Spectre.Console.Cli app ──────────────────────────────────────────────────
 var registrar = new TypeRegistrar(services);
@@ -565,6 +574,50 @@ app.Configure(config =>
                 .WithDescription("Sign key (if needed) and open an SSH connection.")
                 .WithExample("ssh", "connect", "ec2-user@10.0.0.1")
                 .WithExample("ssh", "connect", "ubuntu@myserver.example.com", "--role", "ops");
+        }
+    );
+
+    config.AddBranch(
+        "pki",
+        pki =>
+        {
+            pki.SetDescription("PKI certificates — issue TLS certs from your internal CA or use ACME.");
+
+            pki.AddCommand<ConfigurePkiCaCommand>("configure")
+                .WithDescription("Set up a Private Certificate Authority (CA) for an environment.")
+                .WithExample("pki", "configure")
+                .WithExample("pki", "configure", "--common-name", "Acme Corp Root CA", "--org", "Acme Corp");
+
+            pki.AddCommand<GetPkiCaCommand>("ca")
+                .WithDescription("Show the CA certificate and ACME directory URL for an environment.")
+                .WithExample("pki", "ca")
+                .WithExample("pki", "ca", "--output", "ca.pem");
+
+            pki.AddBranch(
+                "roles",
+                roles =>
+                {
+                    roles.SetDescription("Manage PKI roles (define allowed domains and TTLs).");
+                    roles.AddCommand<ListPkiRolesCommand>("list")
+                        .WithDescription("List PKI roles for an environment.")
+                        .WithExample("pki", "roles", "list");
+                    roles.AddCommand<CreatePkiRoleCommand>("create")
+                        .WithDescription("Create a PKI role.")
+                        .WithExample("pki", "roles", "create", "--name", "web-tls", "--allowed-domains", "example.com", "--allow-subdomains")
+                        .WithExample("pki", "roles", "create", "--name", "internal", "--allow-any-name");
+                    roles.AddCommand<DeletePkiRoleCommand>("delete")
+                        .WithDescription("Delete a PKI role.")
+                        .WithExample("pki", "roles", "delete", "--name", "web-tls");
+                });
+
+            pki.AddCommand<IssuePkiCertCommand>("issue")
+                .WithDescription("Issue a TLS certificate from the environment CA.")
+                .WithExample("pki", "issue", "--cn", "example.com")
+                .WithExample("pki", "issue", "--cn", "api.example.com", "--alt-names", "www.example.com", "--out", "certs/api");
+
+            pki.AddCommand<RevokePkiCertCommand>("revoke")
+                .WithDescription("Revoke a certificate by serial number.")
+                .WithExample("pki", "revoke", "--serial", "12:34:ab:cd");
         }
     );
 
