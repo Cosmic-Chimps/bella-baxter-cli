@@ -228,8 +228,11 @@ main() {
   fi
 
   # Smoke test
+  smoke_output=$("$tmp_binary" --version 2>&1 || true)
   if ! "$tmp_binary" --version &>/dev/null; then
-    error "Downloaded binary failed to execute. Please report this at https://github.com/${REPO}/issues"
+    error "Downloaded binary failed to execute.
+  Output: ${smoke_output}
+  Please report this at https://github.com/${REPO}/issues"
   fi
 
   # Install
