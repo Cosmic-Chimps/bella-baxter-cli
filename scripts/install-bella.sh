@@ -144,12 +144,32 @@ verify_gpg_signature() {
 
   info "Verifying GPG signature..."
 
-  # Import Cosmic Chimps public signing key (bundled in the repo)
-  local pubkey_url="https://raw.githubusercontent.com/${REPO}/main/scripts/bella-signing-key.asc"
+  # Cosmic Chimps release signing key
+  # Fingerprint: 65BB8D3CEEE3DD9E4FFD22B4119F114CA309C2FA
+  # Key: https://keys.openpgp.org/search?q=65BB8D3CEEE3DD9E4FFD22B4119F114CA309C2FA
+  local SIGNING_FINGERPRINT="65BB8D3CEEE3DD9E4FFD22B4119F114CA309C2FA"
   local pubkey_tmp="${sig_file}.pubkey"
-  if download_optional "$pubkey_url" "$pubkey_tmp" && [ -s "$pubkey_tmp" ]; then
+  local key_imported=0
+
+  # Try keyserver first, fall back to repo-bundled key
+  if curl -sSfL "https://keys.openpgp.org/vks/v1/by-fingerprint/${SIGNING_FINGERPRINT}" \
+       -o "$pubkey_tmp" 2>/dev/null && [ -s "$pubkey_tmp" ]; then
     gpg --batch --import "$pubkey_tmp" 2>/dev/null || true
     rm -f "$pubkey_tmp"
+    key_imported=1
+  else
+    local pubkey_url="https://raw.githubusercontent.com/${REPO}/main/scripts/bella-signing-key.asc"
+    if download_optional "$pubkey_url" "$pubkey_tmp" && [ -s "$pubkey_tmp" ]; then
+      gpg --batch --import "$pubkey_tmp" 2>/dev/null || true
+      rm -f "$pubkey_tmp"
+      key_imported=1
+    fi
+  fi
+
+  if [ "$key_imported" = "0" ]; then
+    warn "Could not fetch signing public key — GPG signature check skipped."
+    warn "(SHA256 checksum was verified successfully.)"
+    return 0
   fi
 
   if gpg --batch --verify "$sig_file" "$checksums_file" 2>/dev/null; then

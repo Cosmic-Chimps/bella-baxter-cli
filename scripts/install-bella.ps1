@@ -12,7 +12,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-$Repo = "cosmic-chimps/bella-cli"
+$Repo = "cosmic-chimps/bella-baxter-cli"
 $BinaryName = "bella.exe"
 
 # Determine install directory
@@ -107,6 +107,42 @@ try {
         Write-Err "Checksum verification FAILED!`n  Expected: $expectedHash`n  Got:      $actualHash`n  The download may be corrupted or tampered with. Aborting."
     }
     Write-Success "Checksum verified ✓"
+
+    # Verify GPG signature (optional — skipped gracefully if gpg not installed or key unavailable)
+    $sigUrl     = "$baseUrl/checksums.txt.asc"
+    $tmpSig     = [System.IO.Path]::GetTempFileName()
+    $tmpPubKey  = [System.IO.Path]::GetTempFileName()
+    $SigningFingerprint = "65BB8D3CEEE3DD9E4FFD22B4119F114CA309C2FA"
+    $skipGpg    = $env:BELLA_SKIP_GPG -eq "1"
+
+    if (-not $skipGpg -and (Get-Command gpg -ErrorAction SilentlyContinue)) {
+        try {
+            Invoke-WebRequest -Uri $sigUrl -OutFile $tmpSig -UseBasicParsing -ErrorAction Stop
+            if ((Get-Item $tmpSig).Length -gt 0) {
+                Write-Info "Verifying GPG signature..."
+                # Fetch public key from keyserver
+                try {
+                    Invoke-WebRequest -Uri "https://keys.openpgp.org/vks/v1/by-fingerprint/$SigningFingerprint" `
+                        -OutFile $tmpPubKey -UseBasicParsing -ErrorAction Stop
+                    & gpg --batch --import $tmpPubKey 2>$null
+                    $gpgResult = & gpg --batch --verify $tmpSig $tmpChecksums 2>&1
+                    if ($LASTEXITCODE -eq 0) {
+                        Write-Success "GPG signature verified ✓"
+                    } else {
+                        Write-Err "GPG signature verification FAILED!`n  The checksums file does not match the expected signing key.`n  Set `$env:BELLA_SKIP_GPG=1 to bypass (not recommended)."
+                    }
+                } catch {
+                    Write-Warn "Could not fetch signing public key — GPG signature check skipped."
+                    Write-Warn "(SHA256 checksum was verified successfully.)"
+                }
+            }
+        } catch {
+            Write-Warn "No GPG signature published for this release — skipping signature check."
+        } finally {
+            if (Test-Path $tmpSig)    { Remove-Item $tmpSig    -Force -ErrorAction SilentlyContinue }
+            if (Test-Path $tmpPubKey) { Remove-Item $tmpPubKey -Force -ErrorAction SilentlyContinue }
+        }
+    }
 
     # Smoke test
     $versionOutput = & $tmpFile --version 2>&1
