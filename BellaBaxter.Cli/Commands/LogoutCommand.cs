@@ -14,7 +14,7 @@ public class LogoutSettings : CommandSettings
 public class LogoutCommand(AuthService auth, CredentialStore credentials, DekLeaseCache dekCache, IOutputWriter output)
     : Command<LogoutSettings>
 {
-    public override int Execute(CommandContext context, LogoutSettings settings, CancellationToken ct)
+    protected override int Execute(CommandContext context, LogoutSettings settings, CancellationToken ct)
     {
         if (!credentials.IsAuthenticated())
         {

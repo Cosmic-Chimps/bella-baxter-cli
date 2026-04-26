@@ -35,7 +35,7 @@ public class CreateProviderCommand(BellaClientProvider provider, IOutputWriter o
         "Vault"
     ];
 
-    public override async Task<int> ExecuteAsync(CommandContext context, CreateProviderSettings settings, CancellationToken ct)
+    protected override async Task<int> ExecuteAsync(CommandContext context, CreateProviderSettings settings, CancellationToken ct)
     {
         provider.ApplyOutputModeOverrides(settings.Json);
 

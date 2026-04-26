@@ -24,7 +24,7 @@ public class DeleteSshRoleSettings : CommandSettings
 public class DeleteSshRoleCommand(BellaClientProvider provider, ContextService context, IOutputWriter output)
     : AsyncCommand<DeleteSshRoleSettings>
 {
-    public override async Task<int> ExecuteAsync(CommandContext ctx, DeleteSshRoleSettings settings, CancellationToken ct)
+    protected override async Task<int> ExecuteAsync(CommandContext ctx, DeleteSshRoleSettings settings, CancellationToken ct)
     {
         provider.ApplyOutputModeOverrides(settings.Json);
 

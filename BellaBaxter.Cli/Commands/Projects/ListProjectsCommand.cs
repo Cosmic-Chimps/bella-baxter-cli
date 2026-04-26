@@ -37,7 +37,7 @@ public class ListProjectsSettings : CommandSettings
 public class ListProjectsCommand(BellaClientProvider provider, IOutputWriter output)
     : AsyncCommand<ListProjectsSettings>
 {
-    public override async Task<int> ExecuteAsync(CommandContext context, ListProjectsSettings settings, CancellationToken ct)
+    protected override async Task<int> ExecuteAsync(CommandContext context, ListProjectsSettings settings, CancellationToken ct)
     {
         provider.ApplyOutputModeOverrides(settings.Json);
 

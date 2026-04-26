@@ -24,7 +24,7 @@ public class GetSshCaKeySettings : CommandSettings
 public class GetSshCaKeyCommand(BellaClientProvider provider, ContextService context, IOutputWriter output)
     : AsyncCommand<GetSshCaKeySettings>
 {
-    public override async Task<int> ExecuteAsync(CommandContext ctx, GetSshCaKeySettings settings, CancellationToken ct)
+    protected override async Task<int> ExecuteAsync(CommandContext ctx, GetSshCaKeySettings settings, CancellationToken ct)
     {
         provider.ApplyOutputModeOverrides(settings.Json);
 

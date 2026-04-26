@@ -45,7 +45,7 @@ public class ShellOpenCommand(ConfigService config, CredentialStore credentials)
 {
     private const string DefaultApiUrl = "https://api.bella-baxter.io";
 
-    public override int Execute(CommandContext context, ShellOpenSettings settings, CancellationToken ct)
+    protected override int Execute(CommandContext context, ShellOpenSettings settings, CancellationToken ct)
     {
         // ── Resolve project + env ────────────────────────────────────────────
         string? project = null, env = null;

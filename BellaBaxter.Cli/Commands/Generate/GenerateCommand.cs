@@ -51,7 +51,7 @@ public class GenerateCommand(IOutputWriter output) : AsyncCommand<GenerateComman
         public bool Quiet { get; set; }
     }
 
-    public override Task<int> ExecuteAsync(CommandContext context, Settings settings, CancellationToken ct)
+    protected override Task<int> ExecuteAsync(CommandContext context, Settings settings, CancellationToken ct)
     {
         string result;
 

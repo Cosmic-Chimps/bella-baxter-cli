@@ -44,7 +44,7 @@ public class EnvCommand(ConfigService config, CredentialStore credentials) : Com
 {
     private const string DefaultApiUrl = "https://api.bella-baxter.io";
 
-    public override int Execute(CommandContext context, EnvSettings settings, CancellationToken ct)
+    protected override int Execute(CommandContext context, EnvSettings settings, CancellationToken ct)
     {
         var shell = settings.Shell.ToLowerInvariant().Replace("-", "").Replace("_", "");
 

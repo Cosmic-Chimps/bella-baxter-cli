@@ -27,7 +27,7 @@ public class CreateProjectCommand(
     IOutputWriter output
 ) : AsyncCommand<CreateProjectSettings>
 {
-    public override async Task<int> ExecuteAsync(
+    protected override async Task<int> ExecuteAsync(
         CommandContext context,
         CreateProjectSettings settings,
         CancellationToken ct

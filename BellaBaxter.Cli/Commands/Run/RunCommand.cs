@@ -65,7 +65,7 @@ public class RunCommand(
         public string[] Cmd { get; set; } = [];
     }
 
-    public override async Task<int> ExecuteAsync(
+    protected override async Task<int> ExecuteAsync(
         CommandContext context,
         Settings settings,
         CancellationToken ct

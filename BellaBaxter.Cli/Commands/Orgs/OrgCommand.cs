@@ -11,7 +11,7 @@ namespace BellaCli.Commands.Orgs;
 public class OrgCurrentCommand(CredentialStore credentials, IOutputWriter output)
     : Command<EmptyCommandSettings>
 {
-    public override int Execute(CommandContext context, EmptyCommandSettings settings, CancellationToken ct)
+    protected override int Execute(CommandContext context, EmptyCommandSettings settings, CancellationToken ct)
     {
         var tokens = credentials.LoadTokens();
         if (tokens is null)
@@ -61,7 +61,7 @@ public class OrgListCommand(
     IOutputWriter output
 ) : AsyncCommand<EmptyCommandSettings>
 {
-    public override async Task<int> ExecuteAsync(
+    protected override async Task<int> ExecuteAsync(
         CommandContext context,
         EmptyCommandSettings settings,
         CancellationToken ct
@@ -140,7 +140,7 @@ public class OrgSwitchCommand(
     IOutputWriter output
 ) : AsyncCommand<OrgSwitchSettings>
 {
-    public override async Task<int> ExecuteAsync(
+    protected override async Task<int> ExecuteAsync(
         CommandContext context,
         OrgSwitchSettings settings,
         CancellationToken ct

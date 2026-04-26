@@ -35,7 +35,7 @@ public class AuthOidcCommand(
     IOutputWriter output
 ) : AsyncCommand<AuthOidcSettings>
 {
-    public override async Task<int> ExecuteAsync(
+    protected override async Task<int> ExecuteAsync(
         CommandContext context,
         AuthOidcSettings settings,
         CancellationToken ct

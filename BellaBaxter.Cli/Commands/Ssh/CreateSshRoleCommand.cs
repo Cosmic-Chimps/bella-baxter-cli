@@ -37,7 +37,7 @@ public class CreateSshRoleSettings : CommandSettings
 public class CreateSshRoleCommand(BellaClientProvider provider, ContextService context, IOutputWriter output)
     : AsyncCommand<CreateSshRoleSettings>
 {
-    public override async Task<int> ExecuteAsync(CommandContext ctx, CreateSshRoleSettings settings, CancellationToken ct)
+    protected override async Task<int> ExecuteAsync(CommandContext ctx, CreateSshRoleSettings settings, CancellationToken ct)
     {
         provider.ApplyOutputModeOverrides(settings.Json);
 

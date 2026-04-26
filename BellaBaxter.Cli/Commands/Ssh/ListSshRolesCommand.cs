@@ -21,7 +21,7 @@ public class ListSshRolesSettings : CommandSettings
 public class ListSshRolesCommand(BellaClientProvider provider, ContextService context, IOutputWriter output)
     : AsyncCommand<ListSshRolesSettings>
 {
-    public override async Task<int> ExecuteAsync(CommandContext ctx, ListSshRolesSettings settings, CancellationToken ct)
+    protected override async Task<int> ExecuteAsync(CommandContext ctx, ListSshRolesSettings settings, CancellationToken ct)
     {
         provider.ApplyOutputModeOverrides(settings.Json);
 

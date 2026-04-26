@@ -89,7 +89,7 @@ public class GenerateSecretsCodeCommand(
         "swift",
     ];
 
-    public override async Task<int> ExecuteAsync(
+    protected override async Task<int> ExecuteAsync(
         CommandContext ctx,
         GenerateSecretsCodeSettings settings,
         CancellationToken ct

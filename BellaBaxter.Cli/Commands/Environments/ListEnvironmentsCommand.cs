@@ -19,7 +19,7 @@ public class ListEnvironmentsSettings : CommandSettings
 public class ListEnvironmentsCommand(BellaClientProvider provider, ContextService context, IOutputWriter output)
     : AsyncCommand<ListEnvironmentsSettings>
 {
-    public override async Task<int> ExecuteAsync(CommandContext ctx, ListEnvironmentsSettings settings, CancellationToken ct)
+    protected override async Task<int> ExecuteAsync(CommandContext ctx, ListEnvironmentsSettings settings, CancellationToken ct)
     {
         provider.ApplyOutputModeOverrides(settings.Json);
 

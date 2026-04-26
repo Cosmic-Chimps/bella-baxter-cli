@@ -22,7 +22,7 @@ public class ListPkiRolesSettings : CommandSettings
 public class ListPkiRolesCommand(BellaClientProvider provider, ContextService context, IOutputWriter output)
     : AsyncCommand<ListPkiRolesSettings>
 {
-    public override async Task<int> ExecuteAsync(CommandContext ctx, ListPkiRolesSettings settings, CancellationToken ct)
+    protected override async Task<int> ExecuteAsync(CommandContext ctx, ListPkiRolesSettings settings, CancellationToken ct)
     {
         provider.ApplyOutputModeOverrides(settings.Json);
 

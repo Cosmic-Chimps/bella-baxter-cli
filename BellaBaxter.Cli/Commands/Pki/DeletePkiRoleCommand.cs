@@ -25,7 +25,7 @@ public class DeletePkiRoleSettings : CommandSettings
 public class DeletePkiRoleCommand(BellaClientProvider provider, ContextService context, IOutputWriter output)
     : AsyncCommand<DeletePkiRoleSettings>
 {
-    public override async Task<int> ExecuteAsync(CommandContext ctx, DeletePkiRoleSettings settings, CancellationToken ct)
+    protected override async Task<int> ExecuteAsync(CommandContext ctx, DeletePkiRoleSettings settings, CancellationToken ct)
     {
         provider.ApplyOutputModeOverrides(settings.Json);
 

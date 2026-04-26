@@ -18,7 +18,7 @@ public class UsageCommand(BellaClientProvider provider, CredentialStore credenti
         public bool Json { get; init; }
     }
 
-    public override async Task<int> ExecuteAsync(CommandContext context, Settings settings, CancellationToken ct)
+    protected override async Task<int> ExecuteAsync(CommandContext context, Settings settings, CancellationToken ct)
     {
         if (!credentials.IsAuthenticated())
         {

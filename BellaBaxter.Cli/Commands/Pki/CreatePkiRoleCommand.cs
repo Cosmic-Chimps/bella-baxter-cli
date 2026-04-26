@@ -58,7 +58,7 @@ public class CreatePkiRoleSettings : CommandSettings
 public class CreatePkiRoleCommand(BellaClientProvider provider, ContextService context, IOutputWriter output)
     : AsyncCommand<CreatePkiRoleSettings>
 {
-    public override async Task<int> ExecuteAsync(CommandContext ctx, CreatePkiRoleSettings settings, CancellationToken ct)
+    protected override async Task<int> ExecuteAsync(CommandContext ctx, CreatePkiRoleSettings settings, CancellationToken ct)
     {
         provider.ApplyOutputModeOverrides(settings.Json);
 

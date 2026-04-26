@@ -10,7 +10,7 @@ public class AuthStatusSettings : CommandSettings { }
 public class AuthStatusCommand(CredentialStore credentials, IOutputWriter output)
     : AsyncCommand<AuthStatusSettings>
 {
-    public override Task<int> ExecuteAsync(
+    protected override Task<int> ExecuteAsync(
         CommandContext context,
         AuthStatusSettings settings,
         CancellationToken ct
@@ -60,7 +60,7 @@ public class AuthRefreshSettings : CommandSettings { }
 public class AuthRefreshCommand(AuthService auth, IOutputWriter output)
     : AsyncCommand<AuthRefreshSettings>
 {
-    public override async Task<int> ExecuteAsync(
+    protected override async Task<int> ExecuteAsync(
         CommandContext context,
         AuthRefreshSettings settings,
         CancellationToken ct

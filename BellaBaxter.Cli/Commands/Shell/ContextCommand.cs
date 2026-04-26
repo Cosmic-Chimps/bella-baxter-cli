@@ -29,7 +29,7 @@ public class ContextCommand(ConfigService config) : Command<ContextSettings>
 {
     private static readonly JsonSerializerOptions JsonOpts = new() { WriteIndented = false };
 
-    public override int Execute(
+    protected override int Execute(
         CommandContext context,
         ContextSettings settings,
         CancellationToken ct
@@ -173,7 +173,7 @@ public class ContextCommand(ConfigService config) : Command<ContextSettings>
 
 public class ContextShowCommand(ConfigService config, CredentialStore credentials) : Command<EmptyCommandSettings>
 {
-    public override int Execute(
+    protected override int Execute(
         CommandContext context,
         EmptyCommandSettings settings,
         CancellationToken ct
@@ -271,7 +271,7 @@ public class ContextInitCommand(
     IOutputWriter output
 ) : AsyncCommand<ContextInitSettings>
 {
-    public override async Task<int> ExecuteAsync(
+    protected override async Task<int> ExecuteAsync(
         CommandContext context,
         ContextInitSettings settings,
         CancellationToken ct
@@ -481,7 +481,7 @@ public class ContextInitCommand(
 
 public class ContextClearCommand : Command<EmptyCommandSettings>
 {
-    public override int Execute(
+    protected override int Execute(
         CommandContext context,
         EmptyCommandSettings settings,
         CancellationToken ct
@@ -526,7 +526,7 @@ public class ContextUseSettings : CommandSettings
 
 public class ContextUseCommand : Command<ContextUseSettings>
 {
-    public override int Execute(
+    protected override int Execute(
         CommandContext context,
         ContextUseSettings settings,
         CancellationToken ct

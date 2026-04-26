@@ -73,7 +73,7 @@ public class PushSecretsCommand(
         return result;
     }
 
-    public override async Task<int> ExecuteAsync(
+    protected override async Task<int> ExecuteAsync(
         CommandContext ctx,
         PushSecretsSettings settings,
         CancellationToken ct

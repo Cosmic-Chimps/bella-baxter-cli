@@ -37,7 +37,7 @@ public class SetSecretCommand(
 {
     private static readonly Regex KeyPattern = new(@"^[A-Z][A-Z0-9_]*$", RegexOptions.Compiled);
 
-    public override async Task<int> ExecuteAsync(
+    protected override async Task<int> ExecuteAsync(
         CommandContext ctx,
         SetSecretSettings settings,
         CancellationToken ct

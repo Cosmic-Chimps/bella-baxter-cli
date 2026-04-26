@@ -21,7 +21,7 @@ public class DeleteProviderSettings : CommandSettings
 public class DeleteProviderCommand(BellaClientProvider provider, IOutputWriter output)
     : AsyncCommand<DeleteProviderSettings>
 {
-    public override async Task<int> ExecuteAsync(CommandContext context, DeleteProviderSettings settings, CancellationToken ct)
+    protected override async Task<int> ExecuteAsync(CommandContext context, DeleteProviderSettings settings, CancellationToken ct)
     {
         provider.ApplyOutputModeOverrides(settings.Json);
 

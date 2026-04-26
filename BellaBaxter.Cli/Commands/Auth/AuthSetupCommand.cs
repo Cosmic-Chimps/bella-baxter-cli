@@ -33,7 +33,7 @@ public class AuthSetupCommand(
     IOutputWriter output
 ) : AsyncCommand<AuthSetupSettings>
 {
-    public override async Task<int> ExecuteAsync(
+    protected override async Task<int> ExecuteAsync(
         CommandContext context,
         AuthSetupSettings settings,
         CancellationToken ct

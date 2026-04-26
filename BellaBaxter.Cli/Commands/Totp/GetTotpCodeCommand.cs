@@ -28,7 +28,7 @@ public class GetTotpCodeSettings : CommandSettings
 public class GetTotpCodeCommand(BellaClientProvider provider, ContextService context, IOutputWriter output)
     : AsyncCommand<GetTotpCodeSettings>
 {
-    public override async Task<int> ExecuteAsync(CommandContext ctx, GetTotpCodeSettings settings, CancellationToken ct)
+    protected override async Task<int> ExecuteAsync(CommandContext ctx, GetTotpCodeSettings settings, CancellationToken ct)
     {
         provider.ApplyOutputModeOverrides(settings.Json);
 

@@ -34,7 +34,7 @@ public class ConnectSshSettings : CommandSettings
 public class ConnectSshCommand(BellaClientProvider provider, ContextService context, IOutputWriter output)
     : AsyncCommand<ConnectSshSettings>
 {
-    public override async Task<int> ExecuteAsync(CommandContext ctx, ConnectSshSettings settings, CancellationToken ct)
+    protected override async Task<int> ExecuteAsync(CommandContext ctx, ConnectSshSettings settings, CancellationToken ct)
     {
         provider.ApplyOutputModeOverrides(settings.Json);
 

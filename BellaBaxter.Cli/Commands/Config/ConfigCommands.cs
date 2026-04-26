@@ -12,7 +12,7 @@ public class ConfigShowCommand(ConfigService configService, IOutputWriter output
 {
     public class Settings : CommandSettings { }
 
-    public override Task<int> ExecuteAsync(CommandContext context, Settings settings, CancellationToken ct)
+    protected override Task<int> ExecuteAsync(CommandContext context, Settings settings, CancellationToken ct)
     {
         var configFile = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
@@ -53,7 +53,7 @@ public class ConfigSetServerCommand(ConfigService configService, IOutputWriter o
         public string Url { get; set; } = string.Empty;
     }
 
-    public override Task<int> ExecuteAsync(CommandContext context, Settings settings, CancellationToken ct)
+    protected override Task<int> ExecuteAsync(CommandContext context, Settings settings, CancellationToken ct)
     {
         var url = settings.Url.TrimEnd('/');
 

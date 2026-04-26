@@ -37,7 +37,7 @@ public class SignSshKeySettings : CommandSettings
 public class SignSshKeyCommand(BellaClientProvider provider, ContextService context, IOutputWriter output)
     : AsyncCommand<SignSshKeySettings>
 {
-    public override async Task<int> ExecuteAsync(CommandContext ctx, SignSshKeySettings settings, CancellationToken ct)
+    protected override async Task<int> ExecuteAsync(CommandContext ctx, SignSshKeySettings settings, CancellationToken ct)
     {
         provider.ApplyOutputModeOverrides(settings.Json);
 

@@ -19,7 +19,7 @@ public class PullCommand(
 {
     private readonly GetSecretsCommand _inner = new(provider, context, output, zke, dekCache);
 
-    public override Task<int> ExecuteAsync(
+    protected override Task<int> ExecuteAsync(
         CommandContext ctx,
         GetSecretsSettings settings,
         CancellationToken ct

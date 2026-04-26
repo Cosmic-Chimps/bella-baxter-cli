@@ -20,7 +20,7 @@ public class LoginSettings : CommandSettings
 public class LoginCommand(AuthService auth, CredentialStore credentials, KeyContextService keyContext, ZkeService zke, IOutputWriter output)
     : AsyncCommand<LoginSettings>
 {
-    public override async Task<int> ExecuteAsync(
+    protected override async Task<int> ExecuteAsync(
         CommandContext context,
         LoginSettings settings,
         CancellationToken ct

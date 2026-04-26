@@ -68,7 +68,7 @@ public class McpCommand(ConfigService config, CredentialStore credentials)
 
     private static readonly HashSet<string> _cachedTools = ["get_secret", "list_secret_keys"];
 
-    public override async Task<int> ExecuteAsync(
+    protected override async Task<int> ExecuteAsync(
         CommandContext ctx,
         McpSettings settings,
         CancellationToken ct

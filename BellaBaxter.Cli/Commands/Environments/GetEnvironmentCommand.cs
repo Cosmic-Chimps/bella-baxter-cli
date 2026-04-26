@@ -22,7 +22,7 @@ public class GetEnvironmentSettings : CommandSettings
 public class GetEnvironmentCommand(BellaClientProvider provider, ContextService context, IOutputWriter output)
     : AsyncCommand<GetEnvironmentSettings>
 {
-    public override async Task<int> ExecuteAsync(CommandContext ctx, GetEnvironmentSettings settings, CancellationToken ct)
+    protected override async Task<int> ExecuteAsync(CommandContext ctx, GetEnvironmentSettings settings, CancellationToken ct)
     {
         provider.ApplyOutputModeOverrides(settings.Json);
 

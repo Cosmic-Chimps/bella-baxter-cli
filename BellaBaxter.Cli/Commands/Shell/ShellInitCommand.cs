@@ -19,7 +19,7 @@ public class ShellInitSettings : CommandSettings
 
 public class ShellInitCommand : Command<ShellInitSettings>
 {
-    public override int Execute(
+    protected override int Execute(
         CommandContext context,
         ShellInitSettings settings,
         CancellationToken ct

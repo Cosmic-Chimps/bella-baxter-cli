@@ -30,7 +30,7 @@ public class DeleteSecretCommand(
     IOutputWriter output
 ) : AsyncCommand<DeleteSecretSettings>
 {
-    public override async Task<int> ExecuteAsync(
+    protected override async Task<int> ExecuteAsync(
         CommandContext ctx,
         DeleteSecretSettings settings,
         CancellationToken ct

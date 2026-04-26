@@ -19,7 +19,7 @@ public class GetProviderSettings : CommandSettings
 public class GetProviderCommand(BellaClientProvider provider, IOutputWriter output)
     : AsyncCommand<GetProviderSettings>
 {
-    public override async Task<int> ExecuteAsync(CommandContext context, GetProviderSettings settings, CancellationToken ct)
+    protected override async Task<int> ExecuteAsync(CommandContext context, GetProviderSettings settings, CancellationToken ct)
     {
         provider.ApplyOutputModeOverrides(settings.Json);
 

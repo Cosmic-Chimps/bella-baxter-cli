@@ -21,15 +21,25 @@ public class CreateEnvironmentSettings : CommandSettings
     public bool Json { get; init; }
 }
 
-public class CreateEnvironmentCommand(BellaClientProvider provider, ContextService context, IOutputWriter output)
-    : AsyncCommand<CreateEnvironmentSettings>
+public class CreateEnvironmentCommand(
+    BellaClientProvider provider,
+    ContextService context,
+    IOutputWriter output
+) : AsyncCommand<CreateEnvironmentSettings>
 {
-    public override async Task<int> ExecuteAsync(CommandContext ctx, CreateEnvironmentSettings settings, CancellationToken ct)
+    protected override async Task<int> ExecuteAsync(
+        CommandContext ctx,
+        CreateEnvironmentSettings settings,
+        CancellationToken ct
+    )
     {
         provider.ApplyOutputModeOverrides(settings.Json);
 
         BellaClient client;
-        try { client = provider.CreateClient(); }
+        try
+        {
+            client = provider.CreateClient();
+        }
         catch (InvalidOperationException)
         {
             output.WriteError("Not logged in. Run 'bella login' first.");
@@ -38,7 +48,11 @@ public class CreateEnvironmentCommand(BellaClientProvider provider, ContextServi
 
         try
         {
-            var (projectSlug, projectName, _) = await context.ResolveProjectAsync(settings.Project, client, ct);
+            var (projectSlug, projectName, _) = await context.ResolveProjectAsync(
+                settings.Project,
+                client,
+                ct
+            );
 
             var name = settings.Name;
             var description = settings.Description;
@@ -53,18 +67,32 @@ public class CreateEnvironmentCommand(BellaClientProvider provider, ContextServi
                 name = AnsiConsole.Ask<string>("Environment name:");
             }
 
-            if (string.IsNullOrWhiteSpace(description) && !(Console.IsOutputRedirected || output is JsonOutputWriter))
+            if (
+                string.IsNullOrWhiteSpace(description)
+                && !(Console.IsOutputRedirected || output is JsonOutputWriter)
+            )
                 description = AnsiConsole.Ask("Description:", defaultValue: "");
 
-            await AnsiConsole.Status().StartAsync("Creating environment...", async _ =>
-            {
-                await client.Api.V1.Projects[projectSlug].Environments.PostAsync(
-                    new BellaBaxter.Client.Models.CreateEnvironmentCommand
+            await AnsiConsole
+                .Status()
+                .StartAsync(
+                    "Creating environment...",
+                    async _ =>
                     {
-                        Name = name,
-                        Description = string.IsNullOrWhiteSpace(description) ? null : description
-                    }, cancellationToken: ct);
-            });
+                        await client
+                            .Api.V1.Projects[projectSlug]
+                            .Environments.PostAsync(
+                                new BellaBaxter.Client.Models.CreateEnvironmentCommand
+                                {
+                                    Name = name,
+                                    Description = string.IsNullOrWhiteSpace(description)
+                                        ? null
+                                        : description,
+                                },
+                                cancellationToken: ct
+                            );
+                    }
+                );
 
             output.WriteSuccess($"Environment '{name}' created in project '{projectName}'.");
             return 0;

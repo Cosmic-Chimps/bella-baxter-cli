@@ -9,7 +9,7 @@ public class WhoAmISettings : CommandSettings { }
 public class WhoAmICommand(CredentialStore credentials, IOutputWriter output)
     : AsyncCommand<WhoAmISettings>
 {
-    public override Task<int> ExecuteAsync(
+    protected override Task<int> ExecuteAsync(
         CommandContext context,
         WhoAmISettings settings,
         CancellationToken ct
