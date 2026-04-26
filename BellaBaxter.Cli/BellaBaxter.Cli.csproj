@@ -36,7 +36,8 @@
     <PackageReference Include="ModelContextProtocol" Version="1.2.0" />
     <PackageReference Include="Spectre.Console" Version="0.55.2" />
     <PackageReference Include="Spectre.Console.Cli" Version="0.55.0" />
-    <PackageReference Include="YamlDotNet" Version="17.0.1" />
+    <PackageReference Include="VYaml" Version="1.3.0" />
+    <PackageReference Include="VYaml.Annotations" Version="1.3.0" />
   </ItemGroup>
 
   <!-- Dev (monorepo): direct project reference when BellaBaxter.Client source is on disk -->

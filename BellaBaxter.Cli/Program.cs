@@ -586,7 +586,7 @@ app.Configure(config =>
             pki.AddCommand<ConfigurePkiCaCommand>("configure")
                 .WithDescription("Set up a Private Certificate Authority (CA) for an environment.")
                 .WithExample("pki", "configure")
-                .WithExample("pki", "configure", "--common-name", "Acme Corp Root CA", "--org", "Acme Corp");
+                .WithExample("pki", "configure", "--common-name", "Acme Corp Root CA", "--organization", "Acme Corp");
 
             pki.AddCommand<GetPkiCaCommand>("ca")
                 .WithDescription("Show the CA certificate and ACME directory URL for an environment.")

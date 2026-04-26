@@ -6,39 +6,41 @@ using Spectre.Console;
 using Spectre.Console.Cli;
 using System.Diagnostics;
 using System.Text.Json;
-using YamlDotNet.Serialization;
-using YamlDotNet.Serialization.NamingConventions;
+using VYaml.Annotations;
+using VYaml.Serialization;
 
 namespace BellaCli.Commands.Agent;
 
 // ── Config model ─────────────────────────────────────────────────────────────
 
-public class AgentConfig
+[YamlObject(NamingConvention.KebabCase)]
+public partial class AgentConfig
 {
     public List<WatchConfig> Watches { get; set; } = [];
     public List<SinkConfig> Sinks { get; set; } = [];
     public ProcessConfig Process { get; set; } = new();
 }
 
-public class WatchConfig
+[YamlObject(NamingConvention.KebabCase)]
+public partial class WatchConfig
 {
     public string Project { get; set; } = "";
     public string Environment { get; set; } = "";
     public string? Provider { get; set; }
-    [YamlMember(Alias = "poll-interval")]
     public int PollInterval { get; set; } = 30;
 }
 
-public class SinkConfig
+[YamlObject(NamingConvention.KebabCase)]
+public partial class SinkConfig
 {
     public string Type { get; set; } = "dotenv"; // dotenv | json | yaml
     public string Path { get; set; } = ".env";
 }
 
-public class ProcessConfig
+[YamlObject(NamingConvention.KebabCase)]
+public partial class ProcessConfig
 {
     public string Signal { get; set; } = "none"; // sighup | sigterm | none
-    [YamlMember(Alias = "pid-file")]
     public string? PidFile { get; set; }
 }
 
@@ -320,12 +322,8 @@ public class AgentCommand(BellaClientProvider provider, IOutputWriter output)
         yaml = System.Text.RegularExpressions.Regex.Replace(yaml, @"\$\{([^}]+)\}", m =>
             Environment.GetEnvironmentVariable(m.Groups[1].Value) ?? "");
 
-        var deserializer = new DeserializerBuilder()
-            .WithNamingConvention(HyphenatedNamingConvention.Instance)
-            .IgnoreUnmatchedProperties()
-            .Build();
-
-        var config = deserializer.Deserialize<AgentConfig>(yaml);
+        var utf8Bytes = System.Text.Encoding.UTF8.GetBytes(yaml);
+        var config = YamlSerializer.Deserialize<AgentConfig>(utf8Bytes);
         if (config.Watches.Count == 0)
             throw new InvalidOperationException("Config must have at least one entry under 'watches:'");
         if (config.Sinks.Count == 0)

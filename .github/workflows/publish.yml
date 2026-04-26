@@ -148,6 +148,7 @@ jobs:
             --self-contained true \
             -p:PublishSingleFile=true \
             -p:PublishTrimmed=false \
+            -p:PublishReadyToRun=true \
             -p:Version=${{ needs.resolve_version.outputs.version }} \
             -p:InformationalVersion="${{ needs.resolve_version.outputs.version }}+${{ github.sha }}" \
             -o publish/${{ matrix.rid }}
