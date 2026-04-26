@@ -203,7 +203,7 @@ main() {
   # Create temp dir
   local tmp_dir
   tmp_dir="$(mktemp -d)"
-  trap 'rm -rf "$tmp_dir"' EXIT
+  trap 'rm -rf "${tmp_dir:-}"' EXIT
 
   local tmp_binary="${tmp_dir}/${BINARY_NAME}"
   local tmp_checksums="${tmp_dir}/checksums.txt"
