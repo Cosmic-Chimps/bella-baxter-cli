@@ -26,6 +26,10 @@ public class AuthOidcSettings : CommandSettings
     [System.ComponentModel.Description("OIDC audience claim (default: bella-baxter)")]
     public string Audience { get; init; } = "bella-baxter";
 
+    [CommandOption("--token <TOKEN>")]
+    [System.ComponentModel.Description("Use a pre-obtained OIDC token directly (skips platform detection and token fetch — useful for local testing)")]
+    public string? Token { get; init; }
+
     [CommandOption("--json")]
     public bool Json { get; init; }
 }
@@ -39,39 +43,44 @@ public class AuthOidcCommand(WorkloadIdentityService workloadIdentity, IOutputWr
         CancellationToken ct
     )
     {
-        var platform = WorkloadIdentityService.DetectPlatform();
-
-        if (platform == WorkloadPlatform.None)
-        {
-            output.WriteError(
-                "Not running in a recognised workload environment. "
-                    + "Supported: GitHub Actions, GitLab CI, Azure Pipelines, AWS CodeBuild, GCP Cloud Build, Kubernetes.",
-                "not_workload_env"
-            );
-            return 1;
-        }
-
-        // Obtain OIDC token from platform
-        string? oidcToken = null;
-        await AnsiConsole
-            .Status()
-            .Spinner(Spinner.Known.Dots)
-            .StartAsync(
-                $"Obtaining OIDC token from {platform}...",
-                async _ =>
-                {
-                    oidcToken = await workloadIdentity.GetOidcTokenAsync(settings.Audience, ct);
-                }
-            );
+        string? oidcToken = settings.Token;
 
         if (string.IsNullOrEmpty(oidcToken))
         {
-            output.WriteError(
-                $"Failed to obtain OIDC token from {platform}. "
-                    + "Ensure the workflow has `id-token: write` permission.",
-                "oidc_token_failed"
-            );
-            return 1;
+            var platform = WorkloadIdentityService.DetectPlatform();
+
+            if (platform == WorkloadPlatform.None)
+            {
+                output.WriteError(
+                    "Not running in a recognised workload environment. "
+                        + "Supported: GitHub Actions, GitLab CI, Azure Pipelines, AWS CodeBuild, GCP Cloud Build, Kubernetes. "
+                        + "Use --token <TOKEN> to supply an OIDC token directly for local testing.",
+                    "not_workload_env"
+                );
+                return 1;
+            }
+
+            // Obtain OIDC token from platform
+            await AnsiConsole
+                .Status()
+                .Spinner(Spinner.Known.Dots)
+                .StartAsync(
+                    $"Obtaining OIDC token from {platform}...",
+                    async _ =>
+                    {
+                        oidcToken = await workloadIdentity.GetOidcTokenAsync(settings.Audience, ct);
+                    }
+                );
+
+            if (string.IsNullOrEmpty(oidcToken))
+            {
+                output.WriteError(
+                    $"Failed to obtain OIDC token from {platform}. "
+                        + "Ensure the workflow has `id-token: write` permission.",
+                    "oidc_token_failed"
+                );
+                return 1;
+            }
         }
 
         // Global exchange — server finds matching TrustDomain by issuer
@@ -91,14 +100,15 @@ public class AuthOidcCommand(WorkloadIdentityService workloadIdentity, IOutputWr
         {
             output.WriteError(
                 $"OIDC exchange failed. Verify that a TrustDomain is configured in Bella "
-                    + $"matching the {platform} OIDC issuer.",
+                    + $"matching the GitHubActions OIDC issuer.",
                 "exchange_failed"
             );
             return 1;
         }
 
-        // Export to CI environment
-        ExportToCI(result.Token, platform);
+        // Export to CI environment — best-effort, no platform needed when --token used
+        var exportPlatform = WorkloadIdentityService.DetectPlatform();
+        ExportToCI(result.Token, exportPlatform);
 
         if (settings.Json)
         {
@@ -107,7 +117,7 @@ public class AuthOidcCommand(WorkloadIdentityService workloadIdentity, IOutputWr
                 {
                     apiKey = result.Token,
                     expiresAt = result.ExpiresAt,
-                    platform = platform.ToString(),
+                    platform = exportPlatform.ToString(),
                 }
             );
         }

@@ -315,8 +315,11 @@ public class WorkloadIdentityService(HttpClient httpClient, ConfigService config
             );
             return resp is null ? null : new OidcExchangeResult(resp.Token!, resp.ExpiresAt!.Value);
         }
-        catch
+        catch (Exception ex)
         {
+            Console.Error.WriteLine($"[bella/oidc] ExchangeBySlugAsync failed: {ex.GetType().Name}: {ex.Message}");
+            if (ex.InnerException is not null)
+                Console.Error.WriteLine($"[bella/oidc] Inner: {ex.InnerException.GetType().Name}: {ex.InnerException.Message}");
             return null;
         }
     }
@@ -340,8 +343,11 @@ public class WorkloadIdentityService(HttpClient httpClient, ConfigService config
             );
             return resp is null ? null : new OidcExchangeResult(resp.Token!, resp.ExpiresAt!.Value);
         }
-        catch
+        catch (Exception ex)
         {
+            Console.Error.WriteLine($"[bella/oidc] ExchangeGlobalAsync failed: {ex.GetType().Name}: {ex.Message}");
+            if (ex.InnerException is not null)
+                Console.Error.WriteLine($"[bella/oidc] Inner: {ex.InnerException.GetType().Name}: {ex.InnerException.Message}");
             return null;
         }
     }
