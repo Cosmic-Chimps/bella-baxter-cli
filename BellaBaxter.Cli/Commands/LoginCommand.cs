@@ -53,10 +53,11 @@ public class LoginCommand(AuthService auth, CredentialStore credentials, KeyCont
         string mode;
         if (!Console.IsInputRedirected)
         {
-            mode = AnsiConsole.Prompt(
+            mode = await AnsiConsole.PromptAsync(
                 new SelectionPrompt<string>()
                     .Title("How would you like to log in?")
-                    .AddChoices("Browser (OAuth2)", "API Key (bax- token)")
+                    .AddChoices("Browser (OAuth2)", "API Key (bax- token)"),
+                ct
             );
         }
         else
@@ -66,7 +67,10 @@ public class LoginCommand(AuthService auth, CredentialStore credentials, KeyCont
 
         if (mode.StartsWith("API"))
         {
-            var key = AnsiConsole.Prompt(new TextPrompt<string>("Enter your API key:").Secret());
+            var key = await AnsiConsole.PromptAsync(
+                new TextPrompt<string>("Enter your API key:").Secret().ClearOnFinish(),
+                ct
+            );
             try
             {
                 auth.LoginWithApiKey(key);

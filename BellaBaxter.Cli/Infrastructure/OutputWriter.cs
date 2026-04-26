@@ -31,7 +31,7 @@ public class HumanOutputWriter : IOutputWriter
     public void WriteTable(string[] headers, IEnumerable<string[]> rows)
     {
         var table = new Table();
-        table.Border(TableBorder.Rounded);
+        table.Border(TableBorder.Minimal);
         foreach (var h in headers)
             table.AddColumn(new TableColumn($"[bold]{Markup.Escape(h)}[/]"));
 

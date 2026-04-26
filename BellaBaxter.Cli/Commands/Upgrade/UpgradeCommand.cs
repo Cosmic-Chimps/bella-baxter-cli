@@ -115,6 +115,7 @@ public class UpgradeCommand(IOutputWriter output) : AsyncCommand<UpgradeCommand.
                 .StartAsync(async ctx =>
                 {
                     var task = ctx.AddTask($"Downloading v{latestVersion}");
+                    task.Tag = asset.BrowserDownloadUrl;
                     var tempFile = currentExe + ".new";
 
                     using var response = await http.GetAsync(asset.BrowserDownloadUrl, HttpCompletionOption.ResponseHeadersRead, ct);

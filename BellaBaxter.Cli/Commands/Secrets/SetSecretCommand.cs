@@ -81,8 +81,9 @@ public class SetSecretCommand(
                     output.WriteError("Value is required in non-interactive mode.");
                     return 1;
                 }
-                value = AnsiConsole.Prompt(
-                    new TextPrompt<string>($"Value for [bold]{settings.Key}[/]:").Secret()
+                value = await AnsiConsole.PromptAsync(
+                    new TextPrompt<string>($"Value for [bold]{settings.Key}[/]:").Secret().ClearOnFinish(),
+                    ct
                 );
             }
 

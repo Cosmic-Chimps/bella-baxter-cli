@@ -388,12 +388,13 @@ public class ContextInitCommand(
                 .Select(p => $"{p.Name} [dim]({Markup.Escape(p.Slug ?? "")})[/]")
                 .ToList();
 
-            var selectedProject = AnsiConsole.Prompt(
+            var selectedProject = await AnsiConsole.PromptAsync(
                 new SelectionPrompt<string>()
                     .Title("[white]Select a project:[/]")
                     .PageSize(15)
                     .HighlightStyle(new Style(foreground: Color.Cyan1))
-                    .AddChoices(projectChoices)
+                    .AddChoices(projectChoices),
+                ct
             );
 
             var projectIndex = projectChoices.IndexOf(selectedProject);
@@ -430,12 +431,13 @@ public class ContextInitCommand(
                 .Select(e => $"{e.Name} [dim]({Markup.Escape(e.Slug ?? "")})[/]")
                 .ToList();
 
-            var selectedEnv = AnsiConsole.Prompt(
+            var selectedEnv = await AnsiConsole.PromptAsync(
                 new SelectionPrompt<string>()
                     .Title("[white]Select an environment:[/]")
                     .PageSize(15)
                     .HighlightStyle(new Style(foreground: Color.Cyan1))
-                    .AddChoices(envChoices)
+                    .AddChoices(envChoices),
+                ct
             );
 
             var envIndex = envChoices.IndexOf(selectedEnv);
