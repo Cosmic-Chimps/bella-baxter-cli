@@ -1,5 +1,5 @@
 # Bella CLI installer for Windows (PowerShell)
-# Usage: irm https://raw.githubusercontent.com/cosmic-chimps/bella-baxter/main/scripts/install-bella.ps1 | iex
+# Usage: irm https://raw.githubusercontent.com/cosmic-chimps/bella-baxter-cli/main/scripts/install-bella.ps1 | iex
 # Or with a specific version:
 #   $env:BELLA_VERSION="1.2.3"; irm ... | iex
 # Or to install to a custom directory:

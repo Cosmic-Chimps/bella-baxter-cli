@@ -70,12 +70,12 @@ Bella CLI is a **self-contained binary** with zero runtime dependencies. No Node
 ### Linux / macOS (one-liner)
 
 ```bash
-curl -sSfL https://raw.githubusercontent.com/cosmic-chimps/bella-baxter/main/scripts/install-bella.sh | bash
+curl -sSfL https://raw.githubusercontent.com/cosmic-chimps/bella-baxter-cli/main/scripts/install-bella.sh | bash
 ```
 
 To install a specific version:
 ```bash
-curl -sSfL https://raw.githubusercontent.com/cosmic-chimps/bella-baxter/main/scripts/install-bella.sh | bash -s -- --version 1.2.3
+curl -sSfL https://raw.githubusercontent.com/cosmic-chimps/bella-baxter-cli/main/scripts/install-bella.sh | bash -s -- --version 1.2.3
 ```
 
 To install to a custom directory:
@@ -86,7 +86,7 @@ BELLA_INSTALL_DIR="$HOME/.local/bin" curl -sSfL .../install-bella.sh | bash
 ### Windows (PowerShell)
 
 ```powershell
-irm https://raw.githubusercontent.com/cosmic-chimps/bella-baxter/main/scripts/install-bella.ps1 | iex
+irm https://raw.githubusercontent.com/cosmic-chimps/bella-baxter-cli/main/scripts/install-bella.ps1 | iex
 ```
 
 ### Manual download

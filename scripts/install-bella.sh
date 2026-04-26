@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Bella CLI installer for Linux and macOS
-# Usage: curl -sSfL https://raw.githubusercontent.com/cosmic-chimps/bella-baxter/main/scripts/install-bella.sh | bash
+# Usage: curl -sSfL https://raw.githubusercontent.com/cosmic-chimps/bella-baxter-cli/main/scripts/install-bella.sh | bash
 # Or with a specific version:
 #   curl -sSfL ... | bash -s -- --version v1.2.3
 # Or to install to a custom location:
