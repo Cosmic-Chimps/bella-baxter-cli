@@ -1,6 +1,8 @@
 using System.Net.Http.Json;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using BellaBaxter.Client;
+using BellaBaxter.Client.Models;
 using BellaCli.Commands.Shell;
 
 namespace BellaCli.Services;
@@ -31,6 +33,8 @@ public enum WorkloadPlatform
 /// </summary>
 public class WorkloadIdentityService(HttpClient httpClient, ConfigService config)
 {
+    // Used only for external platform OIDC token fetching (GitHub, Azure, AWS, GCP endpoints).
+    // Bella API calls use BellaClientFactory.CreateAnonymous() via the SDK instead.
     private static readonly JsonSerializerOptions JsonOpts = new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
@@ -297,21 +301,24 @@ public class WorkloadIdentityService(HttpClient httpClient, ConfigService config
         CancellationToken ct = default
     )
     {
-        var url = $"{config.ApiUrl.TrimEnd('/')}/api/v1/token";
         try
         {
-            var response = await httpClient.PostAsJsonAsync(
-                url,
-                new { oidcToken, projectSlug, environmentSlug },
-                JsonOpts,
-                ct
+            var client = BellaClientFactory.CreateAnonymous(config.ApiUrl);
+            var resp = await client.Api.V1.Token.PostAsync(
+                new ExchangeOidcTokenBySlugCommand
+                {
+                    OidcToken = oidcToken,
+                    ProjectSlug = projectSlug,
+                    EnvironmentSlug = environmentSlug,
+                },
+                cancellationToken: ct
             );
-
-            return response.IsSuccessStatusCode
-                ? await response.Content.ReadFromJsonAsync<OidcExchangeResult>(JsonOpts, ct)
-                : null;
+            return resp is null ? null : new OidcExchangeResult(resp.Token!, resp.ExpiresAt!.Value);
         }
-        catch { return null; }
+        catch
+        {
+            return null;
+        }
     }
 
     /// <summary>
@@ -324,21 +331,19 @@ public class WorkloadIdentityService(HttpClient httpClient, ConfigService config
         CancellationToken ct = default
     )
     {
-        var url = $"{config.ApiUrl.TrimEnd('/')}/api/v1/token";
         try
         {
-            var response = await httpClient.PostAsJsonAsync(
-                url,
-                new { oidcToken },
-                JsonOpts,
-                ct
+            var client = BellaClientFactory.CreateAnonymous(config.ApiUrl);
+            var resp = await client.Api.V1.Token.PostAsync(
+                new ExchangeOidcTokenBySlugCommand { OidcToken = oidcToken },
+                cancellationToken: ct
             );
-
-            return response.IsSuccessStatusCode
-                ? await response.Content.ReadFromJsonAsync<OidcExchangeResult>(JsonOpts, ct)
-                : null;
+            return resp is null ? null : new OidcExchangeResult(resp.Token!, resp.ExpiresAt!.Value);
         }
-        catch { return null; }
+        catch
+        {
+            return null;
+        }
     }
 
     // ── High-level auto-exchange ──────────────────────────────────────────────
@@ -385,8 +390,8 @@ public class WorkloadIdentityService(HttpClient httpClient, ConfigService config
 
 public record OidcExchangeResult(string Token, DateTimeOffset ExpiresAt);
 
-file record GitHubOidcResponse([property: JsonPropertyName("value")] string Value);
+file record GitHubOidcResponse([property: System.Text.Json.Serialization.JsonPropertyName("value")] string Value);
 
-file record AzurePipelinesOidcResponse([property: JsonPropertyName("oidcToken")] string OidcToken);
+file record AzurePipelinesOidcResponse([property: System.Text.Json.Serialization.JsonPropertyName("oidcToken")] string OidcToken);
 
-file record AwsOidcResponse([property: JsonPropertyName("IdToken")] string IdToken);
+file record AwsOidcResponse([property: System.Text.Json.Serialization.JsonPropertyName("IdToken")] string IdToken);
