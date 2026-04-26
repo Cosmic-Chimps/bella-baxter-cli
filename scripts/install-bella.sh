@@ -8,7 +8,7 @@
 
 set -euo pipefail
 
-REPO="cosmic-chimps/bella-cli"
+REPO="Cosmic-Chimps/bella-baxter-cli"
 BINARY_NAME="bella"
 INSTALL_DIR="${BELLA_INSTALL_DIR:-/usr/local/bin}"
 VERSION="${1:-}"
