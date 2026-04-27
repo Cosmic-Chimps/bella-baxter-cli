@@ -397,6 +397,14 @@ public class WorkloadIdentityService(HttpClient httpClient, ConfigService config
         if (DetectPlatform() == WorkloadPlatform.None)
             return null;
 
+        // If a Bella API key is already in the environment (e.g. exported by a prior
+        // 'bella auth oidc' step), skip the OIDC exchange entirely — no need to obtain
+        // another key, and attempting it would just produce a noisy 422 error.
+        var existingKey = Environment.GetEnvironmentVariable("BELLA_BAXTER_API_KEY")
+                       ?? Environment.GetEnvironmentVariable("BELLA_API_KEY");
+        if (!string.IsNullOrEmpty(existingKey))
+            return null;
+
         var oidcToken = await GetOidcTokenAsync(audience, ct);
         if (string.IsNullOrEmpty(oidcToken))
             return null;
