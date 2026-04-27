@@ -635,4 +635,14 @@ app.Configure(config =>
         .WithExample("agent", "--init");
 });
 
+// Strip everything after '--' so Spectre.Console never sees single-dash multi-char flags
+// like '-auto-approve' that it would try to parse as short options and crash on.
+// The stripped args are stored in PassthroughArgsHolder and recombined in CollectArgs/MergeArgs.
+var separatorIdx = Array.IndexOf(args, "--");
+if (separatorIdx >= 0)
+{
+    BellaCli.Commands.PassthroughArgsHolder.Set(args[(separatorIdx + 1)..]);
+    args = args[..(separatorIdx + 1)]; // keep '--' so Spectre.Console still sees the separator
+}
+
 return await app.RunAsync(args);

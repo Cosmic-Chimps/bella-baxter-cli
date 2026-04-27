@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Security.Cryptography;
+using BellaCli.Commands;
 using BellaBaxter.Client;
 using BellaCli.Infrastructure;
 using BellaCli.Services;
@@ -378,28 +379,27 @@ public class RunCommand(
     }
 
     /// <summary>
-    /// Collects the passthrough command args from either the positional <paramref name="cmd"/>
-    /// array (Spectre captures non-dashed tokens there) OR from <c>context.Remaining.Raw</c>
-    /// (everything after <c>--</c>, including single-dash flags like <c>-auto-approve</c>).
-    /// Merges both so that <c>bella run -- terraform apply -auto-approve</c> works correctly.
+    /// Collects the passthrough command args by merging:
+    /// 1. <c>PassthroughArgsHolder</c> — args stripped from the CLI args array in Program.cs
+    ///    before Spectre.Console's parser runs (handles single-dash flags like -auto-approve).
+    /// 2. Positional tokens in <paramref name="cmd"/> — non-dashed tokens Spectre captured.
+    /// 3. <c>context.Remaining.Raw</c> — fallback for double-dash tokens after '--'.
     /// </summary>
     private static string[] CollectArgs(string[] cmd, CommandContext context)
     {
-        // context.Remaining.Raw contains everything after the '--' separator.
-        // cmd[] contains positional (non-dashed) tokens that Spectre picked up before '--'.
-        // Merge: positional first, then remaining (which holds the dashed passthrough flags).
+        // Primary: args stripped before Spectre saw them (handles -auto-approve etc.)
+        var stripped = PassthroughArgsHolder.Get().Where(a => a != "--").ToList();
+        if (stripped.Count > 0)
+            return [.. stripped];
+
+        // Fallback for double-dash passthrough tokens that Spectre did capture.
         var positional = cmd.Where(a => a != "--").ToList();
         var remaining = context.Remaining.Raw.Where(a => a != "--").ToList();
 
-        // If both are populated it means Spectre split the args across the two collections.
-        // If only remaining is populated it means '--' came first (the normal usage).
         if (positional.Count == 0)
             return [.. remaining];
-
         if (remaining.Count == 0)
             return [.. positional];
-
-        // Merge: positional tokens come before the remaining ones.
         return [.. positional, .. remaining];
     }
 }

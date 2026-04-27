@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.Diagnostics;
+using BellaCli.Commands;
 using BellaCli.Infrastructure;
 using BellaCli.Services;
 using Spectre.Console;
@@ -288,17 +289,15 @@ public class ExecCommand(
     }
 
     /// <summary>
-    /// Merges the positional <paramref name="cmd"/> tokens (non-dashed args Spectre captured)
-    /// with <c>context.Remaining.Raw</c> (everything after <c>--</c>, including single-dash
-    /// flags like <c>-auto-approve</c>).  Handles all three invocation styles:
-    /// <list type="bullet">
-    ///   <item><c>bella exec -- terraform apply -auto-approve</c> → Remaining has all 3 tokens</item>
-    ///   <item><c>bella exec terraform apply</c> → Cmd has both tokens (no dashed args)</item>
-    ///   <item><c>bella exec -- sh -c 'cmd'</c> → Remaining has all tokens</item>
-    /// </list>
+    /// Merges the passthrough command args. Checks <c>PassthroughArgsHolder</c> first (args
+    /// stripped before Spectre's parser ran — handles single-dash flags like <c>-auto-approve</c>),
+    /// then falls back to positional <paramref name="cmd"/> and <c>context.Remaining.Raw</c>.
     /// </summary>
     private static string[] MergeArgs(string[] cmd, CommandContext context)
     {
+        var stripped = PassthroughArgsHolder.Get().Where(a => a != "--").ToList();
+        if (stripped.Count > 0) return [.. stripped];
+
         var positional = cmd.Where(a => a != "--").ToList();
         var remaining = context.Remaining.Raw.Where(a => a != "--").ToList();
 

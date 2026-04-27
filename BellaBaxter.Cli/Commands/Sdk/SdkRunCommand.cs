@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.Diagnostics;
+using BellaCli.Commands;
 using BellaCli.Infrastructure;
 using BellaCli.Services;
 using Spectre.Console;
@@ -311,12 +312,15 @@ public class SdkRunCommand(
     }
 
     /// <summary>
-    /// Merges positional <paramref name="cmd"/> tokens (non-dashed args captured by Spectre)
-    /// with <c>context.Remaining.Raw</c> (everything after <c>--</c>, including single-dash
-    /// flags like <c>-auto-approve</c> or <c>-no-color</c>).
+    /// Merges the passthrough command args. Checks <c>PassthroughArgsHolder</c> first (args
+    /// stripped before Spectre's parser ran — handles single-dash flags like <c>-auto-approve</c>),
+    /// then falls back to positional <paramref name="cmd"/> and <c>context.Remaining.Raw</c>.
     /// </summary>
     protected static string[] MergeArgs(string[] cmd, CommandContext context)
     {
+        var stripped = PassthroughArgsHolder.Get().Where(a => a != "--").ToList();
+        if (stripped.Count > 0) return [.. stripped];
+
         var positional = cmd.Where(a => a != "--").ToList();
         var remaining = context.Remaining.Raw.Where(a => a != "--").ToList();
 
