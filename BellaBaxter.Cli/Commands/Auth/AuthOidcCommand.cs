@@ -159,7 +159,7 @@ public class AuthOidcCommand(WorkloadIdentityService workloadIdentity, IOutputWr
         {
             output.WriteSuccess(
                 $"Bella API key issued. Expires at {result.ExpiresAt:u}. "
-                    + $"Key exported as BELLA_API_KEY."
+                    + $"Key exported as BELLA_BAXTER_API_KEY."
             );
         }
 
@@ -173,7 +173,8 @@ public class AuthOidcCommand(WorkloadIdentityService workloadIdentity, IOutputWr
             var githubEnv = Environment.GetEnvironmentVariable("GITHUB_ENV");
             if (!string.IsNullOrEmpty(githubEnv))
             {
-                File.AppendAllText(githubEnv, $"BELLA_API_KEY={token}{Environment.NewLine}");
+                File.AppendAllText(githubEnv, $"BELLA_BAXTER_API_KEY={token}{Environment.NewLine}");
+                File.AppendAllText(githubEnv, $"BELLA_API_KEY={token}{Environment.NewLine}"); // legacy alias
                 Console.WriteLine($"::add-mask::{token}");
                 return;
             }
@@ -181,11 +182,11 @@ public class AuthOidcCommand(WorkloadIdentityService workloadIdentity, IOutputWr
 
         if (platform == WorkloadPlatform.GitLabCI)
         {
-            Console.WriteLine($"export BELLA_API_KEY={token}");
+            Console.WriteLine($"export BELLA_BAXTER_API_KEY={token}");
             return;
         }
 
         // Generic: print as dotenv — caller can source or eval
-        Console.WriteLine($"BELLA_API_KEY={token}");
+        Console.WriteLine($"BELLA_BAXTER_API_KEY={token}");
     }
 }

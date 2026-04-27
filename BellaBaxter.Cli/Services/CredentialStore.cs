@@ -93,6 +93,19 @@ public class CredentialStore
 
     public StoredApiKey? LoadApiKey()
     {
+        // Env var takes priority — allows CI/CD to inject the key without touching the credential file.
+        // BELLA_BAXTER_API_KEY is canonical; BELLA_API_KEY is the legacy alias.
+        var envKey = Environment.GetEnvironmentVariable("BELLA_BAXTER_API_KEY")
+                  ?? Environment.GetEnvironmentVariable("BELLA_API_KEY");
+        if (!string.IsNullOrWhiteSpace(envKey))
+        {
+            // Parse "bax-{keyId32hex}-{signingSecret}" — best-effort, raw is always the full token
+            var parts = envKey.Split('-', 3);
+            var keyId = parts.Length == 3 ? $"{parts[0]}-{parts[1]}" : envKey;
+            var signingSecret = parts.Length == 3 ? parts[2] : string.Empty;
+            return new StoredApiKey(KeyId: keyId, SigningSecret: signingSecret, Raw: envKey);
+        }
+
         if (!File.Exists(ApiKeyFile)) return null;
         try
         {
