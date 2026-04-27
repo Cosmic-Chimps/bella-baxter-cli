@@ -53,6 +53,10 @@ public class SdkRunCommand(
 {
     public class Settings : CommandSettings
     {
+        [CommandOption("-t|--tenant <slug>")]
+        [Description("Tenant slug — used for workload identity context")]
+        public string? Tenant { get; set; }
+
         [CommandOption("-p|--project <slug>")]
         [Description("Project slug — used for workload identity (GitHub Actions / Kubernetes)")]
         public string? Project { get; set; }
@@ -107,26 +111,25 @@ public class SdkRunCommand(
         string? projectSlug = null;
         string? environmentSlug = null;
 
-        var workloadResult = await workloadIdentity.TryAutoExchangeAsync(
-            settings.Project,
-            settings.Environment,
-            ct: ct
-        );
-
-        if (workloadResult is not null)
-        {
-            var platform = WorkloadIdentityService.DetectPlatform();
-            AnsiConsole.MarkupLine($"[dim]🔑 Using workload identity ({platform})[/]");
-            apiKey = workloadResult.Token;
-        }
-        else if (credentials.LoadApiKey() is { } storedKey)
+        // Use stored/env key first — only attempt OIDC if no key is available
+        if (credentials.LoadApiKey() is { } storedKey)
         {
             apiKey = storedKey.Raw;
         }
         else
         {
-            apiKey = System.Environment.GetEnvironmentVariable("BELLA_BAXTER_API_KEY")
-                     ?? System.Environment.GetEnvironmentVariable("BELLA_API_KEY");
+            var workloadResult = await workloadIdentity.TryAutoExchangeAsync(
+                settings.Tenant,
+                settings.Project,
+                settings.Environment,
+                ct: ct
+            );
+            if (workloadResult is not null)
+            {
+                var platform = WorkloadIdentityService.DetectPlatform();
+                AnsiConsole.MarkupLine($"[dim]🔑 Using workload identity ({platform})[/]");
+                apiKey = workloadResult.Token;
+            }
         }
 
         if (string.IsNullOrEmpty(apiKey) && credentials.HasOAuthTokens())
@@ -241,7 +244,7 @@ public class SdkRunCommand(
 
         // ZKE: inject device private key so SDK child processes use the same device identity.
         // Only injected for developer auth flows (workload identity manages its own keys externally).
-        if (workloadResult is null)
+        if (apiKey is null || !apiKey.StartsWith("bax-"))
         {
             var deviceKeyBase64 = zke.LoadPrivateKeyBase64();
             if (deviceKeyBase64 is not null)
