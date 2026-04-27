@@ -117,8 +117,9 @@ public class ContextCommand(ConfigService config) : Command<ContextSettings>
                       ?? Environment.GetEnvironmentVariable("BELLA_PROJECT");
         var envEnv = Environment.GetEnvironmentVariable("BELLA_BAXTER_ENV")
                   ?? Environment.GetEnvironmentVariable("BELLA_ENV");
+        var envTenant = Environment.GetEnvironmentVariable("BELLA_BAXTER_TENANT");
         if (!string.IsNullOrWhiteSpace(envProject) && !string.IsNullOrWhiteSpace(envEnv))
-            return (envProject, envEnv, null, "env");
+            return (envProject, envEnv, envTenant, "env");
 
         var dir = new DirectoryInfo(Directory.GetCurrentDirectory());
         while (dir != null)

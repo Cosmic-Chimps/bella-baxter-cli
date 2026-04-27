@@ -30,6 +30,18 @@ public class AuthOidcSettings : CommandSettings
     [System.ComponentModel.Description("Use a pre-obtained OIDC token directly (skips platform detection and token fetch — useful for local testing)")]
     public string? Token { get; init; }
 
+    [CommandOption("--tenant <TENANT>")]
+    [System.ComponentModel.Description("Tenant slug (overrides BELLA_BAXTER_TENANT and .bella file)")]
+    public string? Tenant { get; init; }
+
+    [CommandOption("--project <PROJECT>")]
+    [System.ComponentModel.Description("Project slug (overrides BELLA_BAXTER_PROJECT and .bella file)")]
+    public string? Project { get; init; }
+
+    [CommandOption("--env <ENV>")]
+    [System.ComponentModel.Description("Environment slug (overrides BELLA_BAXTER_ENV and .bella file)")]
+    public string? Env { get; init; }
+
     [CommandOption("--json")]
     public bool Json { get; init; }
 }
@@ -83,8 +95,9 @@ public class AuthOidcCommand(WorkloadIdentityService workloadIdentity, IOutputWr
             }
         }
 
-        // Global exchange — server finds matching TrustDomain by issuer
+        // Global exchange — server finds matching TrustDomain by issuer + env context
         OidcExchangeResult? result = null;
+        string? exchangeError = null;
         await AnsiConsole
             .Status()
             .Spinner(Spinner.Known.Dots)
@@ -92,9 +105,30 @@ public class AuthOidcCommand(WorkloadIdentityService workloadIdentity, IOutputWr
                 "Exchanging OIDC token for Bella key...",
                 async _ =>
                 {
-                    result = await workloadIdentity.ExchangeGlobalAsync(oidcToken, ct);
+                    var (tenantSlug, projectSlug, envSlug) = workloadIdentity.ResolveSlugs(
+                        settings.Tenant, settings.Project, settings.Env);
+
+                    if (string.IsNullOrWhiteSpace(tenantSlug)
+                        || string.IsNullOrWhiteSpace(projectSlug)
+                        || string.IsNullOrWhiteSpace(envSlug))
+                    {
+                        exchangeError =
+                            "No project context found. Provide --tenant, --project, --env " +
+                            "or set BELLA_BAXTER_TENANT, BELLA_BAXTER_PROJECT, BELLA_BAXTER_ENV " +
+                            "or add an org/project/environment entry to your .bella file.";
+                        return;
+                    }
+
+                    result = await workloadIdentity.ExchangeGlobalAsync(
+                        oidcToken, tenantSlug, projectSlug, envSlug, ct);
                 }
             );
+
+        if (exchangeError is not null)
+        {
+            output.WriteError(exchangeError, "missing_context");
+            return 1;
+        }
 
         if (result is null)
         {

@@ -4,6 +4,7 @@ using System.Text.Json.Serialization;
 using BellaBaxter.Client;
 using BellaBaxter.Client.Models;
 using BellaCli.Commands.Shell;
+using BellaCli.Infrastructure;
 
 namespace BellaCli.Services;
 
@@ -260,31 +261,36 @@ public class WorkloadIdentityService(HttpClient httpClient, ConfigService config
     // ── Slug resolution ───────────────────────────────────────────────────────
 
     /// <summary>
-    /// Resolves project + environment slugs for workload identity from (priority order):
+    /// Resolves tenant + project + environment slugs for workload identity from (priority order):
     ///   1. Explicit arguments passed to the command
-    ///   2. BELLA_BAXTER_PROJECT / BELLA_BAXTER_ENV environment variables
-    ///   3. .bella file in the current directory tree
-    ///   4. Global default project/environment stored in config
-    /// Returns (null, null) if no context can be determined.
+    ///   2. BELLA_BAXTER_TENANT / BELLA_BAXTER_PROJECT / BELLA_BAXTER_ENV environment variables
+    ///   3. .bella file in the current directory tree (org = tenant)
+    /// Returns (null, null, null) if no context can be determined.
     /// </summary>
-    public (string? ProjectSlug, string? EnvironmentSlug) ResolveSlugs(
+    public (string? TenantSlug, string? ProjectSlug, string? EnvironmentSlug) ResolveSlugs(
+        string? explicitTenant = null,
         string? explicitProject = null,
         string? explicitEnvironment = null
     )
     {
         // 1. Explicit command arguments take highest priority
         if (
-            !string.IsNullOrWhiteSpace(explicitProject)
+            !string.IsNullOrWhiteSpace(explicitTenant)
+            && !string.IsNullOrWhiteSpace(explicitProject)
             && !string.IsNullOrWhiteSpace(explicitEnvironment)
         )
-            return (explicitProject, explicitEnvironment);
+            return (explicitTenant, explicitProject, explicitEnvironment);
 
-        // 2. Env vars (same ones used by `bella context use`)
-        var (ctxProject, ctxEnv, _) = ContextCommand.ResolveContext(config);
+        // 2. Env vars / .bella file (org = tenant slug)
+        var (ctxProject, ctxEnv, ctxOrg, _) = ContextCommand.ResolveContextWithOrg(config);
         if (!string.IsNullOrWhiteSpace(ctxProject) && !string.IsNullOrWhiteSpace(ctxEnv))
-            return (ctxProject, ctxEnv);
+            return (
+                !string.IsNullOrWhiteSpace(explicitTenant) ? explicitTenant : ctxOrg,
+                ctxProject,
+                ctxEnv
+            );
 
-        return (null, null);
+        return (null, null, null);
     }
 
     // ── Exchange ──────────────────────────────────────────────────────────────
@@ -295,6 +301,7 @@ public class WorkloadIdentityService(HttpClient httpClient, ConfigService config
     /// Returns null if the exchange fails.
     /// </summary>
     public async Task<OidcExchangeResult?> ExchangeBySlugAsync(
+        string tenantSlug,
         string projectSlug,
         string environmentSlug,
         string oidcToken,
@@ -303,11 +310,14 @@ public class WorkloadIdentityService(HttpClient httpClient, ConfigService config
     {
         try
         {
-            var client = BellaClientFactory.CreateAnonymous(config.ApiUrl);
+            var client = BellaClientFactory.CreateAnonymous(
+                config.ApiUrl,
+                DebugLoggingHandler.IsEnabled ? new DebugLoggingHandler() : null);
             var resp = await client.Api.V1.Token.PostAsync(
                 new ExchangeOidcTokenBySlugCommand
                 {
                     OidcToken = oidcToken,
+                    TenantSlug = tenantSlug,
                     ProjectSlug = projectSlug,
                     EnvironmentSlug = environmentSlug,
                 },
@@ -325,20 +335,30 @@ public class WorkloadIdentityService(HttpClient httpClient, ConfigService config
     }
 
     /// <summary>
-    /// Global exchange — no project/environment context required.
-    /// The server finds the matching TrustDomain by OIDC issuer across all environments.
-    /// The role of the issued key (Consumer/Manager) is determined by the TrustDomain.
+    /// Exchanges an OIDC token for a short-lived Bella API key.
+    /// Requires tenant + project + environment slugs to locate the matching TrustDomain.
     /// </summary>
     public async Task<OidcExchangeResult?> ExchangeGlobalAsync(
         string oidcToken,
+        string? tenantSlug = null,
+        string? projectSlug = null,
+        string? environmentSlug = null,
         CancellationToken ct = default
     )
     {
         try
         {
-            var client = BellaClientFactory.CreateAnonymous(config.ApiUrl);
+            var client = BellaClientFactory.CreateAnonymous(
+                config.ApiUrl,
+                DebugLoggingHandler.IsEnabled ? new DebugLoggingHandler() : null);
             var resp = await client.Api.V1.Token.PostAsync(
-                new ExchangeOidcTokenBySlugCommand { OidcToken = oidcToken },
+                new ExchangeOidcTokenBySlugCommand
+                {
+                    OidcToken = oidcToken,
+                    TenantSlug = tenantSlug,
+                    ProjectSlug = projectSlug,
+                    EnvironmentSlug = environmentSlug,
+                },
                 cancellationToken: ct
             );
             return resp is null ? null : new OidcExchangeResult(resp.Token!, resp.ExpiresAt!.Value);
@@ -367,6 +387,7 @@ public class WorkloadIdentityService(HttpClient httpClient, ConfigService config
     /// Never throws. Never persists anything.
     /// </summary>
     public async Task<OidcExchangeResult?> TryAutoExchangeAsync(
+        string? explicitTenant = null,
         string? explicitProject = null,
         string? explicitEnvironment = null,
         string audience = "bella-baxter",
@@ -380,15 +401,9 @@ public class WorkloadIdentityService(HttpClient httpClient, ConfigService config
         if (string.IsNullOrEmpty(oidcToken))
             return null;
 
-        var (projectSlug, environmentSlug) = ResolveSlugs(explicitProject, explicitEnvironment);
+        var (tenantSlug, projectSlug, environmentSlug) = ResolveSlugs(explicitTenant, explicitProject, explicitEnvironment);
 
-        // If both slugs are known, use scoped exchange (slightly cheaper).
-        // Otherwise fall back to global exchange — the server finds the matching
-        // TrustDomain by issuer and the returned token carries the environment context.
-        if (!string.IsNullOrWhiteSpace(projectSlug) && !string.IsNullOrWhiteSpace(environmentSlug))
-            return await ExchangeBySlugAsync(projectSlug, environmentSlug, oidcToken, ct);
-
-        return await ExchangeGlobalAsync(oidcToken, ct);
+        return await ExchangeGlobalAsync(oidcToken, tenantSlug, projectSlug, environmentSlug, ct);
     }
 }
 
