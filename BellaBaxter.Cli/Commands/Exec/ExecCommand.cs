@@ -74,10 +74,8 @@ public class ExecCommand(
     {
         await Task.CompletedTask; // satisfy async signature
 
-        // Collect args — strip the bare "--" separator if present
-        var args = settings.Cmd.Where(a => a != "--").ToArray();
-        if (args.Length == 0 && context.Remaining.Raw.Count > 0)
-            args = [.. context.Remaining.Raw.Where(a => a != "--")];
+        // Collect args — merge positional (non-dashed) and remaining (everything after --)
+        var args = MergeArgs(settings.Cmd, context);
 
         if (args.Length == 0)
         {
@@ -287,5 +285,25 @@ public class ExecCommand(
         }
         catch { /* ignore unreadable files */ }
         return null;
+    }
+
+    /// <summary>
+    /// Merges the positional <paramref name="cmd"/> tokens (non-dashed args Spectre captured)
+    /// with <c>context.Remaining.Raw</c> (everything after <c>--</c>, including single-dash
+    /// flags like <c>-auto-approve</c>).  Handles all three invocation styles:
+    /// <list type="bullet">
+    ///   <item><c>bella exec -- terraform apply -auto-approve</c> → Remaining has all 3 tokens</item>
+    ///   <item><c>bella exec terraform apply</c> → Cmd has both tokens (no dashed args)</item>
+    ///   <item><c>bella exec -- sh -c 'cmd'</c> → Remaining has all tokens</item>
+    /// </list>
+    /// </summary>
+    private static string[] MergeArgs(string[] cmd, CommandContext context)
+    {
+        var positional = cmd.Where(a => a != "--").ToList();
+        var remaining = context.Remaining.Raw.Where(a => a != "--").ToList();
+
+        if (positional.Count == 0) return [.. remaining];
+        if (remaining.Count == 0) return [.. positional];
+        return [.. positional, .. remaining];
     }
 }

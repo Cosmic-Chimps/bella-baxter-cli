@@ -84,10 +84,8 @@ public class SdkRunCommand(
     {
         await Task.CompletedTask; // satisfy async signature
 
-        // Collect args — strip the bare "--" separator if present
-        var args = settings.Cmd.Where(a => a != "--").ToArray();
-        if (args.Length == 0 && context.Remaining.Raw.Count > 0)
-            args = [.. context.Remaining.Raw.Where(a => a != "--")];
+        // Collect args — merge positional (non-dashed) and remaining (everything after --)
+        var args = MergeArgs(settings.Cmd, context);
 
         if (args.Length == 0)
         {
@@ -310,5 +308,20 @@ public class SdkRunCommand(
         }
         catch { /* ignore unreadable files */ }
         return null;
+    }
+
+    /// <summary>
+    /// Merges positional <paramref name="cmd"/> tokens (non-dashed args captured by Spectre)
+    /// with <c>context.Remaining.Raw</c> (everything after <c>--</c>, including single-dash
+    /// flags like <c>-auto-approve</c> or <c>-no-color</c>).
+    /// </summary>
+    protected static string[] MergeArgs(string[] cmd, CommandContext context)
+    {
+        var positional = cmd.Where(a => a != "--").ToList();
+        var remaining = context.Remaining.Raw.Where(a => a != "--").ToList();
+
+        if (positional.Count == 0) return [.. remaining];
+        if (remaining.Count == 0) return [.. positional];
+        return [.. positional, .. remaining];
     }
 }
