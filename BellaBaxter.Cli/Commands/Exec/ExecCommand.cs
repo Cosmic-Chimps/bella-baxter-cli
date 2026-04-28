@@ -52,7 +52,7 @@ public class ExecCommand(
         [Description("Project slug — used for workload identity (GitHub Actions / Kubernetes)")]
         public string? Project { get; set; }
 
-        [CommandOption("-e|--environment <slug>")]
+        [CommandOption("-e|--env|--environment <slug>")]
         [Description("Environment slug — used for workload identity (GitHub Actions / Kubernetes)")]
         public string? Environment { get; set; }
 

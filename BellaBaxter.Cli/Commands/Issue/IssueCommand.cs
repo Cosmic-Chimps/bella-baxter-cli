@@ -41,7 +41,7 @@ public class IssueCommand(
         )]
         public string? Project { get; set; }
 
-        [CommandOption("-e|--environment <slug>")]
+        [CommandOption("-e|--env|--environment <slug>")]
         [Description(
             "Environment slug. Falls back to context (.bella file / BELLA_BAXTER_ENV env var)"
         )]

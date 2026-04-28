@@ -12,7 +12,7 @@ public class ListPkiRolesSettings : CommandSettings
     [CommandOption("-p|--project <SLUG>")]
     public string? Project { get; init; }
 
-    [CommandOption("-e|--environment <SLUG>")]
+    [CommandOption("-e|--env|--environment <SLUG>")]
     public string? Environment { get; init; }
 
     [CommandOption("--json")]

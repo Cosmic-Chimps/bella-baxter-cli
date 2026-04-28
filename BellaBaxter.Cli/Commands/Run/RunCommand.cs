@@ -26,7 +26,7 @@ public class RunCommand(
         [Description("Project slug or ID")]
         public string? Project { get; set; }
 
-        [CommandOption("-e|--environment <slug>")]
+        [CommandOption("-e|--env|--environment <slug>")]
         [Description("Environment slug or ID")]
         public string? Environment { get; set; }
 

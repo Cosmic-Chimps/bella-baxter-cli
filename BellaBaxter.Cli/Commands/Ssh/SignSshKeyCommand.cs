@@ -12,7 +12,7 @@ public class SignSshKeySettings : CommandSettings
     [CommandOption("-p|--project <SLUG>")]
     public string? Project { get; init; }
 
-    [CommandOption("-e|--environment <SLUG>")]
+    [CommandOption("-e|--env|--environment <SLUG>")]
     public string? Environment { get; init; }
 
     [CommandOption("-r|--role <ROLE>")]
@@ -71,20 +71,21 @@ public class SignSshKeyCommand(BellaClientProvider provider, ContextService cont
                     return 1;
                 }
 
-                if (roleList.Count == 1)
+                if (Console.IsOutputRedirected || output is JsonOutputWriter)
                 {
-                    roleName = roleList[0].Name!;
-                }
-                else
-                {
-                    if (Console.IsOutputRedirected || output is JsonOutputWriter)
+                    if (roleList.Count == 1)
+                        roleName = roleList[0].Name!;
+                    else
                     {
                         output.WriteError("--role is required in non-interactive mode.");
                         return 1;
                     }
+                }
+                else
+                {
                     roleName = AnsiConsole.Prompt(
                         new SelectionPrompt<string>()
-                            .Title("[bold]Select SSH role:[/]")
+                            .Title("[bold]Select an SSH role to sign with:[/]")
                             .AddChoices(roleList.Select(r => r.Name ?? "")));
                 }
             }
@@ -93,8 +94,19 @@ public class SignSshKeyCommand(BellaClientProvider provider, ContextService cont
             var pubKeyPath = ResolvePublicKeyPath(settings.KeyPath);
             if (pubKeyPath is null)
             {
-                output.WriteError("No SSH public key found. Pass --key <path>.");
-                return 1;
+                if (Console.IsOutputRedirected || output is JsonOutputWriter)
+                {
+                    output.WriteError("No SSH public key found. Pass --key <path-to-key.pub>.");
+                    return 1;
+                }
+                var defaultKey = System.IO.Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".ssh", "id_ed25519.pub");
+                pubKeyPath = ExpandPath(AnsiConsole.Prompt(
+                    new TextPrompt<string>("[bold]Path to your SSH [underline]public[/] key[/] [dim](the .pub file, not the private key)[/][bold]:[/]")
+                        .DefaultValue(defaultKey)
+                        .Validate(p => File.Exists(ExpandPath(p))
+                            ? ValidationResult.Success()
+                            : ValidationResult.Error($"[red]File not found:[/] {p} [dim](make sure you provide the .pub file)[/]"))));
             }
 
             var pubKeyContent = (await File.ReadAllTextAsync(pubKeyPath, ct)).Trim();
@@ -150,7 +162,7 @@ public class SignSshKeyCommand(BellaClientProvider provider, ContextService cont
 
     internal static string? ResolvePublicKeyPath(string? explicit_)
     {
-        if (!string.IsNullOrWhiteSpace(explicit_)) return explicit_;
+        if (!string.IsNullOrWhiteSpace(explicit_)) return ExpandPath(explicit_);
         var sshDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".ssh");
         // Check common key types in preference order
         foreach (var name in new[] { "id_ed25519.pub", "id_ecdsa.pub", "id_rsa.pub", "id_dsa.pub" })
@@ -188,10 +200,24 @@ public class SignSshKeyCommand(BellaClientProvider provider, ContextService cont
     /// </summary>
     internal static string ResolvePrivateKeyPath(string keyPath)
     {
-        if (File.Exists(keyPath)) return keyPath;
-        var withPrivate = keyPath + ".private";
+        var expanded = ExpandPath(keyPath);
+        if (File.Exists(expanded)) return expanded;
+        var withPrivate = expanded + ".private";
         if (File.Exists(withPrivate)) return withPrivate;
-        return keyPath; // return as-is; SSH will emit a clear error
+        return expanded; // return as-is; SSH will emit a clear error
+    }
+
+    /// <summary>
+    /// Expand ~ to the user's home directory. The CLI is not a shell so ~ is never
+    /// expanded automatically — we must do it ourselves.
+    /// </summary>
+    internal static string ExpandPath(string path)
+    {
+        if (path.StartsWith("~/") || path == "~")
+            return Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+                path.Length > 2 ? path[2..] : "");
+        return path;
     }
 
     internal static string ToCertPath(string pubKeyPath) =>

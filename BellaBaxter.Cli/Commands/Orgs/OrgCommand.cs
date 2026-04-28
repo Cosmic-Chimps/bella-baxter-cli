@@ -128,9 +128,9 @@ public class OrgListCommand(
 
 public class OrgSwitchSettings : CommandSettings
 {
-    [CommandArgument(0, "<slug-or-id>")]
-    [System.ComponentModel.Description("The org slug or ID to switch to")]
-    public string SlugOrId { get; init; } = string.Empty;
+    [CommandArgument(0, "[slug-or-id]")]
+    [System.ComponentModel.Description("The org slug or ID to switch to (omit to select interactively)")]
+    public string? SlugOrId { get; init; }
 }
 
 public class OrgSwitchCommand(
@@ -161,16 +161,46 @@ public class OrgSwitchCommand(
             orgs = await client.Api.Tenants.MyTenants.GetAsync(cancellationToken: ct);
         });
 
-        var target = orgs?.FirstOrDefault(o =>
-            string.Equals(o.Slug, settings.SlugOrId, StringComparison.OrdinalIgnoreCase)
-            || string.Equals(o.TenantId?.ToString(), settings.SlugOrId, StringComparison.OrdinalIgnoreCase));
-
-        if (target is null)
+        if (orgs is null || orgs.Count == 0)
         {
-            output.WriteError(
-                $"Org '{settings.SlugOrId}' not found. Run 'bella org list' to see available orgs."
-            );
+            output.WriteError("No orgs found for your account.");
             return 1;
+        }
+
+        BellaBaxter.Client.Models.TenantAccess? target;
+
+        if (string.IsNullOrWhiteSpace(settings.SlugOrId))
+        {
+            // Interactive selection
+            var currentOrgId = credentials.LoadTokens()?.OrgId;
+            var choices = orgs.Select(o =>
+            {
+                var isActive = o.TenantId.HasValue
+                    && string.Equals(o.TenantId.Value.ToString(), currentOrgId, StringComparison.OrdinalIgnoreCase);
+                return $"{o.TenantName} [dim]({o.Slug})[/]{(isActive ? " [green]✓[/]" : "")}";
+            }).ToList();
+
+            var selected = AnsiConsole.Prompt(
+                new SelectionPrompt<string>()
+                    .Title("[bold]Select an org:[/]")
+                    .AddChoices(choices));
+
+            var idx = choices.IndexOf(selected);
+            target = orgs[idx];
+        }
+        else
+        {
+            target = orgs.FirstOrDefault(o =>
+                string.Equals(o.Slug, settings.SlugOrId, StringComparison.OrdinalIgnoreCase)
+                || string.Equals(o.TenantId?.ToString(), settings.SlugOrId, StringComparison.OrdinalIgnoreCase));
+
+            if (target is null)
+            {
+                output.WriteError(
+                    $"Org '{settings.SlugOrId}' not found. Run 'bella org list' to see available orgs."
+                );
+                return 1;
+            }
         }
 
         // Call switch endpoint

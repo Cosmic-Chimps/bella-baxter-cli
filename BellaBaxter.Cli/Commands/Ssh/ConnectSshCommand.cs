@@ -17,7 +17,7 @@ public class ConnectSshSettings : CommandSettings
     [CommandOption("-p|--project <SLUG>")]
     public string? Project { get; init; }
 
-    [CommandOption("-e|--environment <SLUG>")]
+    [CommandOption("-e|--env|--environment <SLUG>")]
     public string? Environment { get; init; }
 
     [CommandOption("-r|--role <ROLE>")]
@@ -61,7 +61,23 @@ public class ConnectSshCommand(BellaClientProvider provider, ContextService cont
                     var p = Path.Combine(home, ".ssh", name);
                     if (File.Exists(p)) { privKeyPath = p; break; }
                 }
-                privKeyPath ??= Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".ssh", "id_ed25519");
+
+                if (privKeyPath is null)
+                {
+                    if (Console.IsOutputRedirected || output is JsonOutputWriter)
+                    {
+                        output.WriteError("No SSH private key found. Pass --key <path-to-private-key>.");
+                        return 1;
+                    }
+                    var defaultKey = Path.Combine(
+                        Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".ssh", "id_ed25519");
+                    privKeyPath = SignSshKeyCommand.ExpandPath(AnsiConsole.Prompt(
+                        new TextPrompt<string>("[bold]Path to your SSH [underline]private[/] key[/] [dim](not the .pub file)[/][bold]:[/]")
+                            .DefaultValue(defaultKey)
+                            .Validate(p => File.Exists(SignSshKeyCommand.ExpandPath(p))
+                                ? ValidationResult.Success()
+                                : ValidationResult.Error($"[red]File not found:[/] {p} [dim](provide the private key, not the .pub file)[/]"))));
+                }
             }
             else
             {
@@ -110,15 +126,21 @@ public class ConnectSshCommand(BellaClientProvider provider, ContextService cont
                         return 1;
                     }
 
-                    if (roleList.Count == 1)
+                    if (Console.IsOutputRedirected || output is JsonOutputWriter)
                     {
-                        roleName = roleList[0].Name!;
+                        if (roleList.Count == 1)
+                            roleName = roleList[0].Name!;
+                        else
+                        {
+                            output.WriteError("--role is required in non-interactive mode.");
+                            return 1;
+                        }
                     }
                     else
                     {
                         roleName = AnsiConsole.Prompt(
                             new SelectionPrompt<string>()
-                                .Title("[bold]Select SSH role:[/]")
+                                .Title("[bold]Select an SSH role to sign with:[/]")
                                 .AddChoices(roleList.Select(r => r.Name ?? "")));
                     }
                 }
