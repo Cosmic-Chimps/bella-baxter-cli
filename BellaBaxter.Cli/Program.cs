@@ -90,6 +90,7 @@ services.AddTransient<DeleteSecretCommand>();
 services.AddTransient<PushSecretsCommand>();
 services.AddTransient<GenerateSecretsCodeCommand>();
 services.AddTransient<PullCommand>();
+services.AddTransient<RotateSecretCommand>();
 
 // Config commands
 services.AddTransient<ConfigShowCommand>();
@@ -302,6 +303,11 @@ app.Configure(config =>
                     "AppSecrets",
                     "--dry-run"
                 );
+            secrets
+                .AddCommand<RotateSecretCommand>("rotate")
+                .WithDescription("Trigger rotation for a secret (rotation policy must be configured).")
+                .WithExample("secrets", "rotate", "MY_API_KEY")
+                .WithExample("secrets", "rotate", "MY_API_KEY", "-p", "my-project", "-e", "prod");
         }
     );
 
