@@ -10,7 +10,8 @@ namespace BellaCli.Services;
 public class BellaClientProvider(
     ConfigService config,
     CredentialStore credentials,
-    GlobalSettings settings
+    GlobalSettings settings,
+    AuthService authService
 )
 {
     /// <summary>A BellaClient paired with the raw access token for direct HTTP calls.</summary>
@@ -94,7 +95,7 @@ public class BellaClientProvider(
             return BellaClientFactory.CreateWithBearerToken(
                 apiUrl,
                 tokens.AccessToken,
-                DebugLoggingHandler.IsEnabled ? new DebugLoggingHandler() : null
+                BuildOAuthOuterHandler()
             );
         }
 
@@ -162,7 +163,7 @@ public class BellaClientProvider(
             if (WorkloadIdentityService.IsWorkloadEnvironment())
                 throw new InvalidOperationException(CiJwtError);
             return new BellaClientWrapper(
-                BellaClientFactory.CreateWithBearerToken(apiUrl, tokens.AccessToken),
+                BellaClientFactory.CreateWithBearerToken(apiUrl, tokens.AccessToken, BuildOAuthOuterHandler()),
                 tokens.AccessToken
             );
         }
@@ -213,7 +214,7 @@ public class BellaClientProvider(
         {
             if (WorkloadIdentityService.IsWorkloadEnvironment())
                 throw new InvalidOperationException(CiJwtError);
-            return BellaClientFactory.CreateWithBearerTokenAndZke(apiUrl, tokens.AccessToken, zkeHandler);
+            return BellaClientFactory.CreateWithBearerTokenAndZke(apiUrl, tokens.AccessToken, zkeHandler, BuildOAuthOuterHandler());
         }
 
         throw new InvalidOperationException("Not authenticated. Run 'bella login' first.");
@@ -225,4 +226,11 @@ public class BellaClientProvider(
         if (jsonFlag || Console.IsOutputRedirected)
             settings.OutputMode = OutputMode.Json;
     }
+
+    /// <summary>
+    /// Returns a <see cref="TokenRefreshHandler"/> for the outermost handler slot in OAuth2
+    /// stored-token paths. This ensures expired tokens are silently refreshed before any
+    /// request leaves the process, and retried on 401 responses.
+    /// </summary>
+    private TokenRefreshHandler BuildOAuthOuterHandler() => new(authService);
 }
