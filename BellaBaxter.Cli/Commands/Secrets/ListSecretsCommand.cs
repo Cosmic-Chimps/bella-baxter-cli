@@ -147,6 +147,14 @@ public class ListSecretsCommand(
             // ── Per-provider secrets ──────────────────────────────────────────
             foreach (var prov in providerList)
             {
+                if (!IsSecretsProvider(prov.ProviderType))
+                {
+                    AnsiConsole.MarkupLine(
+                        $"[dim]  Skipping {prov.ProviderName} ({prov.ProviderType}) — not a secrets storage provider.[/]"
+                    );
+                    continue;
+                }
+
                 output.WriteInfo($"\n  Provider: {prov.ProviderName} ({prov.ProviderType})");
                 try
                 {
@@ -197,4 +205,20 @@ public class ListSecretsCommand(
             return 1;
         }
     }
+
+    /// <summary>
+    /// Returns true for provider types that support secrets CRUD via the secrets API.
+    /// Gigamon, CertStorage, VaultDatabase, VaultSsh, VaultPki etc. are infrastructure
+    /// providers — they have no secrets endpoint and must be skipped.
+    /// </summary>
+    private static bool IsSecretsProvider(string? providerType) =>
+        providerType switch
+        {
+            "Vault" => true,
+            "AwsSecretsManager" => true,
+            "AwsParameterStore" => true,
+            "AzureKeyVault" => true,
+            "GoogleSecretManager" => true,
+            _ => false,
+        };
 }

@@ -115,11 +115,13 @@ public class PushSecretsCommand(
                 .Api.V1.Projects[projectSlug]
                 .Environments[envSlug]
                 .Providers.GetAsync(cancellationToken: ct);
-            var providerList = providers ?? [];
+            var providerList = (providers ?? [])
+                .Where(p => IsSecretsProvider(p.ProviderType))
+                .ToList();
             if (providerList.Count == 0)
             {
                 output.WriteError(
-                    "No providers assigned to this environment. Assign a provider first."
+                    "No secret storage providers assigned to this environment. Assign a Vault, AWS, Azure, or GCP provider first."
                 );
                 return 1;
             }
@@ -200,4 +202,15 @@ public class PushSecretsCommand(
             return 1;
         }
     }
+
+    private static bool IsSecretsProvider(string? providerType) =>
+        providerType switch
+        {
+            "Vault" => true,
+            "AwsSecretsManager" => true,
+            "AwsParameterStore" => true,
+            "AzureKeyVault" => true,
+            "GoogleSecretManager" => true,
+            _ => false,
+        };
 }
