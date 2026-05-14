@@ -293,9 +293,9 @@ app.Configure(config =>
             secrets
                 .AddCommand<GenerateSecretsCodeCommand>("generate")
                 .WithDescription(
-                    "Generate typed secrets code for dotnet, python, go, typescript, dart, php, ruby, or swift."
+                    "Generate typed secrets code for csharp, fsharp, python, go, typescript, dart, php, ruby, or swift."
                 )
-                .WithExample("secrets", "generate", "dotnet")
+                .WithExample("secrets", "generate", "csharp")
                 .WithExample("secrets", "generate", "python", "-p", "my-project", "-e", "dev")
                 .WithExample(
                     "secrets",
