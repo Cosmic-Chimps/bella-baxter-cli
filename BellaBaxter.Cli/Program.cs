@@ -10,13 +10,13 @@ using BellaCli.Commands.Issue;
 using BellaCli.Commands.Mcp;
 using BellaCli.Commands.Me;
 using BellaCli.Commands.Orgs;
+using BellaCli.Commands.Pki;
 using BellaCli.Commands.Projects;
 using BellaCli.Commands.Providers;
 using BellaCli.Commands.Run;
 using BellaCli.Commands.Sdk;
 using BellaCli.Commands.Secrets;
 using BellaCli.Commands.Shell;
-using BellaCli.Commands.Pki;
 using BellaCli.Commands.Ssh;
 using BellaCli.Commands.Totp;
 using BellaCli.Commands.Upgrade;
@@ -89,6 +89,8 @@ services.AddTransient<SetSecretCommand>();
 services.AddTransient<DeleteSecretCommand>();
 services.AddTransient<PushSecretsCommand>();
 services.AddTransient<GenerateSecretsCodeCommand>();
+services.AddTransient<SecretsDriftCommand>();
+services.AddTransient<SecretsScanCommand>();
 services.AddTransient<PullCommand>();
 services.AddTransient<RotateSecretCommand>();
 
@@ -305,9 +307,25 @@ app.Configure(config =>
                 );
             secrets
                 .AddCommand<RotateSecretCommand>("rotate")
-                .WithDescription("Trigger rotation for a secret (rotation policy must be configured).")
+                .WithDescription(
+                    "Trigger rotation for a secret (rotation policy must be configured)."
+                )
                 .WithExample("secrets", "rotate", "MY_API_KEY")
                 .WithExample("secrets", "rotate", "MY_API_KEY", "-p", "my-project", "-e", "prod");
+            secrets
+                .AddCommand<SecretsDriftCommand>("drift")
+                .WithDescription("Show a cross-environment key presence matrix for a project.")
+                .WithExample("secrets", "drift")
+                .WithExample("secrets", "drift", "-p", "my-project")
+                .WithExample("secrets", "drift", "--json");
+            secrets
+                .AddCommand<SecretsScanCommand>("scan")
+                .WithDescription(
+                    "Scan local source files for references to secret keys (respects .gitignore)."
+                )
+                .WithExample("secrets", "scan")
+                .WithExample("secrets", "scan", "-p", "my-project", "-e", "dev")
+                .WithExample("secrets", "scan", "--path", "./src");
         }
     );
 
@@ -587,15 +605,26 @@ app.Configure(config =>
         "pki",
         pki =>
         {
-            pki.SetDescription("PKI certificates — issue TLS certs from your internal CA or use ACME.");
+            pki.SetDescription(
+                "PKI certificates — issue TLS certs from your internal CA or use ACME."
+            );
 
             pki.AddCommand<ConfigurePkiCaCommand>("configure")
                 .WithDescription("Set up a Private Certificate Authority (CA) for an environment.")
                 .WithExample("pki", "configure")
-                .WithExample("pki", "configure", "--common-name", "Acme Corp Root CA", "--organization", "Acme Corp");
+                .WithExample(
+                    "pki",
+                    "configure",
+                    "--common-name",
+                    "Acme Corp Root CA",
+                    "--organization",
+                    "Acme Corp"
+                );
 
             pki.AddCommand<GetPkiCaCommand>("ca")
-                .WithDescription("Show the CA certificate and ACME directory URL for an environment.")
+                .WithDescription(
+                    "Show the CA certificate and ACME directory URL for an environment."
+                )
                 .WithExample("pki", "ca")
                 .WithExample("pki", "ca", "--output", "ca.pem");
 
@@ -604,22 +633,51 @@ app.Configure(config =>
                 roles =>
                 {
                     roles.SetDescription("Manage PKI roles (define allowed domains and TTLs).");
-                    roles.AddCommand<ListPkiRolesCommand>("list")
+                    roles
+                        .AddCommand<ListPkiRolesCommand>("list")
                         .WithDescription("List PKI roles for an environment.")
                         .WithExample("pki", "roles", "list");
-                    roles.AddCommand<CreatePkiRoleCommand>("create")
+                    roles
+                        .AddCommand<CreatePkiRoleCommand>("create")
                         .WithDescription("Create a PKI role.")
-                        .WithExample("pki", "roles", "create", "--name", "web-tls", "--allowed-domains", "example.com", "--allow-subdomains")
-                        .WithExample("pki", "roles", "create", "--name", "internal", "--allow-any-name");
-                    roles.AddCommand<DeletePkiRoleCommand>("delete")
+                        .WithExample(
+                            "pki",
+                            "roles",
+                            "create",
+                            "--name",
+                            "web-tls",
+                            "--allowed-domains",
+                            "example.com",
+                            "--allow-subdomains"
+                        )
+                        .WithExample(
+                            "pki",
+                            "roles",
+                            "create",
+                            "--name",
+                            "internal",
+                            "--allow-any-name"
+                        );
+                    roles
+                        .AddCommand<DeletePkiRoleCommand>("delete")
                         .WithDescription("Delete a PKI role.")
                         .WithExample("pki", "roles", "delete", "--name", "web-tls");
-                });
+                }
+            );
 
             pki.AddCommand<IssuePkiCertCommand>("issue")
                 .WithDescription("Issue a TLS certificate from the environment CA.")
                 .WithExample("pki", "issue", "--cn", "example.com")
-                .WithExample("pki", "issue", "--cn", "api.example.com", "--alt-names", "www.example.com", "--out", "certs/api");
+                .WithExample(
+                    "pki",
+                    "issue",
+                    "--cn",
+                    "api.example.com",
+                    "--alt-names",
+                    "www.example.com",
+                    "--out",
+                    "certs/api"
+                );
 
             pki.AddCommand<RevokePkiCertCommand>("revoke")
                 .WithDescription("Revoke a certificate by serial number.")
