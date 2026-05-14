@@ -95,13 +95,23 @@ public class ShellInitCommand : Command<ShellInitSettings>
               fi
             }
 
+            # Walk up from $PWD to find a .bella file (like git finds .git)
+            _bella_has_context() {
+              local d="$PWD"
+              while [[ "$d" != "/" && -n "$d" ]]; do
+                [[ -f "$d/.bella" ]] && return 0
+                d="${d%/*}"
+              done
+              return 1
+            }
+
             # Prompt segment: shows context from $BELLA_BAXTER_PROJECT (fast) or .bella file
             _bella_prompt() {
               local _bp="${BELLA_BAXTER_PROJECT:-$BELLA_PROJECT}"
               local _be="${BELLA_BAXTER_ENV:-${BELLA_ENV:-?}}"
               if [[ -n "$_bp" ]]; then
                 echo -n "\[\033[0;36m\]🔐 ${_bp}/${_be}\[\033[0m\] "
-              elif [[ -f ".bella" ]] && command -v bella &>/dev/null; then
+              elif _bella_has_context && command -v bella &>/dev/null; then
                 local ctx; ctx=$(command bella context get --quiet 2>/dev/null) && \
                   echo -n "\[\033[0;36m\]🔐 ${ctx}\[\033[0m\] "
               fi
@@ -123,13 +133,23 @@ public class ShellInitCommand : Command<ShellInitSettings>
               fi
             }
 
+            # Walk up from $PWD to find a .bella file (like git finds .git)
+            _bella_has_context() {
+              local d="$PWD"
+              while [[ "$d" != "/" ]]; do
+                [[ -f "$d/.bella" ]] && return 0
+                d="${d:h}"
+              done
+              return 1
+            }
+
             # Prompt segment: shows context from $BELLA_BAXTER_PROJECT (fast) or .bella file
             _bella_prompt() {
               local _bp="${BELLA_BAXTER_PROJECT:-$BELLA_PROJECT}"
               local _be="${BELLA_BAXTER_ENV:-${BELLA_ENV:-?}}"
               if [[ -n "$_bp" ]]; then
                 echo -n "%F{cyan}🔐 ${_bp}/${_be}%f "
-              elif [[ -f ".bella" ]] && command -v bella &>/dev/null; then
+              elif _bella_has_context && command -v bella &>/dev/null; then
                 local ctx; ctx=$(command bella context get --quiet 2>/dev/null) && \
                   echo -n "%F{cyan}🔐 ${ctx}%f "
               fi
@@ -151,13 +171,23 @@ public class ShellInitCommand : Command<ShellInitSettings>
               fi
             }
 
+            # Walk up from $PWD to find a .bella file (like git finds .git)
+            _bella_has_context() {
+              local d="$PWD"
+              while [[ "$d" != "/" ]]; do
+                [[ -f "$d/.bella" ]] && return 0
+                d="${d:h}"
+              done
+              return 1
+            }
+
             # Prompt segment
             prompt_bella_context() {
               local _bp="${BELLA_BAXTER_PROJECT:-$BELLA_PROJECT}"
               local _be="${BELLA_BAXTER_ENV:-${BELLA_ENV:-?}}"
               if [[ -n "$_bp" ]]; then
                 prompt_segment cyan black "🔐 ${_bp}/${_be}"
-              elif [[ -f ".bella" ]] && which bella &>/dev/null; then
+              elif _bella_has_context && command -v bella &>/dev/null; then
                 local ctx; ctx=$(command bella context get --quiet 2>/dev/null)
                 [[ -n "$ctx" ]] && prompt_segment cyan black "🔐 $ctx"
               fi
@@ -180,13 +210,23 @@ public class ShellInitCommand : Command<ShellInitSettings>
               fi
             }
 
+            # Walk up from $PWD to find a .bella file (like git finds .git)
+            _bella_has_context() {
+              local d="$PWD"
+              while [[ "$d" != "/" ]]; do
+                [[ -f "$d/.bella" ]] && return 0
+                d="${d:h}"
+              done
+              return 1
+            }
+
             # p10k segment
             function prompt_bella() {
               local _bp="${BELLA_BAXTER_PROJECT:-$BELLA_PROJECT}"
               local _be="${BELLA_BAXTER_ENV:-${BELLA_ENV:-?}}"
               if [[ -n "$_bp" ]]; then
                 p10k segment -f cyan -i '🔐' -t "${_bp}/${_be}"
-              elif [[ -f ".bella" ]] && command -v bella &>/dev/null; then
+              elif _bella_has_context && command -v bella &>/dev/null; then
                 local ctx; ctx=$(command bella context get --quiet 2>/dev/null)
                 [[ -n "$ctx" ]] && p10k segment -f cyan -i '🔐' -t "$ctx"
               fi
@@ -209,7 +249,7 @@ public class ShellInitCommand : Command<ShellInitSettings>
               "template": "{{ if .Output }}🔐 {{ .Output }} {{ end }}",
               "properties": {
                 "shell": "bash",
-                "command": "if [ -n \"${BELLA_BAXTER_PROJECT:-$BELLA_PROJECT}\" ]; then echo \"${BELLA_BAXTER_PROJECT:-$BELLA_PROJECT}/${BELLA_BAXTER_ENV:-${BELLA_ENV:-?}}\"; elif [ -f .bella ]; then bella context get --quiet 2>/dev/null; fi"
+                "command": "if [ -n \"${BELLA_BAXTER_PROJECT:-$BELLA_PROJECT}\" ]; then echo \"${BELLA_BAXTER_PROJECT:-$BELLA_PROJECT}/${BELLA_BAXTER_ENV:-${BELLA_ENV:-?}}\"; else d=\"$PWD\"; while [ \"$d\" != \"/\" ] && [ -n \"$d\" ]; do [ -f \"$d/.bella\" ] && { bella context get --quiet 2>/dev/null; break; }; d=\"${d%/*}\"; done; fi"
               }
             }
 
@@ -242,8 +282,7 @@ public class ShellInitCommand : Command<ShellInitSettings>
             [custom.bella_file]
             description = "Bella directory context (from .bella file)"
             command = "bella context get --quiet"
-            detect_files = [".bella"]
-            when = "[ -z \"${BELLA_BAXTER_PROJECT:-$BELLA_PROJECT}\" ]"
+            when = "[ -z \"${BELLA_BAXTER_PROJECT:-$BELLA_PROJECT}\" ] && { d=\"$PWD\"; while [ \"$d\" != \"/\" ] && [ -n \"$d\" ]; do [ -f \"$d/.bella\" ] && exit 0; d=\"${d%/*}\"; done; exit 1; }"
             symbol = "🔐 "
             style = "bold cyan"
             format = "[$symbol$output]($style) "
@@ -272,6 +311,17 @@ public class ShellInitCommand : Command<ShellInitSettings>
               end
             end
 
+            # Walk up from $PWD to find a .bella file (like git finds .git)
+            function _bella_has_context
+              set -l d $PWD
+              while test "$d" != "/"
+                test -f "$d/.bella"; and return 0
+                set d (string replace -r '/[^/]*$' '' -- $d)
+                test -z "$d"; and break
+              end
+              return 1
+            end
+
             # Prompt segment: shows context from $BELLA_BAXTER_PROJECT (fast) or .bella file
             function _bella_prompt
               set -l _bp "$BELLA_BAXTER_PROJECT"
@@ -282,7 +332,7 @@ public class ShellInitCommand : Command<ShellInitSettings>
                 set_color cyan
                 echo -n "🔐 $_bp/$_be "
                 set_color normal
-              else if test -f .bella; and command -v bella &>/dev/null
+              else if _bella_has_context; and command -v bella &>/dev/null
                 set -l ctx (command bella context get --quiet 2>/dev/null)
                 if test -n "$ctx"
                   set_color cyan
@@ -326,9 +376,16 @@ public class ShellInitCommand : Command<ShellInitSettings>
               $_be = if ($env:BELLA_BAXTER_ENV) { $env:BELLA_BAXTER_ENV } else { $env:BELLA_ENV }
               if ($_bp) {
                 Write-Host "🔐 $($_bp)/$($_be ?? '?') " -NoNewline -ForegroundColor Cyan
-              } elseif (Test-Path ".bella") {
-                $ctx = command bella context get --quiet 2>$null
-                if ($ctx) { Write-Host "🔐 $ctx " -NoNewline -ForegroundColor Cyan }
+              } else {
+                $d = $PWD.Path
+                while ($d -and $d -ne (Split-Path $d -Parent)) {
+                  if (Test-Path (Join-Path $d ".bella")) {
+                    $ctx = bella context get --quiet 2>$null
+                    if ($ctx) { Write-Host "🔐 $ctx " -NoNewline -ForegroundColor Cyan }
+                    break
+                  }
+                  $d = Split-Path $d -Parent
+                }
               }
               & $__originalPrompt
             }

@@ -1,8 +1,10 @@
 using System.ComponentModel;
 using System.Diagnostics;
+using System.Runtime.InteropServices;
 using System.Security.Cryptography;
-using BellaCli.Commands;
+using System.Threading.Channels;
 using BellaBaxter.Client;
+using BellaCli.Commands;
 using BellaCli.Infrastructure;
 using BellaCli.Services;
 using Spectre.Console;
@@ -56,8 +58,8 @@ public class RunCommand(
 
         [CommandOption("--private-key <url>")]
         [Description(
-            "Private key URL for M2M zero-knowledge decryption. " +
-            "Schemes: file:///path/key.pem  env://VAR_NAME  (future: aws-kms:// vault:// azure-kv://)"
+            "Private key URL for M2M zero-knowledge decryption. "
+                + "Schemes: file:///path/key.pem  env://VAR_NAME  (future: aws-kms:// vault:// azure-kv://)"
         )]
         public string? PrivateKey { get; set; }
 
@@ -132,7 +134,9 @@ public class RunCommand(
                 }
                 else
                 {
-                    AnsiConsole.MarkupLine("[yellow]⚠ Could not resolve --private-key; ZKE disabled.[/]");
+                    AnsiConsole.MarkupLine(
+                        "[yellow]⚠ Could not resolve --private-key; ZKE disabled.[/]"
+                    );
                 }
             }
             else
@@ -146,16 +150,21 @@ public class RunCommand(
                 var zkeHandler = new ZkeDekHandler(
                     zkeEcdh,
                     onWrappedDekReceived: (project, env, wrappedDek, expires) =>
-                        dekCache.Store(project, env, wrappedDek, expires));
+                        dekCache.Store(project, env, wrappedDek, expires)
+                );
 
                 try
                 {
                     client = clientProvider.CreateClientWithZke(zkeHandler, settings.App);
-                    AnsiConsole.MarkupLine("[dim]🔐 ZKE enabled — secrets will be decrypted locally.[/]");
+                    AnsiConsole.MarkupLine(
+                        "[dim]🔐 ZKE enabled — secrets will be decrypted locally.[/]"
+                    );
                 }
                 catch (Exception ex)
                 {
-                    AnsiConsole.MarkupLine($"[yellow]⚠ ZKE client setup failed ({ex.Message}); using standard client.[/]");
+                    AnsiConsole.MarkupLine(
+                        $"[yellow]⚠ ZKE client setup failed ({ex.Message}); using standard client.[/]"
+                    );
                     zkeEcdh.Dispose();
                     zkeEcdh = null;
                 }
@@ -235,7 +244,10 @@ public class RunCommand(
     /// <see cref="ZkeDekHandler"/>, ECIES decryption and ZKE bellabaxter:v1: decryption
     /// happen automatically inside the handler — this method just calls Kiota normally.
     /// </summary>
-    private static async Task<(Dictionary<string, string> Secrets, long? Version)> FetchSecretsAsync(
+    private static async Task<(
+        Dictionary<string, string> Secrets,
+        long? Version
+    )> FetchSecretsAsync(
         BellaClient client,
         string projectSlug,
         string envSlug,
@@ -269,7 +281,28 @@ public class RunCommand(
     )
     {
         var currentSecrets = initialSecrets;
-        var lastVersion = initialVersion;
+
+        // Seed lastVersion from the /secrets/version endpoint so the initial value uses the same
+        // unit (Ticks) as every subsequent poll.  The /secrets full-fetch response Version field
+        // uses ToUnixTimeSeconds() — a completely different magnitude — which would cause the very
+        // first poll to always report a "version change" even when nothing was modified.
+        long? lastVersion;
+        try
+        {
+            var seedResp = await client
+                .Api.V1.Projects[projectSlug]
+                .Environments[envSlug]
+                .Secrets.Version.GetAsync(cancellationToken: ct);
+            lastVersion = seedResp?.Version ?? initialVersion;
+        }
+        catch
+        {
+            // If the version endpoint is unavailable at startup fall back to the value from the
+            // full secrets fetch.  The first poll may fire a spurious restart but subsequent ones
+            // will be correct once lastVersion is updated to a Ticks value.
+            lastVersion = initialVersion;
+        }
+
         var pollMs = Math.Max(5, settings.PollInterval) * 1000;
         var useSighup = settings.Signal.Equals("sighup", StringComparison.OrdinalIgnoreCase);
 
@@ -277,14 +310,29 @@ public class RunCommand(
             $"[dim]👁  Watching for secret changes (poll every {settings.PollInterval}s)[/]"
         );
 
-        Process? child = SpawnChild(args, currentSecrets);
-        var stopping = false;
+        // restartCh delivers fresh secrets from the polling task to the main loop.
+        // Capacity 1 + DropOldest: only the latest pending restart ever matters.
+        var restartCh = Channel.CreateBounded<Dictionary<string, string>>(
+            new BoundedChannelOptions(1) { FullMode = BoundedChannelFullMode.DropOldest }
+        );
+
         using var timer = new PeriodicTimer(TimeSpan.FromMilliseconds(pollMs));
 
+        var debug = !string.IsNullOrEmpty(
+            System.Environment.GetEnvironmentVariable("BELLA_BAXTER_DEBUG")
+        );
+        void Debug(string msg)
+        {
+            if (debug)
+                AnsiConsole.MarkupLine($"[dim grey]🐛 {msg}[/]");
+        }
+
+        // Polling task — detects version changes and signals via channel only;
+        // never touches the child process directly.
         _ = Task.Run(
             async () =>
             {
-                while (!stopping && await timer.WaitForNextTickAsync(ct).ConfigureAwait(false))
+                while (await timer.WaitForNextTickAsync(ct).ConfigureAwait(false))
                 {
                     try
                     {
@@ -295,43 +343,109 @@ public class RunCommand(
                             .Secrets.Version.GetAsync(cancellationToken: ct);
                         var newVersion = versionResp?.Version;
 
+                        Debug($"poll: lastVersion={lastVersion} newVersion={newVersion}");
+
                         if (newVersion is null || newVersion == lastVersion)
                             continue;
 
+                        Debug(
+                            $"poll: version changed {lastVersion} → {newVersion}, fetching secrets…"
+                        );
+
+                        // Version changed — fetch the full secrets payload.
+                        // IMPORTANT: update lastVersion only AFTER a successful fetch so that
+                        // a transient fetch failure does not permanently consume the version
+                        // bump (which would cause the change to be silently skipped forever).
+                        var (fresh, _) = await FetchSecretsAsync(client, projectSlug, envSlug, ct);
+
+                        // Commit the version only now that we have the new secrets.
                         lastVersion = newVersion;
 
-                        // Version changed — fetch the full secrets payload
-                        var (fresh, _) = await FetchSecretsAsync(
-                            client,
-                            projectSlug,
-                            envSlug,
-                            ct
-                        );
-                        currentSecrets = fresh;
                         AnsiConsole.MarkupLine(
                             $"[yellow]🔄 Secrets changed — {(useSighup ? "sending SIGHUP" : "restarting")}[/]"
                         );
-                        if (useSighup)
-                        {
-                            child?.Kill(entireProcessTree: false); // sends SIGTERM on Unix — best effort
-                        }
-                        else
-                        {
-                            child?.Kill(entireProcessTree: true);
-                            child?.WaitForExit();
-                            child = SpawnChild(args, currentSecrets);
-                        }
+
+                        Debug(
+                            $"poll: queuing restart (pid={restartCh.Reader.Count} items already pending)"
+                        );
+
+                        // Signal the main loop to restart with the new secrets.
+                        restartCh.Writer.TryWrite(fresh);
                     }
-                    catch
-                    { /* polling errors are non-fatal */
+                    catch (Exception ex) when (!ct.IsCancellationRequested)
+                    {
+                        Debug(
+                            $"poll: error (non-fatal) — {ex.GetType().Name}: {Markup.Escape(ex.Message)}"
+                        );
                     }
                 }
             },
             ct
         );
 
-        child?.WaitForExit();
-        stopping = true;
+        Process? child = SpawnChild(args, currentSecrets);
+        Debug($"watch: initial child spawned PID={child?.Id}");
+
+        // Main loop: wait for the child to exit OR for a restart signal.
+        // All process management happens here — no shared state with the polling task.
+        while (!ct.IsCancellationRequested)
+        {
+            var processExitTask = child?.WaitForExitAsync(ct) ?? Task.CompletedTask;
+            var restartWaitTask = restartCh.Reader.WaitToReadAsync(ct).AsTask();
+
+            Task winner;
+            try
+            {
+                winner = await Task.WhenAny(processExitTask, restartWaitTask);
+            }
+            catch (OperationCanceledException)
+            {
+                Debug("watch: cancelled (Ctrl+C), killing child");
+                if (child is not null)
+                    await KillAndWaitAsync(child, sighupMode: false);
+                break;
+            }
+
+            if (ct.IsCancellationRequested)
+            {
+                Debug("watch: ct cancelled, killing child");
+                if (child is not null)
+                    await KillAndWaitAsync(child, sighupMode: false);
+                break;
+            }
+
+            if (winner == restartWaitTask && restartCh.Reader.TryRead(out var newSecrets))
+            {
+                Debug($"watch: restart signal received, killing PID={child?.Id}");
+                // Restart the child with the new secrets.
+                var old = child;
+                child = SpawnChild(args, newSecrets);
+                Debug($"watch: new child spawned PID={child?.Id}");
+                if (old is not null)
+                    await KillAndWaitAsync(old, useSighup);
+                // Loop — next iteration waits for the new child.
+            }
+            else
+            {
+                // processExitTask fired: child exited naturally (or both fired simultaneously).
+                // Check whether a restart arrived at the same time.
+                Debug(
+                    $"watch: child PID={child?.Id} exited (code={child?.ExitCode}), checking for pending restart"
+                );
+                if (restartCh.Reader.TryRead(out var pendingSecrets))
+                {
+                    Debug("watch: pending restart found, spawning new child");
+                    child = SpawnChild(args, pendingSecrets);
+                    // Loop — wait for the freshly spawned child.
+                }
+                else
+                {
+                    Debug("watch: no pending restart — stopping watch");
+                    break; // genuine natural exit
+                }
+            }
+        }
+
         return child?.ExitCode ?? 0;
     }
 
@@ -354,7 +468,76 @@ public class RunCommand(
             psi.Environment[k] = v;
 
         var p = Process.Start(psi);
+        if (p is not null)
+        {
+            p.EnableRaisingEvents = true;
+            // On Unix, move the child into its own process group immediately after fork.
+            // This lets us kill(-pgid, SIGKILL) later, which catches every descendant
+            // including processes that detach themselves (e.g. node workers / vite HMR
+            // threads that call setsid internally). Kill(entireProcessTree:true) only
+            // walks the parent-child chain and misses those detached processes.
+            if (OperatingSystem.IsLinux() || OperatingSystem.IsMacOS())
+                UnixNative.TrySetProcessGroup(p.Id, p.Id);
+        }
         return p;
+    }
+
+    /// <summary>
+    /// Kills a process (and all of its descendants) then waits for it to exit.
+    /// On Unix, kills the entire process group to catch detached sub-processes.
+    /// </summary>
+    private static async Task KillAndWaitAsync(Process process, bool sighupMode)
+    {
+        if (OperatingSystem.IsLinux() || OperatingSystem.IsMacOS())
+        {
+            int sig = sighupMode ? UnixNative.SIGTERM : UnixNative.SIGKILL;
+            // Negative PID = kill every process in the process group whose PGID == |pid|.
+            // We set PGID = child PID in SpawnChild, so this only hits our child's tree.
+            if (UnixNative.Kill(-process.Id, sig) != 0)
+            {
+                // Group kill failed (e.g. process already gone) — fall back
+                try
+                {
+                    process.Kill(entireProcessTree: !sighupMode);
+                }
+                catch { }
+            }
+        }
+        else
+        {
+            try
+            {
+                process.Kill(entireProcessTree: !sighupMode);
+            }
+            catch { }
+        }
+
+        try
+        {
+            await process.WaitForExitAsync().ConfigureAwait(false);
+        }
+        catch { }
+    }
+
+    private static class UnixNative
+    {
+        internal const int SIGKILL = 9;
+        internal const int SIGTERM = 15;
+
+        [DllImport("libc", EntryPoint = "setpgid", SetLastError = true)]
+        private static extern int SetPgid(int pid, int pgid);
+
+        [DllImport("libc", EntryPoint = "kill", SetLastError = true)]
+        internal static extern int Kill(int pid, int sig);
+
+        internal static void TrySetProcessGroup(int pid, int pgid)
+        {
+            try
+            {
+                SetPgid(pid, pgid);
+            }
+            catch { }
+        }
     }
 
     private static int SpawnProcess(string[] args, Dictionary<string, string> secrets)
