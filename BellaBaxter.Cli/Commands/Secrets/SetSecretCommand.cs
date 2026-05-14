@@ -35,7 +35,10 @@ public class SetSecretCommand(
     IOutputWriter output
 ) : AsyncCommand<SetSecretSettings>
 {
-    private static readonly Regex KeyPattern = new(@"^[A-Z][A-Z0-9_]*$", RegexOptions.Compiled);
+    private static readonly Regex KeyPattern = new(
+        @"^[A-Za-z][A-Za-z0-9_]*$",
+        RegexOptions.Compiled
+    );
 
     protected override async Task<int> ExecuteAsync(
         CommandContext ctx,
@@ -47,7 +50,9 @@ public class SetSecretCommand(
 
         if (!KeyPattern.IsMatch(settings.Key))
         {
-            output.WriteError($"Invalid key '{settings.Key}'. Keys must match ^[A-Z][A-Z0-9_]*$");
+            output.WriteError(
+                $"Invalid key '{settings.Key}'. Keys must match ^[A-Za-z][A-Za-z0-9_]*$"
+            );
             return 1;
         }
 
@@ -82,7 +87,9 @@ public class SetSecretCommand(
                     return 1;
                 }
                 value = await AnsiConsole.PromptAsync(
-                    new TextPrompt<string>($"Value for [bold]{settings.Key}[/]:").Secret().ClearOnFinish(),
+                    new TextPrompt<string>($"Value for [bold]{settings.Key}[/]:")
+                        .Secret()
+                        .ClearOnFinish(),
                     ct
                 );
             }

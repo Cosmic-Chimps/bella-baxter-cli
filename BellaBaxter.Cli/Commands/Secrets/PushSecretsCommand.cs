@@ -41,7 +41,10 @@ public class PushSecretsCommand(
     IOutputWriter output
 ) : AsyncCommand<PushSecretsSettings>
 {
-    private static readonly Regex KeyPattern = new(@"^[A-Z][A-Z0-9_]*$", RegexOptions.Compiled);
+    private static readonly Regex KeyPattern = new(
+        @"^[A-Za-z][A-Za-z0-9_]*$",
+        RegexOptions.Compiled
+    );
     private static readonly Regex CommentPattern = new(@"^\s*#", RegexOptions.Compiled);
 
     private static Dictionary<string, string> ParseEnvFile(string path)
@@ -56,7 +59,7 @@ public class PushSecretsCommand(
                 continue;
             var key = line[..idx].Trim();
             var val = line[(idx + 1)..];
-            // Skip non-uppercase keys
+            // Skip invalid keys
             if (!KeyPattern.IsMatch(key))
                 continue;
             // Remove surrounding quotes if present
