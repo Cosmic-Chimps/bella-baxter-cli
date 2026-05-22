@@ -17,12 +17,17 @@
     <!-- Single-file self-contained publish — only active during dotnet publish -r <RID> -->
     <PublishSingleFile Condition="'$(RuntimeIdentifier)' != ''">true</PublishSingleFile>
     <SelfContained Condition="'$(RuntimeIdentifier)' != ''">true</SelfContained>
-    <EnableCompressionInSingleFile Condition="'$(RuntimeIdentifier)' != ''">true</EnableCompressionInSingleFile>
+    <EnableCompressionInSingleFile Condition="'$(RuntimeIdentifier)' != ''"
+      >true</EnableCompressionInSingleFile
+    >
     <DebugType Condition="'$(RuntimeIdentifier)' != ''">embedded</DebugType>
 
     <!-- Suppress AOT/trim analysis warnings — we accept runtime JSON reflection -->
     <SuppressTrimAnalysisWarnings>true</SuppressTrimAnalysisWarnings>
     <ILLinkTreatWarningsAsErrors>false</ILLinkTreatWarningsAsErrors>
+
+    <!-- Required for lean containers (Alpine/distroless) that lack ICU libraries -->
+    <InvariantGlobalization>true</InvariantGlobalization>
   </PropertyGroup>
 
   <ItemGroup>
