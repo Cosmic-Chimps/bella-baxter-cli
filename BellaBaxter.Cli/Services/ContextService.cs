@@ -6,11 +6,7 @@ using Spectre.Console;
 
 namespace BellaCli.Services;
 
-public class ContextService(
-    ConfigService config,
-    IOutputWriter output,
-    CredentialStore credentials
-)
+public class ContextService(ConfigService config, IOutputWriter output, CredentialStore credentials)
 {
     public async Task<(
         string projectSlug,
@@ -146,7 +142,11 @@ public class ContextService(
         {
             var keyCtx = await client.Api.V1.Keys.Me.GetAsync(cancellationToken: ct);
             if (keyCtx?.ProjectSlug is not null)
-                return (keyCtx.ProjectSlug, keyCtx.ProjectName ?? keyCtx.ProjectSlug, keyCtx.ProjectSlug);
+                return (
+                    keyCtx.ProjectSlug,
+                    keyCtx.ProjectName ?? keyCtx.ProjectSlug,
+                    keyCtx.ProjectSlug
+                );
 
             // Stored API key with no project context is an error; JWT falls through silently.
             if (credentials.LoadApiKey() is not null)
@@ -154,8 +154,13 @@ public class ContextService(
                     "Could not resolve project from API key. Is the server reachable?"
                 );
         }
-        catch (InvalidOperationException) { throw; }
-        catch { /* JWT mode or network error — fall through to .bella file */ }
+        catch (InvalidOperationException)
+        {
+            throw;
+        }
+        catch
+        { /* JWT mode or network error — fall through to .bella file */
+        }
 
         // 3. .bella file in current directory or any parent (directory-scoped, like .git)
         var (bellaProject, _, _) = ContextCommand.ResolveContext(config);
@@ -215,7 +220,13 @@ public class ContextService(
                     .Environments[envArg]
                     .GetAsync(cancellationToken: ct);
                 if (e is not null)
+                {
+                    if (string.Equals(e.Status, "Archived", StringComparison.OrdinalIgnoreCase))
+                        throw new InvalidOperationException(
+                            $"Environment '{envArg}' is archived and cannot be used for secret operations. Run 'bella environments restore {envArg}' to reactivate it."
+                        );
                     return (e.Slug ?? envArg, e.Name ?? envArg, e.Id ?? envArg);
+                }
             }
             catch
             { /* try list */
@@ -229,7 +240,13 @@ public class ContextService(
                 || string.Equals(e.Name, envArg, StringComparison.OrdinalIgnoreCase)
             );
             if (match is not null)
+            {
+                if (string.Equals(match.Status, "Archived", StringComparison.OrdinalIgnoreCase))
+                    throw new InvalidOperationException(
+                        $"Environment '{envArg}' is archived and cannot be used for secret operations. Run 'bella environments restore {envArg}' to reactivate it."
+                    );
                 return (match.Slug ?? envArg, match.Name ?? envArg, match.Id ?? envArg);
+            }
             throw new InvalidOperationException(
                 $"Environment '{envArg}' not found in project '{projectSlug}'."
             );
@@ -248,7 +265,9 @@ public class ContextService(
                 );
             // Manager/Admin API keys have no env scope — let them pick interactively.
         }
-        catch { /* fall through */ }
+        catch
+        { /* fall through */
+        }
 
         // 3. .bella file
         var (_, bellaEnv, _) = ContextCommand.ResolveContext(config);
@@ -270,11 +289,19 @@ public class ContextService(
                 $"No environments found in project '{projectSlug}'."
             );
 
+        var activeEnvItems = envItems
+            .Where(e => !string.Equals(e.Status, "Archived", StringComparison.OrdinalIgnoreCase))
+            .ToList();
+        if (activeEnvItems.Count == 0)
+            throw new InvalidOperationException(
+                $"All environments in project '{projectSlug}' are archived."
+            );
+
         var chosenEnv = AnsiConsole.Prompt(
             new SelectionPrompt<EnvironmentResponse>()
                 .Title("[bold]Select an environment:[/]")
                 .UseConverter(e => $"{e.Name} [grey]({e.Slug})[/]")
-                .AddChoices(envItems)
+                .AddChoices(activeEnvItems)
         );
 
         return (chosenEnv.Slug!, chosenEnv.Name!, chosenEnv.Id!);

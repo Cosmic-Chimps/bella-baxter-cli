@@ -12,19 +12,32 @@ public class ListEnvironmentsSettings : CommandSettings
     [CommandOption("-p|--project <SLUG>")]
     public string? Project { get; init; }
 
+    [CommandOption("--include-archived")]
+    public bool IncludeArchived { get; init; }
+
     [CommandOption("--json")]
     public bool Json { get; init; }
 }
 
-public class ListEnvironmentsCommand(BellaClientProvider provider, ContextService context, IOutputWriter output)
-    : AsyncCommand<ListEnvironmentsSettings>
+public class ListEnvironmentsCommand(
+    BellaClientProvider provider,
+    ContextService context,
+    IOutputWriter output
+) : AsyncCommand<ListEnvironmentsSettings>
 {
-    protected override async Task<int> ExecuteAsync(CommandContext ctx, ListEnvironmentsSettings settings, CancellationToken ct)
+    protected override async Task<int> ExecuteAsync(
+        CommandContext ctx,
+        ListEnvironmentsSettings settings,
+        CancellationToken ct
+    )
     {
         provider.ApplyOutputModeOverrides(settings.Json);
 
         BellaClient client;
-        try { client = provider.CreateClient(); }
+        try
+        {
+            client = provider.CreateClient();
+        }
         catch (InvalidOperationException)
         {
             output.WriteError("Not logged in. Run 'bella login' first.");
@@ -33,13 +46,29 @@ public class ListEnvironmentsCommand(BellaClientProvider provider, ContextServic
 
         try
         {
-            var (projectSlug, projectName, _) = await context.ResolveProjectAsync(settings.Project, client, ct);
+            var (projectSlug, projectName, _) = await context.ResolveProjectAsync(
+                settings.Project,
+                client,
+                ct
+            );
 
             List<EnvironmentResponse>? envs = null;
-            await AnsiConsole.Status().StartAsync($"Loading environments for {projectName}...", async _ =>
-            {
-                envs = await client.Api.V1.Projects[projectSlug].Environments.GetAsync(cancellationToken: ct);
-            });
+            await AnsiConsole
+                .Status()
+                .StartAsync(
+                    $"Loading environments for {projectName}...",
+                    async _ =>
+                    {
+                        envs = await client
+                            .Api.V1.Projects[projectSlug]
+                            .Environments.GetAsync(
+                                requestConfiguration =>
+                                    requestConfiguration.QueryParameters.IncludeArchived =
+                                        settings.IncludeArchived,
+                                cancellationToken: ct
+                            );
+                    }
+                );
 
             var list = envs ?? [];
             if (list.Count == 0)
@@ -49,17 +78,28 @@ public class ListEnvironmentsCommand(BellaClientProvider provider, ContextServic
             }
 
             output.WriteTable(
-                ["Name", "ID", "Slug", "Description", "Providers", "Secrets", "Updated"],
-                list.Select(e => new[]
+                ["Name", "ID", "Slug", "Description", "Providers", "Secrets", "Status", "Updated"],
+                list.Select(e =>
                 {
-                    e.Name ?? "",
-                    e.Id ?? "",
-                    e.Slug ?? "",
-                    e.Description ?? "",
-                    e.ProviderCount?.ToString() ?? "0",
-                    e.SecretCount?.ToString() ?? "0",
-                    e.UpdatedAt?.ToString() ?? ""
-                }));
+                    var isArchived = string.Equals(
+                        e.Status,
+                        "Archived",
+                        StringComparison.OrdinalIgnoreCase
+                    );
+                    var statusCell = isArchived ? "[dim]Archived[/]" : "";
+                    return new[]
+                    {
+                        isArchived ? $"[dim]{e.Name ?? ""}[/]" : e.Name ?? "",
+                        e.Id ?? "",
+                        e.Slug ?? "",
+                        e.Description ?? "",
+                        e.ProviderCount?.ToString() ?? "0",
+                        e.SecretCount?.ToString() ?? "0",
+                        statusCell,
+                        e.UpdatedAt?.ToString() ?? "",
+                    };
+                })
+            );
 
             return 0;
         }
