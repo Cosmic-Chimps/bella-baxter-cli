@@ -75,6 +75,8 @@ services.AddTransient<GetEnvironmentCommand>();
 services.AddTransient<CreateEnvironmentCommand>();
 services.AddTransient<UpdateEnvironmentCommand>();
 services.AddTransient<DeleteEnvironmentCommand>();
+services.AddTransient<AddProviderToEnvironmentCommand>();
+services.AddTransient<RemoveProviderFromEnvironmentCommand>();
 
 // Provider commands
 services.AddTransient<ListProvidersCommand>();
@@ -257,6 +259,29 @@ app.Configure(config =>
                 .WithDescription("Update an environment.");
             envs.AddCommand<DeleteEnvironmentCommand>("delete")
                 .WithDescription("Delete an environment.");
+            envs.AddCommand<AddProviderToEnvironmentCommand>("add-provider")
+                .WithDescription("Assign a provider to an environment.")
+                .WithExample(
+                    "environments",
+                    "add-provider",
+                    "dev",
+                    "--provider",
+                    "my-vault",
+                    "-p",
+                    "my-project"
+                )
+                .WithExample("environments", "add-provider", "--provider", "my-vault");
+            envs.AddCommand<RemoveProviderFromEnvironmentCommand>("remove-provider")
+                .WithDescription("Remove a provider from an environment.")
+                .WithExample(
+                    "environments",
+                    "remove-provider",
+                    "dev",
+                    "--provider",
+                    "my-vault",
+                    "--force"
+                )
+                .WithExample("environments", "remove-provider", "--provider", "my-vault");
         }
     );
 
