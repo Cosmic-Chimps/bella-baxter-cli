@@ -17,7 +17,7 @@ public class LoginSettings : CommandSettings
     public bool Json { get; init; }
 }
 
-public class LoginCommand(AuthService auth, CredentialStore credentials, KeyContextService keyContext, ZkeService zke, IOutputWriter output)
+public class LoginCommand(AuthService auth, CredentialStore credentials, KeyContextService keyContext, ZkeService zke, ConfigService config, IOutputWriter output)
     : AsyncCommand<LoginSettings>
 {
     protected override async Task<int> ExecuteAsync(
@@ -139,8 +139,9 @@ public class LoginCommand(AuthService auth, CredentialStore credentials, KeyCont
     }
 
     /// <summary>
-    /// After API key login, try to call GET /api/v1/keys/me and auto-write a .bella file
-    /// in the current directory. Silently skips if the server is unreachable.
+    /// After API key login, try to call GET /api/v1/keys/me and write the key's context into the
+    /// .bella file in the current directory (merging into an existing one — its url survives).
+    /// Silently skips if the server is unreachable.
     /// </summary>
     private async Task TryWriteBellaContextAsync(CancellationToken ct)
     {
@@ -151,7 +152,7 @@ public class LoginCommand(AuthService auth, CredentialStore credentials, KeyCont
         var existing = Path.Combine(dir, ".bella");
         bool alreadyExists = File.Exists(existing);
 
-        KeyContextService.WriteBellaFile(dir, ctx);
+        KeyContextService.WriteBellaFile(dir, ctx, config.ApiUrl);
 
         var scope = ctx.EnvironmentSlug is not null
             ? $"{Markup.Escape(ctx.ProjectSlug)}/{Markup.Escape(ctx.EnvironmentSlug)}"

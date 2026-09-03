@@ -43,8 +43,6 @@ public class ShellOpenSettings : CommandSettings
 
 public class ShellOpenCommand(ConfigService config, CredentialStore credentials) : Command<ShellOpenSettings>
 {
-    private const string DefaultApiUrl = "https://api.bella-baxter.io";
-
     protected override int Execute(CommandContext context, ShellOpenSettings settings, CancellationToken ct)
     {
         // ── Resolve project + env ────────────────────────────────────────────
@@ -191,11 +189,15 @@ public class ShellOpenCommand(ConfigService config, CredentialStore credentials)
         psi.Environment["BELLA_ENV"] = env;
         psi.Environment["BELLA_CONTEXT"] = $"{project}/{env}";
 
-        if (apiUrl != DefaultApiUrl)
-        {
-            psi.Environment["BELLA_BAXTER_URL"] = apiUrl;
-            psi.Environment["BELLA_API_URL"] = apiUrl; // deprecated alias
-        }
+        // ALWAYS set the URL, like every other variable above. This used to be conditional on the
+        // value differing from the hosted default, which left a hole: the child inherits this
+        // process's environment (the loop above), so when the configured URL happened to equal the
+        // default, a stale inherited BELLA_BAXTER_URL survived and the child talked to a server the
+        // operator had not configured. It also made the child's target implicit — dependent on
+        // whatever default the child (an SDK, possibly an older one) compiled in. Explicit is right:
+        // the spawned shell targets exactly what `bella config` says.
+        psi.Environment["BELLA_BAXTER_URL"] = apiUrl;
+        psi.Environment["BELLA_API_URL"] = apiUrl; // deprecated alias
 
         return psi;
     }

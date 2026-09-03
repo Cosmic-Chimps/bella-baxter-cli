@@ -55,7 +55,9 @@ public class ListSecretsCommand(
             }
             else
             {
-                AnsiConsole.MarkupLine("[yellow]⚠ Could not resolve --private-key; ZKE disabled.[/]");
+                AnsiConsole.MarkupLine(
+                    "[yellow]⚠ Could not resolve --private-key; ZKE disabled.[/]"
+                );
             }
         }
         else
@@ -70,7 +72,9 @@ public class ListSecretsCommand(
             {
                 var zkeHandler = new ZkeDekHandler(zkeEcdh, onWrappedDekReceived: null);
                 client = provider.CreateClientWithZke(zkeHandler);
-                AnsiConsole.MarkupLine("[dim]🔐 ZKE enabled — secrets will be decrypted locally.[/]");
+                AnsiConsole.MarkupLine(
+                    "[dim]🔐 ZKE enabled — secrets will be decrypted locally.[/]"
+                );
             }
             else
             {
@@ -147,7 +151,7 @@ public class ListSecretsCommand(
             // ── Per-provider secrets ──────────────────────────────────────────
             foreach (var prov in providerList)
             {
-                if (!IsSecretsProvider(prov.ProviderType))
+                if (!IsSecretsProvider(prov))
                 {
                     AnsiConsole.MarkupLine(
                         $"[dim]  Skipping {prov.ProviderName} ({prov.ProviderType}) — not a secrets storage provider.[/]"
@@ -207,18 +211,20 @@ public class ListSecretsCommand(
     }
 
     /// <summary>
-    /// Returns true for provider types that support secrets CRUD via the secrets API.
-    /// Gigamon, CertStorage, VaultDatabase, VaultSsh, VaultPki etc. are infrastructure
-    /// providers — they have no secrets endpoint and must be skipped.
+    /// Returns true for providers whose MetaType is Secrets — i.e. they support secrets CRUD
+    /// via the secrets API. Falls back to ProviderType check for older API versions that do not
+    /// yet return ProviderMetaType.
     /// </summary>
-    private static bool IsSecretsProvider(string? providerType) =>
-        providerType switch
-        {
-            "Vault" => true,
-            "AwsSecretsManager" => true,
-            "AwsParameterStore" => true,
-            "AzureKeyVault" => true,
-            "GoogleSecretManager" => true,
-            _ => false,
-        };
+    private static bool IsSecretsProvider(EnvironmentProviderResponse prov) =>
+        prov.ProviderMetaType is not null
+            ? prov.ProviderMetaType == "Secrets"
+            : prov.ProviderType switch
+            {
+                "Vault" => true,
+                "AwsSecretsManager" => true,
+                "AwsParameterStore" => true,
+                "AzureKeyVault" => true,
+                "GoogleSecretManager" => true,
+                _ => false,
+            };
 }

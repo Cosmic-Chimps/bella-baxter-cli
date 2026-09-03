@@ -200,6 +200,14 @@ public class ContextShowCommand(ConfigService config, CredentialStore credential
             return 2;
         }
 
+        // The server this directory targets, and WHERE that came from. Without this the same
+        // project/environment display is identical whether you are pointed at the hosted service or a
+        // self-hosted box — which is exactly the confusion that made the URL feel like something you
+        // had to re-export every session.
+        AnsiConsole.MarkupLine(
+            $"[white]Server:[/]      [cyan]{Markup.Escape(config.ApiUrl)}[/] [dim](from {Markup.Escape(config.ApiUrlSource)})[/]"
+        );
+
         // Org context
         var currentOrgSlug = credentials.LoadTokens()?.OrgSlug;
         var isApiKeyMode = credentials.IsApiKeyMode();
@@ -269,6 +277,7 @@ public class ContextInitCommand(
     BellaClientProvider provider,
     CredentialStore credentials,
     KeyContextService keyContext,
+    ConfigService config,
     IOutputWriter output
 ) : AsyncCommand<ContextInitSettings>
 {
@@ -458,14 +467,25 @@ public class ContextInitCommand(
         // Get org from API key context (set above) OR from stored OAuth tokens
         org ??= credentials.LoadTokens()?.OrgSlug;
 
+        // Record the SERVER this context was resolved against, not just the project/environment.
+        // A slug pair does not identify a deployment — `nginx-rotation/dev` exists on the hosted
+        // service and on a self-hosted box alike — so a .bella without a url is ambiguous, and the
+        // ambiguity used to be settled by whatever BELLA_BAXTER_URL happened to be exported in that
+        // shell. Writing it here means a new session in this directory needs no exports at all.
+        // An explicit BELLA_BAXTER_URL still overrides this, so one-off targeting keeps working.
+        var apiUrl = config.ApiUrl;
+
         var bellaFile = Path.Combine(Directory.GetCurrentDirectory(), ".bella");
         var content = org != null
-            ? $"org = \"{org}\"\nproject = \"{project}\"\nenvironment = \"{env}\"\n"
-            : $"project = \"{project}\"\nenvironment = \"{env}\"\n";
+            ? $"org = \"{org}\"\nproject = \"{project}\"\nenvironment = \"{env}\"\nurl = \"{apiUrl}\"\n"
+            : $"project = \"{project}\"\nenvironment = \"{env}\"\nurl = \"{apiUrl}\"\n";
         File.WriteAllText(bellaFile, content);
 
         AnsiConsole.MarkupLine(
             $"[green]✓[/] Created [cyan].bella[/] — context set to [bold]{Markup.Escape(project)}/{Markup.Escape(env)}[/]"
+        );
+        AnsiConsole.MarkupLine(
+            $"  [dim]→ Server:[/]      [cyan]{Markup.Escape(apiUrl)}[/] [dim](no need to export BELLA_BAXTER_URL here again)[/]"
         );
         if (org != null)
             AnsiConsole.MarkupLine($"[dim]Org: {Markup.Escape(org)}[/]");

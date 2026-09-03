@@ -5,4 +5,5 @@
     <Platform Name="x86" />
   </Configurations>
   <Project Path="BellaBaxter.Cli/BellaBaxter.Cli.csproj" />
+  <Project Path="BellaBaxter.Cli.Tests/BellaBaxter.Cli.Tests.csproj" />
 </Solution>

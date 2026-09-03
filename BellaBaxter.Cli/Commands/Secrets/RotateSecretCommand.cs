@@ -27,7 +27,8 @@ public class RotateSecretSettings : CommandSettings
 public class RotateSecretCommand(
     BellaClientProvider provider,
     ContextService context,
-    IOutputWriter output
+    IOutputWriter output,
+    SecretProviderResolver providerResolver
 ) : AsyncCommand<RotateSecretSettings>
 {
     protected override async Task<int> ExecuteAsync(
@@ -60,25 +61,19 @@ public class RotateSecretCommand(
                 bootstrapBellaFromExplicit: true
             );
 
-            // Resolve provider slug
-            string providerSlug;
-            if (!string.IsNullOrEmpty(settings.Provider))
+            // spec 020 (US4): resolve the destination by meaning, never by list position. An
+            // explicitly supplied --provider is now VERIFIED to store secrets rather than taken
+            // on trust.
+            var providerSlug = await providerResolver.ResolveAsync(
+                client,
+                projectSlug,
+                envSlug,
+                settings.Provider,
+                ct
+            );
+            if (providerSlug is null)
             {
-                providerSlug = settings.Provider;
-            }
-            else
-            {
-                var providers = await client
-                    .Api.V1.Projects[projectSlug]
-                    .Environments[envSlug]
-                    .Providers.GetAsync(cancellationToken: ct);
-                var providerList = providers ?? [];
-                if (providerList.Count == 0)
-                {
-                    output.WriteError("No providers assigned to this environment. Assign a provider first.");
-                    return 1;
-                }
-                providerSlug = providerList[0].ProviderSlug ?? providerList[0].ProviderId ?? "";
+                return 1;
             }
 
             await AnsiConsole

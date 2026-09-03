@@ -42,8 +42,6 @@ public class EnvSettings : CommandSettings
 
 public class EnvCommand(ConfigService config, CredentialStore credentials) : Command<EnvSettings>
 {
-    private const string DefaultApiUrl = "https://api.bella-baxter.io";
-
     protected override int Execute(CommandContext context, EnvSettings settings, CancellationToken ct)
     {
         var shell = settings.Shell.ToLowerInvariant().Replace("-", "").Replace("_", "");
@@ -115,22 +113,21 @@ public class EnvCommand(ConfigService config, CredentialStore credentials) : Com
         // ── JSON mode ────────────────────────────────────────────────────────
         if (settings.Json)
         {
-            var includeUrl = apiUrl != DefaultApiUrl;
+            // The URL is always emitted. Omitting it when it matched the hosted default meant an
+            // `eval $(bella env)` left a stale BELLA_BAXTER_URL from the surrounding shell in place,
+            // so the caller silently kept talking to a server this CLI was not configured for.
             var obj = new System.Collections.Generic.Dictionary<string, string>
             {
                 ["BELLA_BAXTER_API_KEY"] = apiKey,
                 ["BELLA_BAXTER_PROJECT"] = project,
                 ["BELLA_BAXTER_ENV"]     = env,
+                ["BELLA_BAXTER_URL"]     = apiUrl,
                 // Deprecated aliases
                 ["BELLA_API_KEY"] = apiKey,
                 ["BELLA_PROJECT"] = project,
                 ["BELLA_ENV"]     = env,
+                ["BELLA_API_URL"] = apiUrl,
             };
-            if (includeUrl)
-            {
-                obj["BELLA_BAXTER_URL"] = apiUrl;
-                obj["BELLA_API_URL"] = apiUrl; // deprecated alias
-            }
 
             Console.WriteLine(System.Text.Json.JsonSerializer.Serialize(obj,
                 new System.Text.Json.JsonSerializerOptions { WriteIndented = true }));
@@ -142,24 +139,21 @@ public class EnvCommand(ConfigService config, CredentialStore credentials) : Com
         return 0;
     }
 
-    private static string BuildExportStatement(
+    internal static string BuildExportStatement(
         string shell, string apiKey, string project, string env, string apiUrl)
     {
-        var includeUrl = apiUrl != DefaultApiUrl;
-
+        // Always includes the URL — see the JSON branch above for why the conditional was a hole.
+        // Emitting it unconditionally also collapses what were three duplicated ternaries.
         return shell switch
         {
-            "fish" => includeUrl
-                ? $"set -x BELLA_BAXTER_API_KEY {apiKey}; set -x BELLA_BAXTER_PROJECT {project}; set -x BELLA_BAXTER_ENV {env}; set -x BELLA_BAXTER_URL {apiUrl}; set -x BELLA_API_KEY {apiKey}; set -x BELLA_PROJECT {project}; set -x BELLA_ENV {env}; set -x BELLA_API_URL {apiUrl};"
-                : $"set -x BELLA_BAXTER_API_KEY {apiKey}; set -x BELLA_BAXTER_PROJECT {project}; set -x BELLA_BAXTER_ENV {env}; set -x BELLA_API_KEY {apiKey}; set -x BELLA_PROJECT {project}; set -x BELLA_ENV {env};",
+            "fish" =>
+                $"set -x BELLA_BAXTER_API_KEY {apiKey}; set -x BELLA_BAXTER_PROJECT {project}; set -x BELLA_BAXTER_ENV {env}; set -x BELLA_BAXTER_URL {apiUrl}; set -x BELLA_API_KEY {apiKey}; set -x BELLA_PROJECT {project}; set -x BELLA_ENV {env}; set -x BELLA_API_URL {apiUrl};",
 
-            "powershell" or "pwsh" => includeUrl
-                ? $"$env:BELLA_BAXTER_API_KEY = \"{apiKey}\"; $env:BELLA_BAXTER_PROJECT = \"{project}\"; $env:BELLA_BAXTER_ENV = \"{env}\"; $env:BELLA_BAXTER_URL = \"{apiUrl}\"; $env:BELLA_API_KEY = \"{apiKey}\"; $env:BELLA_PROJECT = \"{project}\"; $env:BELLA_ENV = \"{env}\"; $env:BELLA_API_URL = \"{apiUrl}\";"
-                : $"$env:BELLA_BAXTER_API_KEY = \"{apiKey}\"; $env:BELLA_BAXTER_PROJECT = \"{project}\"; $env:BELLA_BAXTER_ENV = \"{env}\"; $env:BELLA_API_KEY = \"{apiKey}\"; $env:BELLA_PROJECT = \"{project}\"; $env:BELLA_ENV = \"{env}\";",
+            "powershell" or "pwsh" =>
+                $"$env:BELLA_BAXTER_API_KEY = \"{apiKey}\"; $env:BELLA_BAXTER_PROJECT = \"{project}\"; $env:BELLA_BAXTER_ENV = \"{env}\"; $env:BELLA_BAXTER_URL = \"{apiUrl}\"; $env:BELLA_API_KEY = \"{apiKey}\"; $env:BELLA_PROJECT = \"{project}\"; $env:BELLA_ENV = \"{env}\"; $env:BELLA_API_URL = \"{apiUrl}\";",
 
-            _ => includeUrl
-                ? $"export BELLA_BAXTER_API_KEY={apiKey}; export BELLA_BAXTER_PROJECT={project}; export BELLA_BAXTER_ENV={env}; export BELLA_BAXTER_URL={apiUrl}; export BELLA_API_KEY={apiKey}; export BELLA_PROJECT={project}; export BELLA_ENV={env}; export BELLA_API_URL={apiUrl};"
-                : $"export BELLA_BAXTER_API_KEY={apiKey}; export BELLA_BAXTER_PROJECT={project}; export BELLA_BAXTER_ENV={env}; export BELLA_API_KEY={apiKey}; export BELLA_PROJECT={project}; export BELLA_ENV={env};",
+            _ =>
+                $"export BELLA_BAXTER_API_KEY={apiKey}; export BELLA_BAXTER_PROJECT={project}; export BELLA_BAXTER_ENV={env}; export BELLA_BAXTER_URL={apiUrl}; export BELLA_API_KEY={apiKey}; export BELLA_PROJECT={project}; export BELLA_ENV={env}; export BELLA_API_URL={apiUrl};",
         };
     }
 }

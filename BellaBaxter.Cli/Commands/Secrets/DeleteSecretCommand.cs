@@ -20,6 +20,10 @@ public class DeleteSecretSettings : CommandSettings
     [CommandOption("-f|--force")]
     public bool Force { get; init; }
 
+    /// <summary>spec 020 (US4): name the secrets provider when several are attached.</summary>
+    [CommandOption("--provider <SLUG>")]
+    public string? Provider { get; init; }
+
     [CommandOption("--json")]
     public bool Json { get; init; }
 }
@@ -27,7 +31,8 @@ public class DeleteSecretSettings : CommandSettings
 public class DeleteSecretCommand(
     BellaClientProvider provider,
     ContextService context,
-    IOutputWriter output
+    IOutputWriter output,
+    SecretProviderResolver providerResolver
 ) : AsyncCommand<DeleteSecretSettings>
 {
     protected override async Task<int> ExecuteAsync(
@@ -78,18 +83,18 @@ public class DeleteSecretCommand(
                 }
             }
 
-            var providers = await client
-                .Api.V1.Projects[projectSlug]
-                .Environments[envSlug]
-                .Providers.GetAsync(cancellationToken: ct);
-            var providerList = providers ?? [];
-            if (providerList.Count == 0)
+            // spec 020 (US4): resolve the destination by meaning, never by list position.
+            var providerSlug = await providerResolver.ResolveAsync(
+                client,
+                projectSlug,
+                envSlug,
+                settings.Provider,
+                ct
+            );
+            if (providerSlug is null)
             {
-                output.WriteError("No providers assigned to this environment.");
                 return 1;
             }
-
-            var providerSlug = providerList[0].ProviderSlug ?? providerList[0].ProviderId ?? "";
 
             await AnsiConsole
                 .Status()

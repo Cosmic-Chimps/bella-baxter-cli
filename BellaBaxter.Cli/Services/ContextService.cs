@@ -92,12 +92,18 @@ public class ContextService(ConfigService config, IOutputWriter output, Credenti
         );
     }
 
-    private static void WriteBellaFileForJwt(string projectSlug, string envSlug, string? orgSlug)
+    /// <summary>
+    /// Writes the bootstrap <c>.bella</c> for the OAuth/JWT path. Records the SERVER as well as the
+    /// project/environment: the same slugs exist on different deployments, so a context without a url
+    /// only resolves correctly while the right BELLA_BAXTER_URL happens to be exported.
+    /// </summary>
+    private void WriteBellaFileForJwt(string projectSlug, string envSlug, string? orgSlug)
     {
         var bellaFile = Path.Combine(Directory.GetCurrentDirectory(), ".bella");
+        var url = config.ApiUrl;
         var content = orgSlug is not null
-            ? $"org = \"{orgSlug}\"{Environment.NewLine}project = \"{projectSlug}\"{Environment.NewLine}environment = \"{envSlug}\"{Environment.NewLine}"
-            : $"project = \"{projectSlug}\"{Environment.NewLine}environment = \"{envSlug}\"{Environment.NewLine}";
+            ? $"org = \"{orgSlug}\"{Environment.NewLine}project = \"{projectSlug}\"{Environment.NewLine}environment = \"{envSlug}\"{Environment.NewLine}url = \"{url}\"{Environment.NewLine}"
+            : $"project = \"{projectSlug}\"{Environment.NewLine}environment = \"{envSlug}\"{Environment.NewLine}url = \"{url}\"{Environment.NewLine}";
         File.WriteAllText(bellaFile, content);
     }
 

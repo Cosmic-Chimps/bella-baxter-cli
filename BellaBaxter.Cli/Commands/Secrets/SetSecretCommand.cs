@@ -25,6 +25,10 @@ public class SetSecretSettings : CommandSettings
     [CommandOption("-d|--description <DESC>")]
     public string? Description { get; init; }
 
+    /// <summary>spec 020 (US4): name the secrets provider to write to when several are attached.</summary>
+    [CommandOption("--provider <SLUG>")]
+    public string? Provider { get; init; }
+
     [CommandOption("--json")]
     public bool Json { get; init; }
 }
@@ -32,7 +36,8 @@ public class SetSecretSettings : CommandSettings
 public class SetSecretCommand(
     BellaClientProvider provider,
     ContextService context,
-    IOutputWriter output
+    IOutputWriter output,
+    SecretProviderResolver providerResolver
 ) : AsyncCommand<SetSecretSettings>
 {
     private static readonly Regex KeyPattern = new(
@@ -94,21 +99,20 @@ public class SetSecretCommand(
                 );
             }
 
-            // Get the first provider for this environment
-            var providers = await client
-                .Api.V1.Projects[projectSlug]
-                .Environments[envSlug]
-                .Providers.GetAsync(cancellationToken: ct);
-            var providerList = providers ?? [];
-            if (providerList.Count == 0)
+            // spec 020 (US4): resolve the destination by MEANING, never by list position —
+            // an environment configured for certificate rotation also has non-secret providers
+            // attached, and taking the first one could aim this write at any of them.
+            var providerSlug = await providerResolver.ResolveAsync(
+                client,
+                projectSlug,
+                envSlug,
+                settings.Provider,
+                ct
+            );
+            if (providerSlug is null)
             {
-                output.WriteError(
-                    $"No providers assigned to this environment. Assign a provider first."
-                );
                 return 1;
             }
-
-            var providerSlug = providerList[0].ProviderSlug ?? providerList[0].ProviderId ?? "";
 
             await AnsiConsole
                 .Status()

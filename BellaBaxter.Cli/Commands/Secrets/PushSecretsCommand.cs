@@ -22,6 +22,10 @@ public class PushSecretsSettings : CommandSettings
     [CommandOption("-d|--description <DESC>")]
     public string? Description { get; init; }
 
+    /// <summary>spec 020 (US4): name the secrets provider when several are attached.</summary>
+    [CommandOption("--provider <SLUG>")]
+    public string? Provider { get; init; }
+
     [CommandOption("--json")]
     public bool Json { get; init; }
 
@@ -38,7 +42,8 @@ public class PushSecretsSettings : CommandSettings
 public class PushSecretsCommand(
     BellaClientProvider provider,
     ContextService context,
-    IOutputWriter output
+    IOutputWriter output,
+    SecretProviderResolver providerResolver
 ) : AsyncCommand<PushSecretsSettings>
 {
     private static readonly Regex KeyPattern = new(
@@ -114,22 +119,20 @@ public class PushSecretsCommand(
                 return 0;
             }
 
-            var providers = await client
-                .Api.V1.Projects[projectSlug]
-                .Environments[envSlug]
-                .Providers.GetAsync(cancellationToken: ct);
-            var providerList = (providers ?? [])
-                .Where(p => IsSecretsProvider(p.ProviderType))
-                .ToList();
-            if (providerList.Count == 0)
+            // spec 020 (US4): this command already filtered to secrets providers, but still took
+            // the first of them. The resolver keeps the filter and replaces the guess: one
+            // candidate resolves silently, several ask, and ambiguity with nobody to ask refuses.
+            var providerSlug = await providerResolver.ResolveAsync(
+                client,
+                projectSlug,
+                envSlug,
+                settings.Provider,
+                ct
+            );
+            if (providerSlug is null)
             {
-                output.WriteError(
-                    "No secret storage providers assigned to this environment. Assign a Vault, AWS, Azure, or GCP provider first."
-                );
                 return 1;
             }
-
-            var providerSlug = providerList[0].ProviderSlug ?? providerList[0].ProviderId ?? "";
 
             output.WriteInfo($"Pushing {secrets.Count} secrets to {envName}...");
 
@@ -206,14 +209,16 @@ public class PushSecretsCommand(
         }
     }
 
-    private static bool IsSecretsProvider(string? providerType) =>
-        providerType switch
-        {
-            "Vault" => true,
-            "AwsSecretsManager" => true,
-            "AwsParameterStore" => true,
-            "AzureKeyVault" => true,
-            "GoogleSecretManager" => true,
-            _ => false,
-        };
+    private static bool IsSecretsProvider(EnvironmentProviderResponse prov) =>
+        prov.ProviderMetaType is not null
+            ? prov.ProviderMetaType == "Secrets"
+            : prov.ProviderType switch
+            {
+                "Vault" => true,
+                "AwsSecretsManager" => true,
+                "AwsParameterStore" => true,
+                "AzureKeyVault" => true,
+                "GoogleSecretManager" => true,
+                _ => false,
+            };
 }

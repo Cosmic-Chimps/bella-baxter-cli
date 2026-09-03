@@ -348,7 +348,10 @@ public class McpCommand(ConfigService config, CredentialStore credentials)
 
     private static void PrintConfigSnippets(string apiBase)
     {
-        bool isDefault = apiBase == "https://api.bella-baxter.io";
+        // Whether the configured origin is the hosted default — this one legitimately branches on it
+        // (the printed snippet omits an override that would be redundant). Sourced centrally so a
+        // self-hosted/gateway origin cannot drift from the definition in ConfigService.
+        bool isDefault = apiBase == BellaCli.Services.BellaConfig.DefaultApiUrl;
 
         // ── Claude Desktop ────────────────────────────────────────────────────
         // Show both: API key (recommended) and bare (for `bella login` users)

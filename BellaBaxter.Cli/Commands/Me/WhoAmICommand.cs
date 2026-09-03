@@ -6,10 +6,10 @@ namespace BellaCli.Commands.Me;
 
 public class WhoAmISettings : CommandSettings { }
 
-public class WhoAmICommand(CredentialStore credentials, IOutputWriter output)
+public class WhoAmICommand(CredentialStore credentials, KeyContextService keyContext, IOutputWriter output)
     : AsyncCommand<WhoAmISettings>
 {
-    protected override Task<int> ExecuteAsync(
+    protected override async Task<int> ExecuteAsync(
         CommandContext context,
         WhoAmISettings settings,
         CancellationToken ct
@@ -21,14 +21,28 @@ public class WhoAmICommand(CredentialStore credentials, IOutputWriter output)
                 "Not logged in. Run 'bella login' to authenticate.",
                 "unauthenticated"
             );
-            return Task.FromResult(1);
+            return 1;
         }
 
         if (credentials.IsApiKeyMode())
         {
             var key = credentials.LoadApiKey()!;
-            output.WriteObject(new { authType = "api_key", keyId = key.KeyId });
-            return Task.FromResult(0);
+            // keyPrefix is what the console's API Keys listing shows (bax-XXXXXXXX); keyId is the
+            // full id. The context is best-effort: null when the server is unreachable.
+            var ctx = await keyContext.DiscoverAsync(ct);
+            output.WriteObject(
+                new
+                {
+                    authType = "api_key",
+                    keyPrefix = key.KeyPrefix,
+                    keyId = key.KeyId,
+                    role = ctx?.Role,
+                    org = ctx?.OrgSlug,
+                    project = ctx?.ProjectSlug,
+                    environment = ctx?.EnvironmentSlug,
+                }
+            );
+            return 0;
         }
 
         var tokens = credentials.LoadTokens()!;
@@ -62,7 +76,7 @@ public class WhoAmICommand(CredentialStore credentials, IOutputWriter output)
             }
         );
 
-        return Task.FromResult(0);
+        return 0;
     }
 
     private static Dictionary<string, System.Text.Json.JsonElement> DecodeJwtPayload(string jwt) =>

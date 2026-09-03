@@ -6,7 +6,7 @@
     <Nullable>enable</Nullable>
     <AssemblyName>bella</AssemblyName>
     <RootNamespace>BellaBaxter.Cli</RootNamespace>
-    <Version>0.1.1-preview.95</Version>
+    <Version>0.1.1-preview.96</Version>
 
     <!-- Global tool support (dev loop: dotnet pack + dotnet tool install -g) -->
     <PackAsTool>true</PackAsTool>
@@ -43,6 +43,26 @@
     <PackageReference Include="Spectre.Console.Cli" Version="0.55.0" />
     <PackageReference Include="VYaml" Version="1.3.0" />
     <PackageReference Include="VYaml.Annotations" Version="1.3.0" />
+
+    <!-- Spec 001 US6: the SPIFFE Workload API is gRPC over a Unix socket, so the agent hosts Kestrel.
+         Grpc.AspNetCore brings the server, Google.Protobuf and Grpc.Tools (the protoc build step). -->
+    <PackageReference Include="Grpc.AspNetCore" Version="2.71.0" />
+  </ItemGroup>
+
+  <!-- FrameworkReference rather than a package: the gRPC server needs the ASP.NET Core shared
+       framework. Note the consequence for a framework-dependent global tool — the host needs the
+       ASP.NET Core runtime, not just the .NET runtime. `dotnet tool install -g` implies the SDK, which
+       includes it, and a self-contained publish bundles it, so both shipping paths are covered. -->
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Both: the agent SERVES this API, and the conformance test plus the SDK auto-detection path
+         (T044) need a client for the same schema. Generating the client from the identical vendored
+         proto is the point — two hand-kept copies would be free to drift, and a drifted conformance
+         test is worse than none. -->
+    <Protobuf Include="Protos/workload.proto" GrpcServices="Both" />
   </ItemGroup>
 
   <!-- Dev (monorepo): direct project reference when BellaBaxter.Client source is on disk -->
@@ -51,7 +71,7 @@
   </ItemGroup>
   <!-- Publish (public repo bella-baxter-cli): resolve from NuGet when project is absent -->
   <ItemGroup Condition="!Exists('$(MSBuildThisFileDirectory)../../sdk/dotnet/BellaBaxter.Client/BellaBaxter.Client.csproj')">
-    <PackageReference Include="BellaBaxter.Client" Version="0.1.1-preview.95" />
+    <PackageReference Include="BellaBaxter.Client" Version="0.1.1-preview.96" />
   </ItemGroup>
 
   <!-- Dev (monorepo): direct project reference when BellaBaxter.Crypto source is on disk -->
@@ -60,6 +80,14 @@
   </ItemGroup>
   <!-- Publish (public repo): resolve from NuGet when project is absent -->
   <ItemGroup Condition="!Exists('$(MSBuildThisFileDirectory)../../sdk/crypto/BellaBaxter.Crypto.csproj')">
-    <PackageReference Include="BellaBaxter.Crypto" Version="0.1.1-preview.95" />
+    <PackageReference Include="BellaBaxter.Crypto" Version="0.1.1-preview.96" />
   </ItemGroup>
+  <ItemGroup>
+    <!-- The test project asserts the pure env/export builders directly (they are internal because
+         they are implementation detail of the commands, not public API). -->
+    <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleToAttribute">
+      <_Parameter1>BellaBaxter.Cli.Tests</_Parameter1>
+    </AssemblyAttribute>
+  </ItemGroup>
+
 </Project>

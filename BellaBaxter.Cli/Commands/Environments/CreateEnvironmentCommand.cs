@@ -73,13 +73,14 @@ public class CreateEnvironmentCommand(
             )
                 description = AnsiConsole.Ask("Description:", defaultValue: "");
 
+            BellaBaxter.Client.Models.EnvironmentOperationResponse? created = null;
             await AnsiConsole
                 .Status()
                 .StartAsync(
                     "Creating environment...",
                     async _ =>
                     {
-                        await client
+                        created = await client
                             .Api.V1.Projects[projectSlug]
                             .Environments.PostAsync(
                                 new BellaBaxter.Client.Models.CreateEnvironmentCommand
@@ -95,6 +96,27 @@ public class CreateEnvironmentCommand(
                 );
 
             output.WriteSuccess($"Environment '{name}' created in project '{projectName}'.");
+
+            // Spec 028 (FR-020a): a new environment starts in Strict. Say so, and say what that checks,
+            // at the moment the operator can still choose otherwise for a development environment.
+            // Kiota renders the nullable `environment` as a composed wrapper; the real record sits one level in.
+            var environment = created?.Environment?.EnvironmentResponse;
+            var mode = environment?.SpiffeAttestationMode;
+            if (!string.IsNullOrWhiteSpace(mode))
+            {
+                var isStrict = string.Equals(mode, "Strict", StringComparison.OrdinalIgnoreCase);
+                output.WriteInfo(
+                    $"Attestation mode: {mode} — "
+                    + (isStrict ? Spiffe.SpiffeSetModeSettings.StrictMeaning : Spiffe.SpiffeSetModeSettings.LaxMeaning));
+                if (isStrict)
+                {
+                    var slug = environment?.Slug;
+                    output.WriteInfo(
+                        $"Use 'bella spiffe set-mode --lax -p {projectSlug}"
+                        + (string.IsNullOrWhiteSpace(slug) ? string.Empty : $" -e {slug}")
+                        + "' for a development environment.");
+                }
+            }
             return 0;
         }
         catch (InvalidOperationException ex)

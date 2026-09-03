@@ -1,7 +1,9 @@
 using System.Reflection;
 using BellaCli.Commands;
+using BellaCli.Commands.Spiffe;
 using BellaCli.Commands.Agent;
 using BellaCli.Commands.Auth;
+using BellaCli.Commands.Certs;
 using BellaCli.Commands.Config;
 using BellaCli.Commands.Environments;
 using BellaCli.Commands.Exec;
@@ -38,6 +40,7 @@ services.AddSingleton<ZkeService>();
 services.AddSingleton<DekLeaseCache>();
 services.AddHttpClient<AuthService>();
 services.AddHttpClient<WorkloadIdentityService>();
+services.AddHttpClient(nameof(BellaCli.Commands.Spiffe.SpiffeAgentCommand));
 services.AddHttpClient<AuthSetupCommand>();
 
 // OutputMode is resolved at runtime based on auth type / --json flag / TTY
@@ -52,6 +55,10 @@ services.AddSingleton<IOutputWriter>(sp =>
 
     return gs.IsJsonMode ? new JsonOutputWriter() : new HumanOutputWriter();
 });
+
+// spec 020 (US4): every command that WRITES a secret resolves its destination through this,
+// so a write can never land on a provider that does not store secrets.
+services.AddSingleton<SecretProviderResolver>();
 
 // Auth commands
 services.AddTransient<LoginCommand>();
@@ -95,6 +102,9 @@ services.AddTransient<SecretsDriftCommand>();
 services.AddTransient<SecretsScanCommand>();
 services.AddTransient<PullCommand>();
 services.AddTransient<RotateSecretCommand>();
+
+// Certificate commands (spec 020)
+services.AddTransient<ImportCertsCommand>();
 
 // Config commands
 services.AddTransient<ConfigShowCommand>();
@@ -296,6 +306,40 @@ app.Configure(config =>
                 .AddCommand<CreateProviderCommand>("create")
                 .WithDescription("Create a new provider.");
             provs.AddCommand<DeleteProviderCommand>("delete").WithDescription("Delete a provider.");
+        }
+    );
+
+    // spec 020: certificate lifecycle operations — importing a drop is not a key/value set,
+    // so it lives in its own branch rather than under `secrets`.
+    config.AddBranch(
+        "certs",
+        certs =>
+        {
+            certs.SetDescription("Import and manage TLS certificates.");
+            certs
+                .AddCommand<ImportCertsCommand>("import")
+                .WithDescription(
+                    "Import a certificate drop (one folder per certificate) into a certificate source."
+                )
+                .WithExample(
+                    "certs",
+                    "import",
+                    "--dir",
+                    "./drop",
+                    "--provider",
+                    "gigamon-certs",
+                    "--dry-run"
+                )
+                .WithExample(
+                    "certs",
+                    "import",
+                    "--dir",
+                    "./drop",
+                    "--provider",
+                    "gigamon-certs",
+                    "--manifest",
+                    "./drop/Passphrases.xlsx"
+                );
         }
     );
 
@@ -715,6 +759,57 @@ app.Configure(config =>
         .WithDescription("Show API usage and billing status for the current month.")
         .WithExample("usage")
         .WithExample("usage", "--json");
+
+    // Spec 001 (US2) — the SPIFFE branch. Deliberately NOT `bella agent`, which is the secrets-sync
+    // sidecar registered just below: the two are layers rather than peers, since the secrets agent
+    // needs an identity and this provides one. `spiffe` rather than `spire` because SPIRE is a specific
+    // implementation (server, registration-entry API, datastore) Bella does not ship — the name would
+    // promise a compatibility we lack — and because this CLI is noun-branch dominant already.
+    config.AddBranch(
+        "spiffe",
+        spiffe =>
+        {
+            spiffe.SetDescription("Workload identity (SPIFFE): local evidence and the SVID agent.");
+            spiffe.AddCommand<SpiffeWhoAmICommand>("whoami")
+                .WithDescription(
+                    "Show what node evidence this host can present to attestation. Makes no network call.")
+                .WithExample("spiffe", "whoami")
+                .WithExample("spiffe", "whoami", "--json");
+            spiffe.AddCommand<SpiffeAgentCommand>("agent")
+                .WithDescription(
+                    "Run the SVID agent: attest, hold the identity in memory, renew before expiry.")
+                .WithExample("spiffe", "agent", "--environment-id", "<guid>", "--name", "billing-service");
+            spiffe.AddCommand<SpiffeAddCommand>("add")
+                .WithDescription("Register a workload identity and print the SPIFFE ID it was assigned.")
+                .WithExample("spiffe", "add", "--name", "billing-service",
+                    "--node", "k8s:cluster=prod", "--selector", "k8s:namespace=payments")
+                .WithExample("spiffe", "add", "--name", "billing-service", "--json");
+            spiffe.AddCommand<SpiffeListCommand>("list")
+                .WithDescription("List the workload identities registered in this environment.")
+                .WithExample("spiffe", "list")
+                .WithExample("spiffe", "list", "--json");
+            spiffe.AddCommand<SpiffeStatusCommand>("status")
+                .WithDescription(
+                    "Ask the local agent what identity it is serving and how long it has left.")
+                .WithExample("spiffe", "status")
+                .WithExample("spiffe", "status", "--json");
+            spiffe.AddCommand<SpiffeRevokeCommand>("revoke")
+                .WithDescription(
+                    "Revoke a workload identity. Its live leases stop working immediately.")
+                .WithExample("spiffe", "revoke", "--name", "billing-service")
+                .WithExample("spiffe", "revoke", "--name", "billing-service", "--force", "--json");
+            spiffe.AddCommand<SpiffeSelectorTypesCommand>("selector-types")
+                .WithDescription(
+                    "List the constraint types the server can verify. Any other type is self-asserted.")
+                .WithExample("spiffe", "selector-types")
+                .WithExample("spiffe", "selector-types", "--json");
+            spiffe.AddCommand<SpiffeSetModeCommand>("set-mode")
+                .WithDescription(
+                    "Set this environment's attestation policy: mode, SVID TTL, k8s OIDC issuer, "
+                    + "AWS account allow-list.")
+                .WithExample("spiffe", "set-mode", "--strict", "--k8s-oidc", "https://oidc.example/id/c1")
+                .WithExample("spiffe", "set-mode", "--strict", "--aws-account", "123456789012");
+        });
 
     config
         .AddCommand<AgentCommand>("agent")

@@ -18,7 +18,15 @@ public record StoredApiKey(
     string KeyId,
     string SigningSecret,
     string Raw  // full "bax-{keyId}-{signingSecret}" string
-);
+)
+{
+    /// <summary>
+    /// The identifier the console's API Keys listing shows: <c>bax-</c> + the first 8 hex chars of
+    /// the key id (the server's <c>KeyPrefix</c>). <c>KeyId</c> alone is the full 32-hex id, which
+    /// appears nowhere in the UI — an operator comparing the two saw no match.
+    /// </summary>
+    public string KeyPrefix => KeyId.Length >= 8 ? $"bax-{KeyId[..8]}" : $"bax-{KeyId}";
+}
 
 public class CredentialStore
 {
