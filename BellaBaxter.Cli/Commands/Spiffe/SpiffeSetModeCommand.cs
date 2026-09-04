@@ -109,6 +109,31 @@ public class SpiffeSetModeSettings : CommandSettings
                 "Pass either --aws-account or --clear-aws-accounts, not both.");
         }
 
+        // Spec 030 — same reasoning as the account ids below: caught here so the operator sees the bad
+        // value beside the flag they typed, and the server refuses it too. The address is a TRUST
+        // ANCHOR (Bella fetches the cluster's token signing keys from it) and an unencrypted one can
+        // never be fetched, so accepting it would only defer the refusal to a workload's attestation.
+        // The server is authoritative; keep this wording in step with it — `HttpsIssuerWording` in
+        // the tests pins that the two doors say the same thing.
+        var oidcUrl = K8sOidcUrl?.Trim();
+        if (!string.IsNullOrEmpty(oidcUrl))
+        {
+            if (!Uri.TryCreate(oidcUrl, UriKind.Absolute, out var oidcUri))
+            {
+                return Spectre.Console.ValidationResult.Error(
+                    "--k8s-oidc must be an absolute URL beginning with https:// "
+                    + "(for example https://oidc.eks.eu-west-1.amazonaws.com/id/EXAMPLE123).");
+            }
+
+            if (!string.Equals(oidcUri.Scheme, Uri.UriSchemeHttps, StringComparison.Ordinal))
+            {
+                return Spectre.Console.ValidationResult.Error(
+                    $"--k8s-oidc must use https (got '{oidcUri.Scheme}'). Bella fetches the cluster's "
+                    + "token signing keys from this address and refuses an unencrypted one, so this "
+                    + "value could not be used.");
+            }
+        }
+
         // Caught here rather than at the server so the operator sees which value is wrong next to the
         // flag they typed. The server refuses it too — this is the friendlier of two closed doors.
         var malformed = AwsAccounts

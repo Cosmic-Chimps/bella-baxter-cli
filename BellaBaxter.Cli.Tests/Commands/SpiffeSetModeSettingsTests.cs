@@ -125,4 +125,76 @@ public class SpiffeSetModeSettingsTests
         Assert.True(settings.Validate().Successful);
         Assert.False(new SpiffeSetModeSettings { Strict = true }.AcknowledgeStrictRefusals);
     }
+
+    // ===== spec 030 — the issuer address is refused before the request leaves (US3) =====
+
+    [Theory]
+    [InlineData("http://oidc.example.com")]
+    [InlineData("HTTP://oidc.example.com")]
+    [InlineData("http://localhost:8443")]
+    public void An_unencrypted_k8s_oidc_url_is_refused_locally(string bad)
+    {
+        var settings = new SpiffeSetModeSettings { Strict = true, K8sOidcUrl = bad };
+
+        Assert.False(Ok(settings));
+        Assert.Contains("https", Why(settings)!, StringComparison.Ordinal);
+        Assert.Contains("'http'", Why(settings)!, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("oidc.example.com")]
+    [InlineData("ftp://oidc.example.com")]
+    [InlineData("not a url")]
+    public void A_malformed_or_non_web_k8s_oidc_url_is_refused_locally(string bad)
+    {
+        Assert.False(Ok(new SpiffeSetModeSettings { Strict = true, K8sOidcUrl = bad }));
+    }
+
+    [Theory]
+    [InlineData("https://oidc.eks.eu-west-1.amazonaws.com/id/EXAMPLE123")]
+    [InlineData("HTTPS://oidc.example.com")]
+    [InlineData("https://localhost:8443")]          // the spec-028 kind lab's own address
+    [InlineData("  https://oidc.example.com  ")]
+    public void An_encrypted_k8s_oidc_url_passes(string good)
+    {
+        Assert.True(Ok(new SpiffeSetModeSettings { Strict = true, K8sOidcUrl = good }));
+    }
+
+    [Fact]
+    public void Clearing_the_issuer_is_unaffected_by_the_scheme_rule()
+    {
+        // Clearing must always be possible: a trust decision that cannot be withdrawn is not a
+        // setting. The rule judges a value being offered, and --clear-k8s-oidc offers none.
+        Assert.True(Ok(new SpiffeSetModeSettings { Strict = true, ClearK8sOidc = true }));
+        Assert.True(Ok(new SpiffeSetModeSettings { Strict = true }));
+    }
+
+    [Fact]
+    public void Passing_both_oidc_flags_still_reports_the_pre_existing_conflict()
+    {
+        // The scheme rule must not shadow the mutual-exclusion error: the operator's mistake there is
+        // contradictory intent, not a bad address, and telling them the wrong one wastes a round.
+        var settings = new SpiffeSetModeSettings
+        {
+            Strict = true,
+            K8sOidcUrl = "http://oidc.example.com",
+            ClearK8sOidc = true,
+        };
+
+        Assert.False(Ok(settings));
+        Assert.Contains("not both", Why(settings)!, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void The_local_refusal_says_what_the_server_says()
+    {
+        // Two processes, two copies of one rule — the CLI cannot reference the API. This is what keeps
+        // them from drifting: the phrases below are lifted from OidcIssuerAddress.Validate in
+        // BellaBaxter.Api/Infrastructure/Attestation. If that message changes, change this too.
+        var why = Why(new SpiffeSetModeSettings { Strict = true, K8sOidcUrl = "http://oidc.example.com" })!;
+
+        Assert.Contains("must use https", why, StringComparison.Ordinal);
+        Assert.Contains("token signing keys", why, StringComparison.Ordinal);
+        Assert.Contains("could not be used", why, StringComparison.Ordinal);
+    }
 }
