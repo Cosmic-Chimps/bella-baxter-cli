@@ -47,7 +47,7 @@ public class CreateProviderCommand(BellaClientProvider provider, IOutputWriter o
             return 1;
         }
 
-        var isNonInteractive = Console.IsOutputRedirected || output is JsonOutputWriter;
+        var isNonInteractive = !Interactivity.IsInteractive(output);
 
         // Resolve type
         var type = settings.Type;

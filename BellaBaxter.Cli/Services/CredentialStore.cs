@@ -1,3 +1,4 @@
+using BellaCli.Infrastructure;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.Extensions.DependencyInjection;
 using System.Text.Json;
@@ -48,8 +49,12 @@ public class CredentialStore
 
     public CredentialStore()
     {
-        Directory.CreateDirectory(ConfigDir);
-        Directory.CreateDirectory(KeysDir);
+        PrivateFiles.EnsurePrivateDirectory(ConfigDir);
+        // Created by us, owner-only, BEFORE DataProtection creates it with the process umask —
+        // the key ring here is plaintext XML on Linux and macOS (no ProtectKeysWith* is
+        // configured), so it is exactly as sensitive as the credentials it protects.
+        PrivateFiles.EnsurePrivateDirectory(KeysDir);
+        CredentialDirectory.TightenOnce(ConfigDir);
 
         var services = new ServiceCollection();
         services.AddDataProtection()
@@ -66,7 +71,7 @@ public class CredentialStore
     {
         var json = JsonSerializer.Serialize(tokens, JsonOptions);
         var encrypted = _protector.Protect(json);
-        File.WriteAllText(TokensFile, encrypted);
+        PrivateFiles.WritePrivate(TokensFile, encrypted);
     }
 
     public StoredTokens? LoadTokens()
@@ -96,7 +101,7 @@ public class CredentialStore
     {
         var json = JsonSerializer.Serialize(key, JsonOptions);
         var encrypted = _protector.Protect(json);
-        File.WriteAllText(ApiKeyFile, encrypted);
+        PrivateFiles.WritePrivate(ApiKeyFile, encrypted);
     }
 
     public StoredApiKey? LoadApiKey()

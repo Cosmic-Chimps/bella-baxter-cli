@@ -1,12 +1,9 @@
 using System.ComponentModel;
-using System.Net.Http.Headers;
-using System.Net.Http.Json;
 using System.Text.Json;
-using System.Text.Json.Serialization;
-using BellaBaxter.Client;
+using BellaBaxter.Client.Models;
 using BellaCli.Infrastructure;
 using BellaCli.Services;
-using Spectre.Console;
+using Microsoft.Kiota.Abstractions;
 using Spectre.Console.Cli;
 
 namespace BellaCli.Commands.Issue;
@@ -15,7 +12,6 @@ public class IssueCommand(
     BellaClientProvider clientProvider,
     CredentialStore credentials,
     ContextService contextService,
-    ConfigService config,
     IOutputWriter output
 ) : AsyncCommand<IssueCommand.Settings>
 {
@@ -55,25 +51,7 @@ public class IssueCommand(
         public string Output { get; set; } = "token";
     }
 
-    // ── DTOs for the tokens/issue endpoint ──────────────────────────────────
-    private record IssueTokenRequest(
-        [property: JsonPropertyName("scopes")] string[] Scopes,
-        [property: JsonPropertyName("ttlMinutes")] int TtlMinutes,
-        [property: JsonPropertyName("clientName")] string ClientName
-    );
-
-    private record IssueTokenResponse(
-        [property: JsonPropertyName("token")] string? Token,
-        [property: JsonPropertyName("keyPrefix")] string? KeyPrefix,
-        [property: JsonPropertyName("expiresAt")] string? ExpiresAt,
-        [property: JsonPropertyName("clientName")] string? ClientName
-    );
-
-    private static readonly JsonSerializerOptions JsonOptions = new()
-    {
-        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-        WriteIndented = true,
-    };
+    private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
 
     protected override async Task<int> ExecuteAsync(
         CommandContext context,
@@ -100,6 +78,8 @@ public class IssueCommand(
         }
 
         // ── Validate TTL ────────────────────────────────────────────────────
+        // Mirrors IssueEnvironmentToken's own bounds (DefaultTtlMinutes 15 / MaxTtlMinutes 480);
+        // the API is authoritative, this only saves a round trip.
         if (settings.Ttl is < 1 or > 480)
         {
             output.WriteError($"--ttl must be between 1 and 480 minutes (got: {settings.Ttl}).");
@@ -146,47 +126,55 @@ public class IssueCommand(
             return 1;
         }
 
-        // ── POST /api/v1/environments/{envId}/tokens/issue ───────────────────
-        // The generated SDK doesn't have this endpoint yet, so we make a raw
-        // authenticated HTTP call using the same signing handler.
-        var issueUrl = $"{config.ApiUrl.TrimEnd('/')}/api/v1/environments/{envId}/tokens/issue";
-        var requestBody = new IssueTokenRequest(scopes, settings.Ttl, settings.Reason);
-
-        using var http = BuildAuthenticatedHttpClient(wrapper.AccessToken);
-
-        HttpResponseMessage httpResponse;
+        // The route is {environmentId:guid}; envId is the SLUG whenever the environment came from
+        // /keys/me or .bella, which matches no route and reads as a 404.
+        Guid environmentId;
         try
         {
-            httpResponse = await http.PostAsJsonAsync(issueUrl, requestBody, JsonOptions, ct);
-        }
-        catch (Exception ex)
-        {
-            output.WriteError($"Network error: {ex.Message}");
-            return 1;
-        }
-
-        if (!httpResponse.IsSuccessStatusCode)
-        {
-            var errorBody = await httpResponse.Content.ReadAsStringAsync(ct);
-            output.WriteError($"API error ({(int)httpResponse.StatusCode}): {errorBody}");
-            return 1;
-        }
-
-        IssueTokenResponse? tokenResponse;
-        try
-        {
-            tokenResponse = await httpResponse.Content.ReadFromJsonAsync<IssueTokenResponse>(
-                JsonOptions,
+            environmentId = await contextService.ResolveEnvironmentIdAsync(
+                wrapper.BellaClient,
+                projectSlug,
+                envId,
                 ct
             );
         }
         catch (Exception ex)
         {
-            output.WriteError($"Failed to parse response: {ex.Message}");
+            output.WriteError(
+                $"Could not resolve environment '{envSlug}' in project '{projectSlug}': {ex.Message}"
+            );
             return 1;
         }
 
-        if (tokenResponse?.Token is null)
+        // ── POST /api/v1/environments/{environmentId}/tokens/issue ───────────
+        CreatedApiKeyResponse? response;
+        try
+        {
+            response = await wrapper
+                .BellaClient.Api.V1.Environments[environmentId]
+                .Tokens.Issue.PostAsync(
+                    new IssueEnvironmentTokenRequest
+                    {
+                        Scopes = [.. scopes],
+                        TtlMinutes = settings.Ttl,
+                        Reason = settings.Reason,
+                    },
+                    cancellationToken: ct
+                );
+        }
+        catch (ApiException ex)
+        {
+            var detail = string.IsNullOrWhiteSpace(ex.Message) ? "" : $": {ex.Message}";
+            output.WriteError($"API error ({ex.ResponseStatusCode}){detail}");
+            return 1;
+        }
+        catch (Exception ex)
+        {
+            output.WriteError($"Failed to issue token: {ex.Message}");
+            return 1;
+        }
+
+        if (string.IsNullOrEmpty(response?.ApiKey))
         {
             output.WriteError("API returned an empty token.");
             return 1;
@@ -197,12 +185,24 @@ public class IssueCommand(
 
         if (isJsonOutput)
         {
-            Console.WriteLine(JsonSerializer.Serialize(tokenResponse, JsonOptions));
+            // The API's own field names — a caller that greps for `token` was never given one.
+            Console.WriteLine(
+                JsonSerializer.Serialize(
+                    new
+                    {
+                        apiKey = response.ApiKey,
+                        keyPrefix = response.KeyPrefix,
+                        id = response.Id,
+                        expiresAt = response.ExpiresAt,
+                    },
+                    JsonOptions
+                )
+            );
         }
         else
         {
             // Print only the raw token to stdout — safe for: export KEY=$(bella issue --scope stripe)
-            Console.WriteLine(tokenResponse.Token);
+            Console.WriteLine(response.ApiKey);
 
             // Contextual info goes to stderr so it doesn't pollute the captured token value
             var scopeList = string.Join(", ", scopes);
@@ -213,36 +213,5 @@ public class IssueCommand(
         }
 
         return 0;
-    }
-
-    /// <summary>
-    /// Builds an HttpClient wired with the correct auth for this session:
-    /// - API key (bax-…) → HmacSigningHandler (same scheme as the SDK)
-    /// - OAuth2 Bearer token → Authorization: Bearer header
-    /// </summary>
-    private static HttpClient BuildAuthenticatedHttpClient(string rawAccessToken)
-    {
-        HttpClient http;
-
-        if (rawAccessToken.StartsWith("bax-", StringComparison.Ordinal))
-        {
-            var appClient = System.Environment.GetEnvironmentVariable("BELLA_BAXTER_APP_CLIENT");
-            var signingHandler = new HmacSigningHandler(rawAccessToken, "bella-cli", appClient)
-            {
-                InnerHandler = new HttpClientHandler(),
-            };
-            http = new HttpClient(signingHandler);
-        }
-        else
-        {
-            http = new HttpClient();
-            http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
-                "Bearer",
-                rawAccessToken
-            );
-        }
-
-        http.DefaultRequestHeaders.Add("Accept", "application/json");
-        return http;
     }
 }

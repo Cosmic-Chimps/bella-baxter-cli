@@ -133,7 +133,7 @@ public class SecretProviderResolver(IOutputWriter output)
     /// <c>SetSecretCommand</c> already applies before prompting for a secret value, so
     /// interactivity behaves consistently across the CLI.
     /// </summary>
-    public bool CanPrompt => !Console.IsOutputRedirected && output is not JsonOutputWriter;
+    public bool CanPrompt => Interactivity.IsInteractive(output);
 
     /// <summary>
     /// Resolves the destination provider slug, or null after reporting why it refused.

@@ -12,6 +12,9 @@ public class GetEnvironmentSettings : CommandSettings
     [CommandArgument(0, "[slug]")]
     public string? Slug { get; init; }
 
+    [CommandOption("-e|--env|--environment <SLUG>")]
+    public string? EnvironmentOption { get; init; }
+
     [CommandOption("-p|--project <SLUG>")]
     public string? Project { get; init; }
 
@@ -26,6 +29,13 @@ public class GetEnvironmentCommand(BellaClientProvider provider, ContextService 
     {
         provider.ApplyOutputModeOverrides(settings.Json);
 
+        var envArg = ArgumentMerge.Environment(settings.Slug, settings.EnvironmentOption);
+        if (envArg.Error is not null)
+        {
+            output.WriteError(envArg.Error);
+            return 2;
+        }
+
         BellaClient client;
         try { client = provider.CreateClient(); }
         catch (InvalidOperationException)
@@ -37,7 +47,7 @@ public class GetEnvironmentCommand(BellaClientProvider provider, ContextService 
         try
         {
             var (projectSlug, _, _) = await context.ResolveProjectAsync(settings.Project, client, ct);
-            var (envSlug, _, _) = await context.ResolveEnvironmentAsync(settings.Slug, projectSlug, client, ct);
+            var (envSlug, _, _) = await context.ResolveEnvironmentAsync(envArg.Value, projectSlug, client, ct);
 
             EnvironmentResponse? env = null;
             List<EnvironmentProviderResponse>? providers = null;

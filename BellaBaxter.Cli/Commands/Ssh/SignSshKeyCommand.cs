@@ -71,7 +71,7 @@ public class SignSshKeyCommand(BellaClientProvider provider, ContextService cont
                     return 1;
                 }
 
-                if (Console.IsOutputRedirected || output is JsonOutputWriter)
+                if (!Interactivity.IsInteractive(output))
                 {
                     if (roleList.Count == 1)
                         roleName = roleList[0].Name!;
@@ -94,7 +94,7 @@ public class SignSshKeyCommand(BellaClientProvider provider, ContextService cont
             var pubKeyPath = ResolvePublicKeyPath(settings.KeyPath);
             if (pubKeyPath is null)
             {
-                if (Console.IsOutputRedirected || output is JsonOutputWriter)
+                if (!Interactivity.IsInteractive(output))
                 {
                     output.WriteError("No SSH public key found. Pass --key <path-to-key.pub>.");
                     return 1;

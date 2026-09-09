@@ -67,7 +67,7 @@ public class DeleteSecretCommand(
 
             if (!settings.Force)
             {
-                if (Console.IsOutputRedirected || output is JsonOutputWriter)
+                if (!Interactivity.IsInteractive(output))
                 {
                     output.WriteError("Use --force to delete without confirmation.");
                     return 1;

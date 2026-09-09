@@ -48,7 +48,7 @@ internal sealed class TokenRefreshHandler(AuthService authService) : DelegatingH
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            throw new InvalidOperationException(
+            throw new SessionExpiredException(
                 "Session expired. Run 'bella login' to re-authenticate.",
                 ex
             );

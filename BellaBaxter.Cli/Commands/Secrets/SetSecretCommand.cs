@@ -3,6 +3,7 @@ using BellaBaxter.Client;
 using BellaBaxter.Client.Models;
 using BellaCli.Infrastructure;
 using BellaCli.Services;
+using Microsoft.Kiota.Abstractions;
 using Spectre.Console;
 using Spectre.Console.Cli;
 
@@ -29,8 +30,34 @@ public class SetSecretSettings : CommandSettings
     [CommandOption("--provider <SLUG>")]
     public string? Provider { get; init; }
 
+    /// <summary>
+    /// Issue #611: scope tags decide which secrets a scoped token (<c>bella issue --scope</c>) can
+    /// read. Repeat per scope: <c>--scope drive --scope ci</c>.
+    /// </summary>
+    [CommandOption("--scope <NAME>")]
+    public string[] Scopes { get; init; } = [];
+
+    /// <summary>Any other tag, <c>KEY=VALUE</c>, repeatable. For scopes prefer <c>--scope</c>.</summary>
+    [CommandOption("--tag <KEY=VALUE>")]
+    public string[] Tags { get; init; } = [];
+
+    /// <summary>
+    /// The secret's declared type (String, Int, Bool, Uri, Json, Guid, Base64, Certificate).
+    /// Deliberately NOT validated here: the set grows (spec 020 added Certificate), and a stale
+    /// client-side list would refuse a type the server accepts. The server validates it.
+    /// </summary>
+    [CommandOption("--type <TYPE>")]
+    public string? Type { get; init; }
+
+    /// <summary>Exclude this secret from the security scanner. Explicit value so it can be turned back on.</summary>
+    [CommandOption("--ignore-in-scan <true|false>")]
+    public bool? IgnoreInScan { get; init; }
+
     [CommandOption("--json")]
     public bool Json { get; init; }
+
+    /// <summary>True when the caller asked for anything that lives on the metadata endpoint.</summary>
+    public bool WantsMetadataWrite => Scopes.Length > 0 || Tags.Length > 0 || IgnoreInScan.HasValue;
 }
 
 public class SetSecretCommand(
@@ -61,6 +88,21 @@ public class SetSecretCommand(
             return 1;
         }
 
+        // Issue #611: compose and validate the tag arguments BEFORE any network call, so a typo
+        // costs nothing and never leaves a value written with the tags rejected.
+        if (
+            !SecretMetadataArguments.TryCompose(
+                settings.Scopes,
+                settings.Tags,
+                out var requestedTags,
+                out var tagError
+            )
+        )
+        {
+            output.WriteError(tagError!);
+            return 1;
+        }
+
         BellaClient client;
         try
         {
@@ -86,7 +128,7 @@ public class SetSecretCommand(
             var value = settings.Value;
             if (string.IsNullOrEmpty(value))
             {
-                if (Console.IsOutputRedirected || output is JsonOutputWriter)
+                if (!Interactivity.IsInteractive(output))
                 {
                     output.WriteError("Value is required in non-interactive mode.");
                     return 1;
@@ -114,13 +156,18 @@ public class SetSecretCommand(
                 return 1;
             }
 
+            var created = false;
+
             await AnsiConsole
                 .Status()
                 .StartAsync(
                     $"Setting secret {settings.Key}...",
                     async _ =>
                     {
-                        // Try update first, then create
+                        // Update first, then create. The catch is narrowed to "it isn't there yet":
+                        // a bare catch here turned every failure — a 403, a validation error, a
+                        // network fault — into a create attempt, and the operator was then shown the
+                        // CREATE error, which describes the wrong problem.
                         try
                         {
                             await client
@@ -133,11 +180,12 @@ public class SetSecretCommand(
                                     {
                                         Value = value,
                                         Description = settings.Description,
+                                        Type = settings.Type,
                                     },
                                     cancellationToken: ct
                                 );
                         }
-                        catch
+                        catch (Exception ex) when (IsNotFound(ex))
                         {
                             await client
                                 .Api.V1.Projects[projectSlug]
@@ -149,12 +197,44 @@ public class SetSecretCommand(
                                         Key = settings.Key,
                                         Value = value,
                                         Description = settings.Description,
+                                        Type = settings.Type,
                                     },
                                     cancellationToken: ct
                                 );
+                            created = true;
                         }
                     }
                 );
+
+            // Tags, scopes and the scan flag live on a DIFFERENT endpoint. The create/update
+            // contract advertises `tags` and the server writes `Tags: null` on both paths
+            // (CreateSecret.cs / UpdateSecret.cs) — only PATCH .../metadata emits
+            // SecretTagsUpdated. Sending them above would have looked like it worked.
+            if (settings.WantsMetadataWrite)
+            {
+                var applied = await ApplyMetadataAsync(
+                    client,
+                    projectSlug,
+                    envSlug,
+                    providerSlug,
+                    settings,
+                    requestedTags,
+                    createdSecret: created,
+                    ct
+                );
+
+                if (!applied)
+                {
+                    // The value IS written. Say so plainly rather than reporting a flat failure —
+                    // an operator who re-runs the whole command otherwise writes the value twice
+                    // while still not knowing which half failed.
+                    output.WriteError(
+                        $"The value of '{settings.Key}' was written, but its tags were not. "
+                            + "Re-run the same command to retry the tags."
+                    );
+                    return 1;
+                }
+            }
 
             output.WriteSuccess($"Secret '{settings.Key}' set successfully.");
             return 0;
@@ -170,4 +250,103 @@ public class SetSecretCommand(
             return 1;
         }
     }
+
+    /// <summary>
+    /// "The secret does not exist yet" — the only condition that may fall through to a create.
+    /// Kiota surfaces a declared 404 as <c>ProblemDetails</c> and anything else as
+    /// <c>ApiException</c>, so both are checked by status rather than by message.
+    /// </summary>
+    private static bool IsNotFound(Exception ex) =>
+        ex switch
+        {
+            ProblemDetails problem => problem.ResponseStatusCode == 404,
+            ApiException api => api.ResponseStatusCode == 404,
+            _ => false,
+        };
+
+    /// <summary>
+    /// Writes tags / scopes / the scan flag through <c>PATCH …/secrets/{key}/metadata</c> — the ONLY
+    /// path that emits <c>SecretTagsUpdated</c>. The create/update contract no longer pretends
+    /// otherwise: create persists tags, update refuses them (issue #613).
+    ///
+    /// <para>Because that endpoint REPLACES the whole tag dictionary, an existing secret's current
+    /// tags are read first (<c>getSecretMetadata</c>, issue #614) and merged. If the read fails the
+    /// write is refused rather than guessed: replacing tags we could not see would delete metadata on
+    /// a transient error, and an unreadable state is never a verdict.</para>
+    /// </summary>
+    private async Task<bool> ApplyMetadataAsync(
+        BellaClient client,
+        string projectSlug,
+        string envSlug,
+        string providerSlug,
+        SetSecretSettings settings,
+        Dictionary<string, string> requestedTags,
+        bool createdSecret,
+        CancellationToken ct
+    )
+    {
+        Dictionary<string, string>? tagsToWrite = null;
+
+        if (requestedTags.Count > 0)
+        {
+            IReadOnlyDictionary<string, string>? existing = null;
+
+            // A secret this command just created has no prior tags, so there is nothing to read.
+            if (!createdSecret)
+            {
+                try
+                {
+                    var metadata = await client
+                        .Api.V1.Projects[projectSlug]
+                        .Environments[envSlug]
+                        .Providers[providerSlug]
+                        .Secrets[settings.Key]
+                        .Metadata.GetAsync(cancellationToken: ct);
+
+                    existing = metadata?.Tags?.AdditionalData?.ToDictionary(
+                        kv => kv.Key,
+                        kv => kv.Value?.ToString() ?? string.Empty
+                    );
+                }
+                catch (Exception ex)
+                {
+                    output.WriteError(
+                        "Could not read the secret's current tags, so its tags were left untouched "
+                            + $"rather than replaced: {Describe(ex)}"
+                    );
+                    return false;
+                }
+            }
+
+            tagsToWrite = SecretMetadataArguments.MergeOver(existing, requestedTags);
+        }
+
+        try
+        {
+            await client
+                .Api.V1.Projects[projectSlug]
+                .Environments[envSlug]
+                .Providers[providerSlug]
+                .Secrets[settings.Key]
+                .Metadata.PatchAsync(
+                    SecretMetadataArguments.BuildRequest(tagsToWrite, settings.IgnoreInScan),
+                    cancellationToken: ct
+                );
+            return true;
+        }
+        catch (Exception ex)
+        {
+            output.WriteError($"Failed to write secret metadata: {Describe(ex)}");
+            return false;
+        }
+    }
+
+    private static string Describe(Exception ex) =>
+        ex switch
+        {
+            ProblemDetails problem =>
+                $"{problem.Detail ?? problem.Title} (HTTP {problem.ResponseStatusCode})",
+            ApiException api => $"HTTP {api.ResponseStatusCode}",
+            _ => ex.Message,
+        };
 }

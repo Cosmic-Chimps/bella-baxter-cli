@@ -57,8 +57,7 @@ public class GetSecretsCommand(
     BellaClientProvider provider,
     ContextService context,
     IOutputWriter output,
-    ZkeService zke,
-    DekLeaseCache dekCache
+    ZkeClientSelection zkeSelection
 ) : AsyncCommand<GetSecretsSettings>
 {
     private static readonly Regex HierarchySeparator = new(@"__|:", RegexOptions.Compiled);
@@ -87,48 +86,14 @@ public class GetSecretsCommand(
         var jsonMode = effectiveFormat is "json" or "json-nested";
         provider.ApplyOutputModeOverrides(settings.Json || jsonMode);
 
-        // ZKE: upgrade to a ZkeDekHandler client when a device key or --private-key is available.
-        ECDiffieHellman? zkeEcdh = null;
-        if (!string.IsNullOrEmpty(settings.PrivateKey))
-        {
-            var pkcs8b64 = ZkeService.ResolvePrivateKeyFromUrl(settings.PrivateKey);
-            if (pkcs8b64 is not null)
-            {
-                zkeEcdh = ECDiffieHellman.Create();
-                zkeEcdh.ImportPkcs8PrivateKey(Convert.FromBase64String(pkcs8b64), out _);
-            }
-            else
-            {
-                AnsiConsole.MarkupLine("[yellow]⚠ Could not resolve --private-key; ZKE disabled.[/]");
-            }
-        }
-        else
-        {
-            zkeEcdh = zke.LoadEcdhKey();
-        }
+        // spec 037 — ONE place decides which client a read command uses, and whether it may read at
+        // all. This replaced a copy of the block below that lived in four commands and had already
+        // drifted apart (research R12).
+        var selection = await zkeSelection.SelectAsync(settings.PrivateKey, settings.App, announce: true, ct);
+        if (selection.Stopped)
+            return selection.ExitCode!.Value;
 
-        BellaClient client;
-        try
-        {
-            if (zkeEcdh is not null)
-            {
-                var zkeHandler = new ZkeDekHandler(
-                    zkeEcdh,
-                    onWrappedDekReceived: (project, env, wrappedDek, expires) =>
-                        dekCache.Store(project, env, wrappedDek, expires));
-                client = provider.CreateClientWithZke(zkeHandler, settings.App);
-                AnsiConsole.MarkupLine("[dim]🔐 ZKE enabled — secrets will be decrypted locally.[/]");
-            }
-            else
-            {
-                client = provider.CreateClient(settings.App);
-            }
-        }
-        catch (InvalidOperationException)
-        {
-            output.WriteError("Not logged in. Run 'bella login' first.");
-            return 1;
-        }
+        var client = selection.Client!;
 
         try
         {

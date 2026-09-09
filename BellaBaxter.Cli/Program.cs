@@ -3,6 +3,7 @@ using BellaCli.Commands;
 using BellaCli.Commands.Spiffe;
 using BellaCli.Commands.Agent;
 using BellaCli.Commands.Auth;
+using BellaCli.Commands.Auth.Devices;
 using BellaCli.Commands.Certs;
 using BellaCli.Commands.Config;
 using BellaCli.Commands.Environments;
@@ -37,6 +38,8 @@ services.AddSingleton<CredentialStore>();
 services.AddSingleton<BellaClientProvider>();
 services.AddSingleton<ContextService>();
 services.AddSingleton<ZkeService>();
+// spec 037 — the ONE place a read command picks its client and consults the device gate.
+services.AddSingleton<ZkeClientSelection>();
 services.AddSingleton<DekLeaseCache>();
 services.AddHttpClient<AuthService>();
 services.AddHttpClient<WorkloadIdentityService>();
@@ -66,6 +69,8 @@ services.AddTransient<LogoutCommand>();
 services.AddTransient<AuthStatusCommand>();
 services.AddTransient<AuthRefreshCommand>();
 services.AddTransient<AuthSetupCommand>();
+services.AddTransient<AuthDevicesListCommand>();
+services.AddTransient<AuthDevicesRevokeCommand>();
 services.AddTransient<AuthOidcCommand>();
 services.AddTransient<KeyContextService>();
 
@@ -187,7 +192,11 @@ app.Configure(config =>
 
     config
         .AddCommand<WhoAmICommand>("whoami")
-        .WithDescription("Show the currently logged-in user.");
+        .WithDescription(
+            "Show the currently logged-in user, verified against the server (--offline reads the local cache)."
+        )
+        .WithExample("whoami")
+        .WithExample("whoami", "--offline");
 
     config.AddBranch(
         "org",
@@ -217,13 +226,32 @@ app.Configure(config =>
                 .WithDescription("Manually refresh the OAuth2 access token.");
             auth.AddCommand<AuthSetupCommand>("setup")
                 .WithDescription(
-                    "Set up per-device zero-knowledge encryption key. "
-                        + "Generates a P-256 keypair, stores the private key securely in your OS credential store, "
-                        + "and registers the public key with Bella so secrets can be decrypted locally."
+                    "Register this machine as a device in the current tenant. "
+                        + "Generates a P-256 keypair (private half stored owner-only under ~/.config/bella-cli) "
+                        + "and REGISTERS the public half with Bella. Where the tenant enforces ZKE, only a "
+                        + "registered device may read secrets. Safe to re-run; register again per tenant."
                 )
                 .WithExample("auth", "setup")
                 .WithExample("auth", "setup", "--device-name", "\"MacBook Pro\"")
                 .WithExample("auth", "setup", "--force");
+            auth.AddBranch(
+                "devices",
+                devices =>
+                {
+                    devices.SetDescription("List and revoke the machines registered in this tenant.");
+                    devices.AddCommand<AuthDevicesListCommand>("list")
+                        .WithDescription("List registered devices (--all for the whole tenant; Owner/Admin).")
+                        .WithExample("auth", "devices", "list")
+                        .WithExample("auth", "devices", "list", "--all")
+                        .WithExample("auth", "devices", "list", "-o", "json");
+                    devices.AddCommand<AuthDevicesRevokeCommand>("revoke")
+                        .WithDescription(
+                            "Revoke a device by id or full fingerprint. Effective on that machine's next "
+                            + "request; does not un-share an environment key it already cached.")
+                        .WithExample("auth", "devices", "revoke", "SHA256:abc...")
+                        .WithExample("auth", "devices", "revoke", "<id>", "--yes");
+                }
+            );
             auth.AddCommand<AuthOidcCommand>("oidc")
                 .WithDescription(
                     "Exchange a platform OIDC token for a short-lived Bella API key and export it "
@@ -262,18 +290,34 @@ app.Configure(config =>
             envs.SetDescription("Manage environments within projects.");
             envs.AddCommand<ListEnvironmentsCommand>("list").WithDescription("List environments.");
             envs.AddCommand<GetEnvironmentCommand>("get")
-                .WithDescription("Get environment details.");
+                .WithDescription("Get environment details.")
+                .WithExample("environments", "get", "dev")
+                .WithExample("environments", "get", "--environment", "dev", "-p", "my-project");
             envs.AddCommand<CreateEnvironmentCommand>("create")
                 .WithDescription("Create a new environment.");
             envs.AddCommand<UpdateEnvironmentCommand>("update")
-                .WithDescription("Update an environment.");
+                .WithDescription("Update an environment.")
+                .WithExample("environments", "update", "dev", "-n", "Development")
+                .WithExample("environments", "update", "--environment", "dev", "-n", "Development");
             envs.AddCommand<DeleteEnvironmentCommand>("delete")
-                .WithDescription("Delete an environment.");
+                .WithDescription("Delete an environment.")
+                .WithExample("environments", "delete", "dev", "--force")
+                .WithExample("environments", "delete", "--environment", "dev", "--force");
             envs.AddCommand<AddProviderToEnvironmentCommand>("add-provider")
                 .WithDescription("Assign a provider to an environment.")
                 .WithExample(
                     "environments",
                     "add-provider",
+                    "dev",
+                    "--provider",
+                    "my-vault",
+                    "-p",
+                    "my-project"
+                )
+                .WithExample(
+                    "environments",
+                    "add-provider",
+                    "--environment",
                     "dev",
                     "--provider",
                     "my-vault",
@@ -286,6 +330,15 @@ app.Configure(config =>
                 .WithExample(
                     "environments",
                     "remove-provider",
+                    "dev",
+                    "--provider",
+                    "my-vault",
+                    "--force"
+                )
+                .WithExample(
+                    "environments",
+                    "remove-provider",
+                    "--environment",
                     "dev",
                     "--provider",
                     "my-vault",
@@ -556,7 +609,8 @@ app.Configure(config =>
             "Create a .bella context file in the current directory (shortcut for 'bella context init')."
         )
         .WithExample("init")
-        .WithExample("init", "my-project", "dev");
+        .WithExample("init", "my-project", "dev")
+        .WithExample("init", "--project", "my-project", "--environment", "dev");
 
     config.AddBranch(
         "context",
@@ -576,7 +630,15 @@ app.Configure(config =>
             ctx.AddCommand<ContextInitCommand>("init")
                 .WithDescription("Create a .bella file in the current directory (like git init).")
                 .WithExample("context", "init")
-                .WithExample("context", "init", "myproject", "dev");
+                .WithExample("context", "init", "myproject", "dev")
+                .WithExample(
+                    "context",
+                    "init",
+                    "--project",
+                    "myproject",
+                    "--environment",
+                    "dev"
+                );
             ctx.AddCommand<ContextClearCommand>("clear")
                 .WithDescription("Remove the .bella file from the current directory.");
             ctx.AddCommand<ContextUseCommand>("use")

@@ -22,12 +22,34 @@ public class KeyContextService(BellaClientProvider provider, CredentialStore cre
     /// <summary>
     /// Discovers the project/environment context from the stored API key by calling
     /// <c>GET /api/v1/keys/me</c>. Returns null if not in API key mode or on any error.
+    ///
+    /// <para>Best-effort by design: the callers that use it (<c>bella login --api-key</c>,
+    /// <c>bella context init</c>) are writing a convenience <c>.bella</c> file and must not fail
+    /// because the server was briefly unreachable. A caller that needs to REPORT an identity —
+    /// <c>bella whoami</c> — must use <see cref="TryDiscoverAsync"/> instead, so a revoked key
+    /// is not printed as a working one.</para>
     /// </summary>
     public async Task<KeyContext?> DiscoverAsync(CancellationToken ct = default)
     {
+        var (ctx, _) = await TryDiscoverAsync(ct);
+        return ctx;
+    }
+
+    /// <summary>
+    /// Same call as <see cref="DiscoverAsync"/>, but says why it failed:
+    /// <see cref="ServerProbeFailure.Rejected"/> means the server refused the key (revoked or
+    /// invalid), <see cref="ServerProbeFailure.Unreachable"/> means we learned nothing about it.
+    ///
+    /// <para>Both are null-with-a-reason rather than an exception, because the key not being in
+    /// API-key mode at all is a third, entirely ordinary outcome (null context, null failure).</para>
+    /// </summary>
+    public async Task<(KeyContext? Context, ServerProbeFailure? Failure)> TryDiscoverAsync(
+        CancellationToken ct = default
+    )
+    {
         var apiKey = credentials.LoadApiKey();
         if (apiKey is null)
-            return null;
+            return (null, null);
 
         try
         {
@@ -35,26 +57,29 @@ public class KeyContextService(BellaClientProvider provider, CredentialStore cre
             var response = await client.Api.V1.Keys.Me.GetAsync(cancellationToken: ct);
 
             if (response?.ProjectSlug is null)
-                return null;
+                return (null, ServerProbeFailure.Unreachable);
 
             // TenantSlug / TenantName were added after the SDK was generated.
             // Read from AdditionalData (Kiota stores unknown fields there) until next SDK regen.
             var orgSlug = TryGetAdditionalString(response.AdditionalData, "tenantSlug");
             var orgName = TryGetAdditionalString(response.AdditionalData, "tenantName");
 
-            return new KeyContext(
-                response.ProjectSlug,
-                response.ProjectName ?? response.ProjectSlug,
-                response.EnvironmentSlug,
-                response.EnvironmentName ?? response.EnvironmentSlug,
-                response.Role ?? "CONSUMER",
-                OrgSlug: orgSlug,
-                OrgName: orgName
+            return (
+                new KeyContext(
+                    response.ProjectSlug,
+                    response.ProjectName ?? response.ProjectSlug,
+                    response.EnvironmentSlug,
+                    response.EnvironmentName ?? response.EnvironmentSlug,
+                    response.Role ?? "CONSUMER",
+                    OrgSlug: orgSlug,
+                    OrgName: orgName
+                ),
+                null
             );
         }
-        catch
+        catch (Exception ex)
         {
-            return null;
+            return (null, ServerProbe.Classify(ex));
         }
     }
 

@@ -49,6 +49,7 @@ public class SdkRunCommand(
     AuthService authService,
     WorkloadIdentityService workloadIdentity,
     ZkeService zke,
+    ZkeClientSelection zkeSelection,
     IOutputWriter output
 ) : AsyncCommand<SdkRunCommand.Settings>
 {
@@ -241,10 +242,18 @@ public class SdkRunCommand(
         if (appClient is not null)
             psi.Environment["BELLA_BAXTER_APP_CLIENT"] = appClient;
 
-        // ZKE: inject device private key so SDK child processes use the same device identity.
-        // Only injected for developer auth flows (workload identity manages its own keys externally).
+        // ZKE: inject the device private key so SDK child processes use the same device identity.
+        // Only for developer auth flows (workload identity manages its own keys externally).
         if (apiKey is null || !apiKey.StartsWith("bax-"))
         {
+            // spec 037 — decide BEFORE launching the child. Without this, an enforcing tenant produces
+            // a child process that starts, connects, and fails on its first secret read with a 403 the
+            // developer sees from inside somebody else's SDK. Stopping here says what to do instead.
+            var selection = await zkeSelection.SelectAsync(
+                privateKeyOverride: null, appClientOverride: null, announce: false, ct);
+            if (selection.Stopped)
+                return selection.ExitCode!.Value;
+
             var deviceKeyBase64 = zke.LoadPrivateKeyBase64();
             if (deviceKeyBase64 is not null)
             {

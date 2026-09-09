@@ -32,7 +32,7 @@ public class ListSecretsCommand(
     BellaClientProvider provider,
     ContextService context,
     IOutputWriter output,
-    ZkeService zke
+    ZkeClientSelection zkeSelection
 ) : AsyncCommand<ListSecretsSettings>
 {
     protected override async Task<int> ExecuteAsync(
@@ -43,49 +43,12 @@ public class ListSecretsCommand(
     {
         provider.ApplyOutputModeOverrides(settings.Json);
 
-        // ZKE: upgrade to a ZkeDekHandler client when a device key or --private-key is available.
-        ECDiffieHellman? zkeEcdh = null;
-        if (!string.IsNullOrEmpty(settings.PrivateKey))
-        {
-            var pkcs8b64 = ZkeService.ResolvePrivateKeyFromUrl(settings.PrivateKey);
-            if (pkcs8b64 is not null)
-            {
-                zkeEcdh = ECDiffieHellman.Create();
-                zkeEcdh.ImportPkcs8PrivateKey(Convert.FromBase64String(pkcs8b64), out _);
-            }
-            else
-            {
-                AnsiConsole.MarkupLine(
-                    "[yellow]⚠ Could not resolve --private-key; ZKE disabled.[/]"
-                );
-            }
-        }
-        else
-        {
-            zkeEcdh = zke.LoadEcdhKey();
-        }
+        // spec 037 — one place decides the client and whether this read may proceed at all.
+        var selection = await zkeSelection.SelectAsync(settings.PrivateKey, appClientOverride: null, announce: true, ct);
+        if (selection.Stopped)
+            return selection.ExitCode!.Value;
 
-        BellaClient client;
-        try
-        {
-            if (zkeEcdh is not null)
-            {
-                var zkeHandler = new ZkeDekHandler(zkeEcdh, onWrappedDekReceived: null);
-                client = provider.CreateClientWithZke(zkeHandler);
-                AnsiConsole.MarkupLine(
-                    "[dim]🔐 ZKE enabled — secrets will be decrypted locally.[/]"
-                );
-            }
-            else
-            {
-                client = provider.CreateClient();
-            }
-        }
-        catch (InvalidOperationException)
-        {
-            output.WriteError("Not logged in. Run 'bella login' first.");
-            return 1;
-        }
+        var client = selection.Client!;
 
         try
         {

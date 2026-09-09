@@ -64,7 +64,7 @@ public class ConnectSshCommand(BellaClientProvider provider, ContextService cont
 
                 if (privKeyPath is null)
                 {
-                    if (Console.IsOutputRedirected || output is JsonOutputWriter)
+                    if (!Interactivity.IsInteractive(output))
                     {
                         output.WriteError("No SSH private key found. Pass --key <path-to-private-key>.");
                         return 1;
@@ -126,7 +126,7 @@ public class ConnectSshCommand(BellaClientProvider provider, ContextService cont
                         return 1;
                     }
 
-                    if (Console.IsOutputRedirected || output is JsonOutputWriter)
+                    if (!Interactivity.IsInteractive(output))
                     {
                         if (roleList.Count == 1)
                             roleName = roleList[0].Name!;

@@ -26,10 +26,42 @@ public class LoginCommand(AuthService auth, CredentialStore credentials, KeyCont
         CancellationToken ct
     )
     {
-        if (credentials.IsAuthenticated() && !settings.Force)
+        switch (
+            LoginGate.Decide(
+                isAuthenticated: credentials.IsAuthenticated(),
+                isApiKeyMode: credentials.IsApiKeyMode(),
+                isOAuthTokenExpired: auth.IsTokenExpired(),
+                force: settings.Force
+            )
+        )
         {
-            output.WriteWarning("Already logged in. Use --force to re-authenticate.");
-            return 0;
+            case LoginAction.AlreadyLoggedIn:
+                output.WriteWarning(
+                    credentials.IsApiKeyMode()
+                        ? "Already logged in with an API key. Use --force to re-authenticate."
+                        : "Already logged in. Use --force to re-authenticate."
+                );
+                return 0;
+
+            case LoginAction.TryRefresh:
+                try
+                {
+                    var refreshed = await auth.RefreshAsync(ct);
+                    output.WriteSuccess($"Session refreshed. Token expires at {refreshed.ExpiresAt:u}.");
+                    return 0;
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    output.WriteWarning(
+                        "Stored session has expired and could not be refreshed — starting a new login."
+                    );
+                    // fall through to the login flow below
+                }
+                break;
+
+            case LoginAction.StartLogin:
+            default:
+                break;
         }
 
         // ── API key mode ─────────────────────────────────────────────────────

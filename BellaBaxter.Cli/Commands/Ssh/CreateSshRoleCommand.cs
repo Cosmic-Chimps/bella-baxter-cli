@@ -57,7 +57,7 @@ public class CreateSshRoleCommand(BellaClientProvider provider, ContextService c
             var name = settings.Name;
             if (string.IsNullOrWhiteSpace(name))
             {
-                if (Console.IsOutputRedirected || output is JsonOutputWriter)
+                if (!Interactivity.IsInteractive(output))
                 {
                     output.WriteError("--name is required in non-interactive mode.");
                     return 1;
@@ -68,7 +68,7 @@ public class CreateSshRoleCommand(BellaClientProvider provider, ContextService c
             var allowedUsers = settings.AllowedUsers;
             if (string.IsNullOrWhiteSpace(allowedUsers))
             {
-                if (Console.IsOutputRedirected || output is JsonOutputWriter)
+                if (!Interactivity.IsInteractive(output))
                 {
                     output.WriteError("--allowed-users is required in non-interactive mode.");
                     return 1;

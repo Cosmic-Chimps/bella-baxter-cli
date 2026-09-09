@@ -45,7 +45,7 @@ public class DeletePkiRoleCommand(BellaClientProvider provider, ContextService c
             var name = settings.Name;
             if (string.IsNullOrWhiteSpace(name))
             {
-                if (Console.IsOutputRedirected || output is JsonOutputWriter)
+                if (!Interactivity.IsInteractive(output))
                 {
                     output.WriteError("--name is required.");
                     return 1;

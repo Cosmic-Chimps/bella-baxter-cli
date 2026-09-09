@@ -86,7 +86,7 @@ public class IssuePkiCertCommand(BellaClientProvider provider, ContextService co
                 }
                 else
                 {
-                    if (Console.IsOutputRedirected || output is JsonOutputWriter)
+                    if (!Interactivity.IsInteractive(output))
                     {
                         output.WriteError("--role is required in non-interactive mode.");
                         return 1;
@@ -102,7 +102,7 @@ public class IssuePkiCertCommand(BellaClientProvider provider, ContextService co
             var commonName = settings.CommonName;
             if (string.IsNullOrWhiteSpace(commonName))
             {
-                if (Console.IsOutputRedirected || output is JsonOutputWriter)
+                if (!Interactivity.IsInteractive(output))
                 {
                     output.WriteError("--cn (common name) is required.");
                     return 1;

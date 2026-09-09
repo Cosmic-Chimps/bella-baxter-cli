@@ -59,7 +59,7 @@ public class CreateEnvironmentCommand(
 
             if (string.IsNullOrWhiteSpace(name))
             {
-                if (Console.IsOutputRedirected || output is JsonOutputWriter)
+                if (!Interactivity.IsInteractive(output))
                 {
                     output.WriteError("--name is required in non-interactive mode.");
                     return 1;
@@ -69,7 +69,7 @@ public class CreateEnvironmentCommand(
 
             if (
                 string.IsNullOrWhiteSpace(description)
-                && !(Console.IsOutputRedirected || output is JsonOutputWriter)
+                && Interactivity.IsInteractive(output)
             )
                 description = AnsiConsole.Ask("Description:", defaultValue: "");
 

@@ -1,0 +1,57 @@
+<Project>
+  <PropertyGroup>
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+  </PropertyGroup>
+
+  <!-- backlog §4.13 — the CLI solution's single pin list, mirroring apps/api/baxter-dotnet.
+       Before this the versions lived inline in the two csprojs; the constitution's "pinned
+       dependencies" rule assumes central management, and spec 020 deliberately followed the old
+       inline convention for BellaBaxter.Cli.Tests rather than smuggling a solution-wide change into
+       a feature. No package moved version here: every pin below is the one it already carried.
+
+       This file syncs to the public bella-baxter-cli repo with the rest of apps/cli-dotnet
+       (.github/workflows/sync-cli.yml pushes the whole prefix as a subtree), so the published CLI
+       resolves its pins from here too. -->
+
+  <ItemGroup>
+    <!-- CLI host + configuration -->
+    <PackageVersion Include="Microsoft.AspNetCore.DataProtection" Version="10.0.7" />
+    <PackageVersion Include="Microsoft.Extensions.Hosting" Version="10.0.7" />
+
+    <!-- Console UI -->
+    <PackageVersion Include="Spectre.Console" Version="0.55.2" />
+    <PackageVersion Include="Spectre.Console.Cli" Version="0.55.0" />
+
+    <!-- Generated API client transport/serialization (Kiota) -->
+    <PackageVersion Include="Microsoft.Kiota.Http.HttpClientLibrary" Version="1.22.1" />
+    <PackageVersion Include="Microsoft.Kiota.Serialization.Form" Version="1.22.1" />
+    <PackageVersion Include="Microsoft.Kiota.Serialization.Json" Version="1.22.1" />
+    <PackageVersion Include="Microsoft.Kiota.Serialization.Multipart" Version="1.22.1" />
+    <PackageVersion Include="Microsoft.Kiota.Serialization.Text" Version="1.22.1" />
+
+    <!-- MCP server + config formats -->
+    <PackageVersion Include="ModelContextProtocol" Version="1.2.0" />
+    <PackageVersion Include="VYaml" Version="1.3.0" />
+    <PackageVersion Include="VYaml.Annotations" Version="1.3.0" />
+
+    <!-- SPIFFE Workload API (spec 001 US6): gRPC over a Unix socket. Grpc.AspNetCore is the agent's
+         server; Grpc.Net.Client is the conformance test's client. Keep the two on one version — they
+         speak the same wire protocol and a split would only ever be discovered at runtime. -->
+    <PackageVersion Include="Grpc.AspNetCore" Version="2.71.0" />
+    <PackageVersion Include="Grpc.Net.Client" Version="2.71.0" />
+
+    <!-- Bella's own packages. These are referenced ONLY when the SDK sources are absent (the public
+         bella-baxter-cli repo); in the monorepo the same two resolve as ProjectReferences. Central
+         management still requires a version for the conditional reference, so these entries must
+         exist even though a monorepo build never consumes them — and they are release-coupled to the
+         CLI's own <Version>, which .github/workflows/release-sdk.yml rewrites HERE. -->
+    <PackageVersion Include="BellaBaxter.Client" Version="0.1.1-preview.96" />
+    <PackageVersion Include="BellaBaxter.Crypto" Version="0.1.1-preview.96" />
+
+    <!-- Test suite. Mirrors the API solution's central pins so the two suites cannot drift apart. -->
+    <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="18.5.0" />
+    <PackageVersion Include="xunit.v3" Version="3.2.2" />
+    <PackageVersion Include="xunit.runner.visualstudio" Version="3.1.5" />
+    <PackageVersion Include="coverlet.collector" Version="10.0.0" />
+  </ItemGroup>
+</Project>

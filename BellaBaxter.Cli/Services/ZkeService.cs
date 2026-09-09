@@ -2,6 +2,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using BellaBaxter.Crypto;
+using BellaCli.Infrastructure;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -10,14 +11,23 @@ namespace BellaCli.Services;
 /// <summary>
 /// Manages the per-device ZKE (Zero-Knowledge Encryption) identity keypair.
 ///
-/// The P-256 private key is generated once via <c>bella auth setup</c> and persisted
-/// on disk using ASP.NET Data Protection (OS-keyed: macOS Keychain / Windows DPAPI /
-/// Linux file ACL). The public key is registered with Bella API so the server can
-/// wrap project DEKs with it on every secret pull.
+/// <para>The P-256 private key is generated once via <c>bella auth setup</c> and stored in an
+/// encrypted file under <c>~/.config/bella-cli</c> with owner-only permissions. The encryption is
+/// ASP.NET Data Protection with a file-system key ring in <c>keys/</c>; on Windows that ring is
+/// DPAPI-protected, on Linux and macOS it is not (no <c>ProtectKeysWith*</c> is configured), which
+/// is why the file permissions matter and why this class goes through
+/// <see cref="PrivateFiles"/> — those permissions are the control, not a supporting measure
+/// (an OS-protected key ring was considered and declined: backlog §2.23, closed).</para>
 ///
-/// On reads, if the server returns <c>X-Bella-Wrapped-Dek</c>, the CLI decrypts it
+/// <para>The public key travels with each request as <c>X-E2E-Public-Key</c>. As of spec 037 it is also
+/// REGISTERED: <c>bella auth setup</c> records it against the person and the tenant, and where the tenant
+/// enforces ZKE the server admits only a key it can find in that registry. The sentence that used to sit
+/// here — "there is no device registration step today" — was the defect stated as documentation: any
+/// machine that generated a key satisfied the setting.</para>
+///
+/// <para>On reads, if the server returns <c>X-Bella-Wrapped-Dek</c>, the CLI decrypts it
 /// with the private key to obtain the DEK, then decrypts any <c>bellabaxter:v1:</c>
-/// prefixed values locally — zero-knowledge on the read path.
+/// prefixed values locally.</para>
 /// </summary>
 public class ZkeService
 {
@@ -30,7 +40,10 @@ public class ZkeService
 
     public ZkeService()
     {
-        Directory.CreateDirectory(ConfigDir);
+        PrivateFiles.EnsurePrivateDirectory(ConfigDir);
+        // Created by us, owner-only, BEFORE DataProtection creates it with the process umask.
+        PrivateFiles.EnsurePrivateDirectory(Path.Combine(ConfigDir, "keys"));
+        CredentialDirectory.TightenOnce(ConfigDir);
 
         var services = new ServiceCollection();
         services.AddDataProtection()
@@ -100,7 +113,7 @@ public class ZkeService
         // Save private key (PKCS#8 format, DataProtection encrypted)
         var pkcs8 = ecdh.ExportPkcs8PrivateKey();
         var encrypted = _protector.Protect(Convert.ToBase64String(pkcs8));
-        File.WriteAllText(PrivateKeyFile, encrypted);
+        PrivateFiles.WritePrivate(PrivateKeyFile, encrypted);
 
         // Return public key as base64 SPKI for API registration
         var spki = ecdh.ExportSubjectPublicKeyInfo();

@@ -61,10 +61,10 @@ public class UpdateProjectCommand(BellaClientProvider provider, IOutputWriter ou
             var name = settings.Name;
             var description = settings.Description;
 
-            if (string.IsNullOrWhiteSpace(name) && !(Console.IsOutputRedirected || output is JsonOutputWriter))
+            if (string.IsNullOrWhiteSpace(name) && Interactivity.IsInteractive(output))
                 name = AnsiConsole.Ask("Name:", defaultValue: existing.Name ?? "");
 
-            if (string.IsNullOrWhiteSpace(description) && !(Console.IsOutputRedirected || output is JsonOutputWriter))
+            if (string.IsNullOrWhiteSpace(description) && Interactivity.IsInteractive(output))
                 description = AnsiConsole.Ask("Description:", defaultValue: existing.Description ?? "");
 
             // Compute updated tags

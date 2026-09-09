@@ -17,8 +17,7 @@ public class RunCommand(
     CredentialStore credentials,
     ContextService contextService,
     WorkloadIdentityService workloadIdentity,
-    ZkeService zke,
-    DekLeaseCache dekCache,
+    ZkeClientSelection zkeSelection,
     IOutputWriter output
 ) : AsyncCommand<RunCommand.Settings>
 {
@@ -116,59 +115,20 @@ public class RunCommand(
             }
         }
 
-        // ── ZKE: upgrade client to ZkeDekHandler if device key or --private-key present ──
-        // This replaces E2EEncryptionHandler (ephemeral key) with ZkeDekHandler (persistent key)
-        // so the server can wrap the project DEK for this identity.
-        // Workload identity flows skip ZKE (they manage their own keys externally).
-        ECDiffieHellman? zkeEcdh = null;
+        // ── spec 037: ONE place decides the client and whether this read may proceed ──────────
+        // Workload-identity flows skip the gate: they manage their own keys externally and present no
+        // device key at all.
+        //
+        // What was here before, and is deliberately gone: a `catch (Exception)` that downgraded to the
+        // standard client on ANY failure while setting up the ZKE client. Under enforcement that catch
+        // turned a policy the operator switched on into a silent plaintext read.
         if (workloadResult is null)
         {
-            if (!string.IsNullOrEmpty(settings.PrivateKey))
-            {
-                // M2M: --private-key provided — derive ECDH key from URL
-                var pkcs8b64 = ZkeService.ResolvePrivateKeyFromUrl(settings.PrivateKey);
-                if (pkcs8b64 is not null)
-                {
-                    zkeEcdh = ECDiffieHellman.Create();
-                    zkeEcdh.ImportPkcs8PrivateKey(Convert.FromBase64String(pkcs8b64), out _);
-                }
-                else
-                {
-                    AnsiConsole.MarkupLine(
-                        "[yellow]⚠ Could not resolve --private-key; ZKE disabled.[/]"
-                    );
-                }
-            }
-            else
-            {
-                // Developer: use device key from bella auth setup
-                zkeEcdh = zke.LoadEcdhKey(); // null if not set up
-            }
+            var selection = await zkeSelection.SelectAsync(settings.PrivateKey, settings.App, announce: true, ct);
+            if (selection.Stopped)
+                return selection.ExitCode!.Value;
 
-            if (zkeEcdh is not null)
-            {
-                var zkeHandler = new ZkeDekHandler(
-                    zkeEcdh,
-                    onWrappedDekReceived: (project, env, wrappedDek, expires) =>
-                        dekCache.Store(project, env, wrappedDek, expires)
-                );
-
-                try
-                {
-                    client = clientProvider.CreateClientWithZke(zkeHandler, settings.App);
-                    AnsiConsole.MarkupLine(
-                        "[dim]🔐 ZKE enabled — secrets will be decrypted locally.[/]"
-                    );
-                }
-                catch (Exception ex)
-                {
-                    AnsiConsole.MarkupLine(
-                        $"[yellow]⚠ ZKE client setup failed ({ex.Message}); using standard client.[/]"
-                    );
-                    zkeEcdh.Dispose();
-                    zkeEcdh = null;
-                }
-            }
+            client = selection.Client!;
         }
 
         // Resolve project + environment
@@ -191,7 +151,6 @@ public class RunCommand(
         catch (Exception ex)
         {
             output.WriteError(ex.Message);
-            zkeEcdh?.Dispose();
             return 1;
         }
 
@@ -205,13 +164,7 @@ public class RunCommand(
         catch (Exception ex)
         {
             output.WriteError($"Failed to fetch secrets: {ex.Message}");
-            zkeEcdh?.Dispose();
             return 1;
-        }
-        finally
-        {
-            // Key used — dispose after secrets are fetched (handler no longer needs it)
-            // Note: ZkeDekHandler holds a reference but we own the key's lifetime
         }
 
         AnsiConsole.MarkupLine($"[dim]✓ Loaded [green]{secrets.Count}[/] secret(s) from Bella[/]");
@@ -235,7 +188,6 @@ public class RunCommand(
             );
         }
 
-        zkeEcdh?.Dispose();
         return SpawnProcess(args, secrets);
     }
 

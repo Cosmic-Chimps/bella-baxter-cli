@@ -46,7 +46,7 @@ public class RevokePkiCertCommand(BellaClientProvider provider, ContextService c
             var serial = settings.SerialNumber;
             if (string.IsNullOrWhiteSpace(serial))
             {
-                if (Console.IsOutputRedirected || output is JsonOutputWriter)
+                if (!Interactivity.IsInteractive(output))
                 {
                     output.WriteError("--serial is required.");
                     return 1;

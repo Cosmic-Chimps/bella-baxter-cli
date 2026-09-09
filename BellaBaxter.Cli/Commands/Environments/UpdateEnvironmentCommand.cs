@@ -11,6 +11,9 @@ public class UpdateEnvironmentSettings : CommandSettings
     [CommandArgument(0, "[slug]")]
     public string? Slug { get; init; }
 
+    [CommandOption("-e|--env|--environment <SLUG>")]
+    public string? EnvironmentOption { get; init; }
+
     [CommandOption("-p|--project <SLUG>")]
     public string? Project { get; init; }
 
@@ -31,6 +34,13 @@ public class UpdateEnvironmentCommand(BellaClientProvider provider, ContextServi
     {
         provider.ApplyOutputModeOverrides(settings.Json);
 
+        var envArg = ArgumentMerge.Environment(settings.Slug, settings.EnvironmentOption);
+        if (envArg.Error is not null)
+        {
+            output.WriteError(envArg.Error);
+            return 2;
+        }
+
         BellaClient client;
         try { client = provider.CreateClient(); }
         catch (InvalidOperationException)
@@ -42,17 +52,17 @@ public class UpdateEnvironmentCommand(BellaClientProvider provider, ContextServi
         try
         {
             var (projectSlug, _, _) = await context.ResolveProjectAsync(settings.Project, client, ct);
-            var (envSlug, _, _) = await context.ResolveEnvironmentAsync(settings.Slug, projectSlug, client, ct);
+            var (envSlug, _, _) = await context.ResolveEnvironmentAsync(envArg.Value, projectSlug, client, ct);
 
             var existing = await client.Api.V1.Projects[projectSlug].Environments[envSlug].GetAsync(cancellationToken: ct);
 
             var name = settings.Name;
             var description = settings.Description;
 
-            if (string.IsNullOrWhiteSpace(name) && !(Console.IsOutputRedirected || output is JsonOutputWriter))
+            if (string.IsNullOrWhiteSpace(name) && Interactivity.IsInteractive(output))
                 name = AnsiConsole.Ask("Name:", defaultValue: existing?.Name ?? "");
 
-            if (string.IsNullOrWhiteSpace(description) && !(Console.IsOutputRedirected || output is JsonOutputWriter))
+            if (string.IsNullOrWhiteSpace(description) && Interactivity.IsInteractive(output))
                 description = AnsiConsole.Ask("Description:", defaultValue: existing?.Description ?? "");
 
             await AnsiConsole.Status().StartAsync("Updating environment...", async _ =>

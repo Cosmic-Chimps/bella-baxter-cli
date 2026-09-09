@@ -189,7 +189,7 @@ public class ContextService(ConfigService config, IOutputWriter output, Credenti
         }
 
         // 4. Interactive picker (human terminal only)
-        if (Console.IsOutputRedirected || output is JsonOutputWriter)
+        if (!Interactivity.IsInteractive(output))
             throw new InvalidOperationException(
                 "No context found. Add a .bella file (run 'bella context init') or pass --project."
             );
@@ -260,28 +260,58 @@ public class ContextService(ConfigService config, IOutputWriter output, Credenti
 
         // 2. API key context (stored or OIDC workload) — GET /api/v1/keys/me
         //    JWT/SSO clients return null EnvironmentSlug → fall through to .bella file.
+        //
+        //    Pilot F8, the real "--project is ignored": this used to return the key's environment
+        //    without ever checking it belongs to `projectSlug`, so `--project B` happily operated on
+        //    project A's environment. Nothing in the output said so. The comparison needs no extra
+        //    call — /keys/me carries the project alongside the environment.
+        string? keyProjectSlug = null;
+        string? keyEnvSlug = null;
+        string? keyEnvName = null;
         try
         {
             var keyCtx = await client.Api.V1.Keys.Me.GetAsync(cancellationToken: ct);
-            if (keyCtx?.EnvironmentSlug is not null)
-                return (
-                    keyCtx.EnvironmentSlug,
-                    keyCtx.EnvironmentName ?? keyCtx.EnvironmentSlug,
-                    keyCtx.EnvironmentSlug
-                );
+            keyProjectSlug = keyCtx?.ProjectSlug;
+            keyEnvSlug = keyCtx?.EnvironmentSlug;
+            keyEnvName = keyCtx?.EnvironmentName;
             // Manager/Admin API keys have no env scope — let them pick interactively.
         }
         catch
         { /* fall through */
         }
 
+        if (keyEnvSlug is not null)
+        {
+            var mismatch = ProjectMembership.Check(
+                EnvironmentSource.ApiKey,
+                keyProjectSlug,
+                projectSlug,
+                keyEnvSlug
+            );
+            if (mismatch is not null)
+                throw new InvalidOperationException(mismatch);
+
+            return (keyEnvSlug, keyEnvName ?? keyEnvSlug, keyEnvSlug);
+        }
+
         // 3. .bella file
-        var (_, bellaEnv, _) = ContextCommand.ResolveContext(config);
+        var (bellaFileProject, bellaEnv, _) = ContextCommand.ResolveContext(config);
         if (bellaEnv is not null)
+        {
+            var mismatch = ProjectMembership.Check(
+                EnvironmentSource.BellaFile,
+                bellaFileProject,
+                projectSlug,
+                bellaEnv
+            );
+            if (mismatch is not null)
+                throw new InvalidOperationException(mismatch);
+
             return (bellaEnv, bellaEnv, bellaEnv);
+        }
 
         // 4. Interactive
-        if (Console.IsOutputRedirected || output is JsonOutputWriter)
+        if (!Interactivity.IsInteractive(output))
             throw new InvalidOperationException(
                 "No environment context found. Add a .bella file (run 'bella context init') or pass --environment."
             );
@@ -311,5 +341,38 @@ public class ContextService(ConfigService config, IOutputWriter output, Credenti
         );
 
         return (chosenEnv.Slug!, chosenEnv.Name!, chosenEnv.Id!);
+    }
+
+    /// <summary>
+    /// Resolves an environment GUID for the routes that take <c>{environmentId:guid}</c>.
+    /// <para>
+    /// <see cref="ResolveEnvironmentAsync"/> deliberately returns the <em>slug</em> in its id slot
+    /// whenever the environment came from <c>/keys/me</c> or the <c>.bella</c> file — most commands
+    /// address environments by slug and rely on that. A <c>:guid</c> route does not match a slug, so
+    /// it presents as a 404 rather than as a resolution failure. Callers of such routes come through
+    /// here instead.
+    /// </para>
+    /// </summary>
+    public async Task<Guid> ResolveEnvironmentIdAsync(
+        BellaClient client,
+        string projectSlug,
+        string envSlugOrId,
+        CancellationToken ct
+    )
+    {
+        if (Guid.TryParse(envSlugOrId, out var alreadyAGuid))
+            return alreadyAGuid;
+
+        var e = await client
+            .Api.V1.Projects[projectSlug]
+            .Environments[envSlugOrId]
+            .GetAsync(cancellationToken: ct);
+
+        if (Guid.TryParse(e?.Id, out var resolved))
+            return resolved;
+
+        throw new InvalidOperationException(
+            $"Could not resolve an id for environment '{envSlugOrId}' in project '{projectSlug}'."
+        );
     }
 }

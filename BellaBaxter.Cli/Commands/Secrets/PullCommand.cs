@@ -13,11 +13,12 @@ public class PullCommand(
     BellaClientProvider provider,
     ContextService context,
     IOutputWriter output,
-    ZkeService zke,
-    DekLeaseCache dekCache
+    ZkeClientSelection zkeSelection
 ) : AsyncCommand<GetSecretsSettings>
 {
-    private readonly GetSecretsCommand _inner = new(provider, context, output, zke, dekCache);
+    // pull IS get, written to a file — so it inherits the ZKE gate for free rather than growing a
+    // fifth copy of the client-selection block (research R12).
+    private readonly GetSecretsCommand _inner = new(provider, context, output, zkeSelection);
 
     protected override Task<int> ExecuteAsync(
         CommandContext ctx,

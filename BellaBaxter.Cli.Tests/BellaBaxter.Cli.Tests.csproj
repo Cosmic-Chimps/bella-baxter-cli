@@ -8,26 +8,24 @@
     <RootNamespace>BellaBaxter.Cli.Tests</RootNamespace>
   </PropertyGroup>
 
-  <!-- NOTE (spec 020, T002): this is the FIRST test project in the CLI solution.
-       Unlike apps/api/baxter-dotnet, this solution has no Directory.Packages.props,
-       so versions are pinned inline per the CLI's existing convention
-       (see BellaBaxter.Cli.csproj). Versions mirror the API suite's central pins
-       so the two suites cannot drift apart. -->
+  <!-- Versions are centrally managed in ../Directory.Packages.props (backlog §4.13), and mirror the
+       API suite's central pins so the two suites cannot drift apart. Spec 020 introduced this project
+       with inline pins because the CLI solution had no Directory.Packages.props at the time. -->
   <ItemGroup>
-    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.5.0" />
-    <PackageReference Include="xunit.v3" Version="3.2.2" />
-    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.5">
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit.v3" />
+    <PackageReference Include="xunit.runner.visualstudio">
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
-    <PackageReference Include="coverlet.collector" Version="10.0.0">
+    <PackageReference Include="coverlet.collector">
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
 
     <!-- Spec 001 T041: the Workload API conformance test dials the agent's real Unix socket with a
-         real HTTP/2 gRPC client. Version matches the server's Grpc.AspNetCore pin in the CLI. -->
-    <PackageReference Include="Grpc.Net.Client" Version="2.71.0" />
+         real HTTP/2 gRPC client. Pinned alongside the server's Grpc.AspNetCore in Directory.Packages.props. -->
+    <PackageReference Include="Grpc.Net.Client" />
   </ItemGroup>
 
   <ItemGroup>

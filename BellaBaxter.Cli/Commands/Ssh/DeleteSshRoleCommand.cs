@@ -44,7 +44,7 @@ public class DeleteSshRoleCommand(BellaClientProvider provider, ContextService c
             var roleName = settings.Name;
             if (string.IsNullOrWhiteSpace(roleName))
             {
-                if (Console.IsOutputRedirected || output is JsonOutputWriter)
+                if (!Interactivity.IsInteractive(output))
                 {
                     output.WriteError("--name is required in non-interactive mode.");
                     return 1;
@@ -52,7 +52,7 @@ public class DeleteSshRoleCommand(BellaClientProvider provider, ContextService c
                 roleName = AnsiConsole.Prompt(new TextPrompt<string>("Role [bold]name[/] to delete:").PromptStyle("red"));
             }
 
-            if (!Console.IsOutputRedirected && output is not JsonOutputWriter)
+            if (Interactivity.IsInteractive(output))
             {
                 var confirmed = AnsiConsole.Prompt(
                     new ConfirmationPrompt($"Delete SSH role [bold red]{roleName}[/]? This cannot be undone.") { DefaultValue = false });

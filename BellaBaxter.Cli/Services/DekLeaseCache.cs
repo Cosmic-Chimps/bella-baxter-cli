@@ -1,4 +1,5 @@
 using System.Text.Json;
+using BellaCli.Infrastructure;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -9,7 +10,10 @@ namespace BellaCli.Services;
 /// via the <c>X-Bella-Wrapped-Dek</c> response header.
 ///
 /// The wrapped DEK is already ECIES-encrypted with the device's public key — the server cannot
-/// read it. We additionally DataProtect the file for defence-in-depth (OS-keyed encryption).
+/// read it. We additionally DataProtect the file for defence-in-depth; that key ring is
+/// DPAPI-protected on Windows and plaintext on Linux/macOS (no <c>ProtectKeysWith*</c> is
+/// configured), so the file is written owner-only in an owner-only directory
+/// (<see cref="PrivateFiles"/>) rather than at the process umask.
 ///
 /// On a cache hit the caller decrypts the wrapped DEK locally with their private key,
 /// uses it for the session, then discards the plaintext DEK — it is never written to disk.
@@ -32,7 +36,7 @@ public class DekLeaseCache
 
     public DekLeaseCache()
     {
-        Directory.CreateDirectory(CacheDir);
+        PrivateFiles.EnsurePrivateDirectory(CacheDir);
 
         var sp = new ServiceCollection()
             .AddDataProtection()
@@ -92,7 +96,7 @@ public class DekLeaseCache
 
         var json = JsonSerializer.Serialize(entry, Json);
         var ciphertext = _protector.Protect(json);
-        File.WriteAllText(CacheFile(projectSlug, envSlug), ciphertext);
+        PrivateFiles.WritePrivate(CacheFile(projectSlug, envSlug), ciphertext);
     }
 
     /// <summary>Removes all cached DEK leases (e.g. on logout or key rotation).</summary>

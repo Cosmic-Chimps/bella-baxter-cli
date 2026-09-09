@@ -12,6 +12,9 @@ public class AddProviderToEnvironmentSettings : CommandSettings
     [CommandArgument(0, "[env]")]
     public string? Environment { get; init; }
 
+    [CommandOption("-e|--env|--environment <SLUG>")]
+    public string? EnvironmentOption { get; init; }
+
     [CommandOption("-p|--project <SLUG>")]
     public string? Project { get; init; }
 
@@ -36,6 +39,13 @@ public class AddProviderToEnvironmentCommand(
     {
         provider.ApplyOutputModeOverrides(settings.Json);
 
+        var envArg = ArgumentMerge.Environment(settings.Environment, settings.EnvironmentOption);
+        if (envArg.Error is not null)
+        {
+            output.WriteError(envArg.Error);
+            return 2;
+        }
+
         BellaClient client;
         try
         {
@@ -55,13 +65,13 @@ public class AddProviderToEnvironmentCommand(
                 ct
             );
             var (envSlug, envName, _) = await context.ResolveEnvironmentAsync(
-                settings.Environment,
+                envArg.Value,
                 projectSlug,
                 client,
                 ct
             );
 
-            var isNonInteractive = Console.IsOutputRedirected || output is JsonOutputWriter;
+            var isNonInteractive = !Interactivity.IsInteractive(output);
 
             // Resolve provider slug
             var providerSlug = settings.ProviderSlug;

@@ -271,6 +271,14 @@ public class ContextInitSettings : CommandSettings
     [CommandArgument(1, "[environment]")]
     [System.ComponentModel.Description("Environment slug (omit for interactive)")]
     public string? Environment { get; init; }
+
+    [CommandOption("-p|--project <SLUG>")]
+    [System.ComponentModel.Description("Project slug — the flag form of the first argument")]
+    public string? ProjectOption { get; init; }
+
+    [CommandOption("-e|--env|--environment <SLUG>")]
+    [System.ComponentModel.Description("Environment slug — the flag form of the second argument")]
+    public string? EnvironmentOption { get; init; }
 }
 
 public class ContextInitCommand(
@@ -291,9 +299,22 @@ public class ContextInitCommand(
             env;
         string? org = null;
 
+        // Positional and flag forms name the same two things; a contradiction is the operator's
+        // to resolve, never ours.
+        var projectArg = ArgumentMerge.Project(settings.Project, settings.ProjectOption);
+        var envArg = ArgumentMerge.Environment(settings.Environment, settings.EnvironmentOption);
+        foreach (var error in new[] { projectArg.Error, envArg.Error })
+        {
+            if (error is not null)
+            {
+                output.WriteError(error);
+                return 2;
+            }
+        }
+
         // ── API key fast-path ─────────────────────────────────────────────────
         // API keys are already scoped to a project+environment — skip the wizard.
-        if (settings.Project == null && settings.Environment == null && credentials.IsApiKeyMode())
+        if (projectArg.Value == null && envArg.Value == null && credentials.IsApiKeyMode())
         {
             AnsiConsole.MarkupLine("[bold]Set Bella context for this directory[/]");
             AnsiConsole.MarkupLine(
@@ -339,11 +360,26 @@ public class ContextInitCommand(
             AnsiConsole.MarkupLine($"  [dim]→ Role:[/]        [cyan]{Markup.Escape(ctx.Role)}[/]");
             AnsiConsole.WriteLine();
         }
-        else if (settings.Project != null && settings.Environment != null)
+        else if (projectArg.Value != null && envArg.Value != null)
         {
-            // Both provided as arguments — use directly
-            project = settings.Project;
-            env = settings.Environment;
+            // Both provided — use directly
+            project = projectArg.Value;
+            env = envArg.Value;
+        }
+        else if (!Interactivity.IsInteractive(output))
+        {
+            // Pilot F8: the wizard below calls AnsiConsole.PromptAsync with no non-TTY guard at
+            // all, so `bella context init` under Ansible/cron/CI either hung until the job timed
+            // out or threw. Name what is missing instead — there is nobody here to ask.
+            var missing = projectArg.Value == null ? "--project" : "--environment";
+            if (projectArg.Value == null && envArg.Value == null)
+                missing = "--project and --environment";
+
+            output.WriteError(
+                $"Nothing to prompt with: no terminal is attached. Pass {missing}. "
+                    + "Example: bella context init --project my-app --environment dev"
+            );
+            return 2;
         }
         else
         {

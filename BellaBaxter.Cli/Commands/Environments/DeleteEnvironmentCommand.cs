@@ -11,6 +11,9 @@ public class DeleteEnvironmentSettings : CommandSettings
     [CommandArgument(0, "[slug]")]
     public string? Slug { get; init; }
 
+    [CommandOption("-e|--env|--environment <SLUG>")]
+    public string? EnvironmentOption { get; init; }
+
     [CommandOption("-p|--project <SLUG>")]
     public string? Project { get; init; }
 
@@ -28,6 +31,13 @@ public class DeleteEnvironmentCommand(BellaClientProvider provider, ContextServi
     {
         provider.ApplyOutputModeOverrides(settings.Json);
 
+        var envArg = ArgumentMerge.Environment(settings.Slug, settings.EnvironmentOption);
+        if (envArg.Error is not null)
+        {
+            output.WriteError(envArg.Error);
+            return 2;
+        }
+
         BellaClient client;
         try { client = provider.CreateClient(); }
         catch (InvalidOperationException)
@@ -39,11 +49,11 @@ public class DeleteEnvironmentCommand(BellaClientProvider provider, ContextServi
         try
         {
             var (projectSlug, _, _) = await context.ResolveProjectAsync(settings.Project, client, ct);
-            var (envSlug, _, _) = await context.ResolveEnvironmentAsync(settings.Slug, projectSlug, client, ct);
+            var (envSlug, _, _) = await context.ResolveEnvironmentAsync(envArg.Value, projectSlug, client, ct);
 
             if (!settings.Force)
             {
-                if (Console.IsOutputRedirected || output is JsonOutputWriter)
+                if (!Interactivity.IsInteractive(output))
                 {
                     output.WriteError("Use --force to delete without confirmation.");
                     return 1;

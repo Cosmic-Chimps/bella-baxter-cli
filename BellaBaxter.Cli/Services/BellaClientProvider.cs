@@ -17,6 +17,14 @@ public class BellaClientProvider(
     /// <summary>A BellaClient paired with the raw access token for direct HTTP calls.</summary>
     public record BellaClientWrapper(BellaClient BellaClient, string AccessToken);
 
+    /// <summary>
+    /// What this process calls itself in <c>X-Bella-Client</c>, recorded on every audit row.
+    ///
+    /// <para>Pilot F6: only the HMAC paths sent it, so after an OAuth login the CLI was
+    /// indistinguishable from anything else in the console's audit "App" column.</para>
+    /// </summary>
+    private const string CliClientName = "bella-cli";
+
     private const string CiJwtError =
         "Running in a CI/CD environment but authenticated via OAuth token.\n"
         + "OAuth tokens are short-lived and not suitable for automation.\n\n"
@@ -39,7 +47,7 @@ public class BellaClientProvider(
             config.ApiUrl,
             rawApiKey,
             DebugLoggingHandler.IsEnabled ? new DebugLoggingHandler() : null,
-            bellaClient: "bella-cli",
+            bellaClient: CliClientName,
             appClient: appClient
         );
     }
@@ -59,7 +67,7 @@ public class BellaClientProvider(
                 apiUrl,
                 envApiKey,
                 DebugLoggingHandler.IsEnabled ? new DebugLoggingHandler() : null,
-                bellaClient: "bella-cli",
+                bellaClient: CliClientName,
                 appClient: appClient
             );
         }
@@ -70,7 +78,11 @@ public class BellaClientProvider(
         {
             if (WorkloadIdentityService.IsWorkloadEnvironment())
                 throw new InvalidOperationException(CiJwtError);
-            return BellaClientFactory.CreateWithBearerToken(apiUrl, envToken);
+            return BellaClientFactory.CreateWithBearerToken(
+                apiUrl,
+                envToken,
+                bellaClient: CliClientName,
+                appClient: appClient);
         }
 
         // API key stored via `bella login --api-key`
@@ -82,7 +94,7 @@ public class BellaClientProvider(
                 apiUrl,
                 apiKey.Raw,
                 DebugLoggingHandler.IsEnabled ? new DebugLoggingHandler() : null,
-                bellaClient: "bella-cli",
+                bellaClient: CliClientName,
                 appClient: appClient
             );
         }
@@ -95,7 +107,9 @@ public class BellaClientProvider(
             return BellaClientFactory.CreateWithBearerToken(
                 apiUrl,
                 tokens.AccessToken,
-                BuildOAuthOuterHandler()
+                BuildOAuthOuterHandler(),
+                bellaClient: CliClientName,
+                appClient: appClient
             );
         }
 
@@ -122,7 +136,7 @@ public class BellaClientProvider(
                     apiUrl,
                     envApiKey,
                     DebugLoggingHandler.IsEnabled ? new DebugLoggingHandler() : null,
-                    bellaClient: "bella-cli",
+                    bellaClient: CliClientName,
                     appClient: appClient
                 ),
                 envApiKey
@@ -136,7 +150,11 @@ public class BellaClientProvider(
             if (WorkloadIdentityService.IsWorkloadEnvironment())
                 throw new InvalidOperationException(CiJwtError);
             return new BellaClientWrapper(
-                BellaClientFactory.CreateWithBearerToken(apiUrl, envToken),
+                BellaClientFactory.CreateWithBearerToken(
+                    apiUrl,
+                    envToken,
+                    bellaClient: CliClientName,
+                    appClient: appClient),
                 envToken
             );
         }
@@ -150,7 +168,7 @@ public class BellaClientProvider(
                     apiUrl,
                     apiKey.Raw,
                     DebugLoggingHandler.IsEnabled ? new DebugLoggingHandler() : null,
-                    bellaClient: "bella-cli",
+                    bellaClient: CliClientName,
                     appClient: appClient
                 ),
                 apiKey.Raw
@@ -163,7 +181,12 @@ public class BellaClientProvider(
             if (WorkloadIdentityService.IsWorkloadEnvironment())
                 throw new InvalidOperationException(CiJwtError);
             return new BellaClientWrapper(
-                BellaClientFactory.CreateWithBearerToken(apiUrl, tokens.AccessToken, BuildOAuthOuterHandler()),
+                BellaClientFactory.CreateWithBearerToken(
+                    apiUrl,
+                    tokens.AccessToken,
+                    BuildOAuthOuterHandler(),
+                    bellaClient: CliClientName,
+                    appClient: appClient),
                 tokens.AccessToken
             );
         }
@@ -188,7 +211,7 @@ public class BellaClientProvider(
             return BellaClientFactory.CreateWithHmacApiKeyAndZke(
                 apiUrl, envApiKey, zkeHandler,
                 DebugLoggingHandler.IsEnabled ? new DebugLoggingHandler() : null,
-                bellaClient: "bella-cli", appClient: appClient);
+                bellaClient: CliClientName, appClient: appClient);
         }
 
         var envToken = Environment.GetEnvironmentVariable("BELLA_BAXTER_ACCESS_TOKEN");
@@ -196,7 +219,12 @@ public class BellaClientProvider(
         {
             if (WorkloadIdentityService.IsWorkloadEnvironment())
                 throw new InvalidOperationException(CiJwtError);
-            return BellaClientFactory.CreateWithBearerTokenAndZke(apiUrl, envToken, zkeHandler);
+            return BellaClientFactory.CreateWithBearerTokenAndZke(
+                apiUrl,
+                envToken,
+                zkeHandler,
+                bellaClient: CliClientName,
+                appClient: appClient);
         }
 
         var apiKey = credentials.LoadApiKey();
@@ -206,7 +234,7 @@ public class BellaClientProvider(
             return BellaClientFactory.CreateWithHmacApiKeyAndZke(
                 apiUrl, apiKey.Raw, zkeHandler,
                 DebugLoggingHandler.IsEnabled ? new DebugLoggingHandler() : null,
-                bellaClient: "bella-cli", appClient: appClient);
+                bellaClient: CliClientName, appClient: appClient);
         }
 
         var tokens = credentials.LoadTokens();
@@ -214,7 +242,13 @@ public class BellaClientProvider(
         {
             if (WorkloadIdentityService.IsWorkloadEnvironment())
                 throw new InvalidOperationException(CiJwtError);
-            return BellaClientFactory.CreateWithBearerTokenAndZke(apiUrl, tokens.AccessToken, zkeHandler, BuildOAuthOuterHandler());
+            return BellaClientFactory.CreateWithBearerTokenAndZke(
+                apiUrl,
+                tokens.AccessToken,
+                zkeHandler,
+                BuildOAuthOuterHandler(),
+                bellaClient: CliClientName,
+                appClient: appClient);
         }
 
         throw new InvalidOperationException("Not authenticated. Run 'bella login' first.");

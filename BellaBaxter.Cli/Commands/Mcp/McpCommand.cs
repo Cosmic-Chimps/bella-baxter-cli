@@ -26,8 +26,10 @@ public class McpSettings : CommandSettings
 /// Starts a local MCP server over stdio that proxies all tool calls to the
 /// Bella Baxter /mcp endpoint (StreamableHttp, HMAC-signed API key).
 ///
-/// MCP is a long-running M2M process — it requires an API key (bax-...) rather
-/// than an OAuth JWT.  OAuth tokens expire after minutes; API keys do not.
+/// The stdio proxy is a long-running M2M process — it requires an API key (bax-...) rather
+/// than a console JWT, which expires in minutes. (Since spec 035 claude.ai / Claude Desktop have a
+/// second path that needs neither this proxy nor a key: the custom-connector SIGN-IN through Keycloak,
+/// with offline refresh — see RenderConnectorBlock. This command is unchanged by it.)
 ///
 /// Auth priority:
 ///   1. BELLA_BAXTER_API_KEY env var  (recommended — set in your MCP host config)
@@ -346,6 +348,30 @@ public class McpCommand(ConfigService config, CredentialStore credentials)
 
     // ── Config snippets ───────────────────────────────────────────────────────
 
+    /// <summary>
+    /// spec 035 — the connector sign-in path: no proxy, no API key. claude.ai / Claude Desktop discover the
+    /// authorization server from the address; the only thing typed by hand is the client id (the
+    /// declaration's value — `McpConnectorClientDeclarationSingleCopyTests` allow-lists this file).
+    /// The connection is managed under Profile → Connected AI clients.
+    /// </summary>
+    public static string RenderConnectorBlock(string apiBase)
+    {
+        var address = $"{apiBase.TrimEnd('/')}/mcp";
+        return string.Join(
+            "\n",
+            [
+                "",
+                "── claude.ai / Claude Desktop (custom connector, sign-in) ─────",
+                "Settings → Connectors → Add custom connector",
+                $"  Connector address : {address}",
+                "  Advanced settings : OAuth Client ID = bella-mcp-connector   (no client secret)",
+                "Sign in with your Bella account; the connection appears under Profile → Connected AI clients,",
+                "where it can be revoked. Changes there take effect within 5 minutes.",
+                "",
+            ]
+        );
+    }
+
     private static void PrintConfigSnippets(string apiBase)
     {
         // Whether the configured origin is the hosted default — this one legitimately branches on it
@@ -380,7 +406,7 @@ public class McpCommand(ConfigService config, CredentialStore credentials)
         );
         Console.WriteLine(System.Text.Json.JsonSerializer.Serialize(claudeConfig, PrettyJson));
         Console.WriteLine("  ⓘ  Get an API key from the Bella Baxter WebApp → Settings → API Keys");
-        Console.WriteLine("  ⓘ  bella mcp requires an API key — OAuth login is not supported (tokens expire)");
+        Console.WriteLine("  ⓘ  bella mcp itself requires an API key; for claude.ai / Claude Desktop use the connector sign-in below");
 
         // ── VS Code / GitHub Copilot ──────────────────────────────────────────
         object vscodeEntry = new
@@ -403,6 +429,9 @@ public class McpCommand(ConfigService config, CredentialStore credentials)
         Console.WriteLine("\n── VS Code / GitHub Copilot ────────────────────────────────");
         Console.WriteLine("File: .vscode/mcp.json  (workspace)  or  User settings.json\n");
         Console.WriteLine(System.Text.Json.JsonSerializer.Serialize(vscodeConfig, PrettyJson));
+
+        // ── claude.ai / Claude Desktop custom connector (spec 035) ────────────
+        Console.Write(RenderConnectorBlock(apiBase));
 
         // ── Available tools ───────────────────────────────────────────────────
         Console.WriteLine("\n── Available MCP tools ─────────────────────────────────────");
