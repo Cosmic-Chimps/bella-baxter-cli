@@ -45,8 +45,8 @@
          management still requires a version for the conditional reference, so these entries must
          exist even though a monorepo build never consumes them — and they are release-coupled to the
          CLI's own <Version>, which .github/workflows/release-sdk.yml rewrites HERE. -->
-    <PackageVersion Include="BellaBaxter.Client" Version="0.1.1-preview.97" />
-    <PackageVersion Include="BellaBaxter.Crypto" Version="0.1.1-preview.97" />
+    <PackageVersion Include="BellaBaxter.Client" Version="0.1.1-preview.98" />
+    <PackageVersion Include="BellaBaxter.Crypto" Version="0.1.1-preview.98" />
 
     <!-- Test suite. Mirrors the API solution's central pins so the two suites cannot drift apart. -->
     <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="18.5.0" />
