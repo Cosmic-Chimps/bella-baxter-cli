@@ -104,7 +104,7 @@ public class AuthDevicesRevokeCommand(
         }
 
         output.WriteSuccess(
-            $"Device revoked.{(isThisMachine ? " This machine's next secret read will be refused; run 'bella auth setup' to register again." : "")}");
+            $"Device revoked.{(isThisMachine ? " This machine's next secret read or credential request will be refused; run 'bella auth setup' to register again." : "")}");
         return 0;
     }
 }
