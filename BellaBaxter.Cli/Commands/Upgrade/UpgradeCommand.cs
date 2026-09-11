@@ -13,8 +13,20 @@ namespace BellaCli.Commands.Upgrade;
 
 public class UpgradeCommand(IOutputWriter output) : AsyncCommand<UpgradeCommand.Settings>
 {
+    /// <summary>
+    /// The PUBLIC CLI repository, which is where releases actually exist.
+    /// </summary>
+    /// <remarks>
+    /// This pointed at the monorepo (<c>cosmic-chimps/bella-baxter</c>), which has never published a
+    /// release: the endpoint answers <c>404</c>, so <c>bella upgrade</c> could not deliver anything,
+    /// ever. Releases are built in <c>bella-baxter-cli</c> — the repo <c>sync-cli.yml</c> subtree-syncs
+    /// <c>apps/cli-dotnet</c> into, and whose <c>publish.yml</c> attaches the platform artifacts.
+    ///
+    /// Found while working #635: that CLI fix was correct, merged, and unreachable, because the one
+    /// command that hands a new build to an operator was asking a repository with nothing in it.
+    /// </remarks>
     private const string GitHubReleasesUrl =
-        "https://api.github.com/repos/cosmic-chimps/bella-baxter/releases/latest";
+        "https://api.github.com/repos/Cosmic-Chimps/bella-baxter-cli/releases/latest";
 
     public class Settings : CommandSettings
     {
