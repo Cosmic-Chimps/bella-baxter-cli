@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.Linq;
 using System.Text.Json;
 using BellaBaxter.Client.Models;
 using BellaCli.Infrastructure;
@@ -42,6 +43,26 @@ public class IssueCommand(
             "Environment slug. Falls back to context (.bella file / BELLA_BAXTER_ENV env var)"
         )]
         public string? Environment { get; set; }
+
+        [CommandOption("--public-key <spki>")]
+        [Description(
+            "Base64 SPKI (P-256) public key of the MACHINE that will use this token. Required when "
+            + "the tenant enforces registered devices."
+        )]
+        public string? PublicKey { get; set; }
+
+        [CommandOption("--device-key-file <path>")]
+        [Description(
+            "Read the machine's public key from a file (bare base64 or PEM). Alternative to --public-key."
+        )]
+        public string? DeviceKeyFile { get; set; }
+
+        [CommandOption("--generate-device-key")]
+        [Description(
+            "Generate a P-256 keypair, use its public half for this token, and print the private half. "
+            + "Put the private half in your CI secret store — NEVER beside the CLI's own credentials."
+        )]
+        public bool GenerateDeviceKey { get; set; }
 
         [CommandOption("-o|--output <format>")]
         [Description(
@@ -146,6 +167,46 @@ public class IssueCommand(
             return 1;
         }
 
+        // ── Resolve the machine's public key (spec 040) ──────────────────────
+        // Three ways in, one value out. The private half of a generated pair is printed and never
+        // written anywhere by us: backlog §2.23's control for CLI credential material is owner-only
+        // permissions on a disk-encrypted machine, and a CI runner satisfies neither assumption. It
+        // belongs in the pipeline's secret store, reaching the process as an env var or mounted file.
+        string? devicePublicKey = null;
+        string? generatedPrivateKey = null;
+
+        var supplied = new[] { settings.PublicKey, settings.DeviceKeyFile, settings.GenerateDeviceKey ? "gen" : null }
+            .Count(x => !string.IsNullOrWhiteSpace(x));
+
+        if (supplied > 1)
+        {
+            output.WriteError(
+                "Use only one of --public-key, --device-key-file or --generate-device-key."
+            );
+            return 1;
+        }
+
+        try
+        {
+            if (settings.GenerateDeviceKey)
+                (devicePublicKey, generatedPrivateKey) = DeviceKeypair.Create();
+            else if (!string.IsNullOrWhiteSpace(settings.DeviceKeyFile))
+                devicePublicKey = DeviceKeypair.ReadPublicKeyFile(settings.DeviceKeyFile);
+            else if (!string.IsNullOrWhiteSpace(settings.PublicKey))
+            {
+                DeviceKeypair.Validate(settings.PublicKey.Trim());
+                devicePublicKey = settings.PublicKey.Trim();
+            }
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or IOException)
+        {
+            // Caught HERE rather than letting the service refuse it: the operator is holding the key
+            // right now, and a refusal that arrives from the API has lost the context of which file
+            // they pointed at.
+            output.WriteError(ex.Message);
+            return 1;
+        }
+
         // ── POST /api/v1/environments/{environmentId}/tokens/issue ───────────
         CreatedApiKeyResponse? response;
         try
@@ -158,12 +219,36 @@ public class IssueCommand(
                         Scopes = [.. scopes],
                         TtlMinutes = settings.Ttl,
                         Reason = settings.Reason,
+                        PublicKey = devicePublicKey,
                     },
                     cancellationToken: ct
                 );
         }
         catch (ApiException ex)
         {
+            // spec 040 (T019) — the server's refusal for a missing device key is correct but terse, and
+            // it arrives at the one moment the operator can still act. Translate it into the command
+            // they should run rather than making them reconstruct it from a 400.
+            if (ex.ResponseStatusCode == 400 && devicePublicKey is null)
+            {
+                output.WriteError(
+                    "This tenant requires a registered device, so a scoped token must name the machine "
+                        + "that will use it."
+                );
+                output.WriteError(
+                    "  Generate one:  bella issue --scope "
+                        + settings.Scope
+                        + " --generate-device-key --output json"
+                );
+                output.WriteError(
+                    "  Or supply one: bella issue --scope " + settings.Scope + " --device-key-file ./runner.pub"
+                );
+                output.WriteError(
+                    "Keep the private half in your CI secret store — not beside the CLI's own credentials."
+                );
+                return 1;
+            }
+
             var detail = string.IsNullOrWhiteSpace(ex.Message) ? "" : $": {ex.Message}";
             output.WriteError($"API error ({ex.ResponseStatusCode}){detail}");
             return 1;
@@ -194,6 +279,10 @@ public class IssueCommand(
                         keyPrefix = response.KeyPrefix,
                         id = response.Id,
                         expiresAt = response.ExpiresAt,
+                        // spec 040 — present ONLY for --generate-device-key. Emitted so a pipeline can
+                        // pipe it straight into its own secret store without it ever touching disk.
+                        // We never write it ourselves; see DeviceKeypair's remarks for why.
+                        devicePrivateKey = generatedPrivateKey,
                     },
                     JsonOptions
                 )
@@ -201,6 +290,20 @@ public class IssueCommand(
         }
         else
         {
+            // spec 040 — the private half goes to STDERR, never stdout: stdout carries the token alone
+            // so `export KEY=$(bella issue ...)` keeps working, and a key printed into that capture
+            // would silently become the token's value.
+            if (generatedPrivateKey is not null)
+            {
+                output.WriteWarning(
+                    "Device private key (base64 PKCS#8) — store it in your CI secret store and pass it "
+                        + "to the job as an environment variable or mounted file. Do NOT save it beside "
+                        + "the CLI's own credentials; that directory's protection assumes a personal, "
+                        + "disk-encrypted machine, which a runner is not."
+                );
+                output.WriteWarning(generatedPrivateKey);
+            }
+
             // Print only the raw token to stdout — safe for: export KEY=$(bella issue --scope stripe)
             Console.WriteLine(response.ApiKey);
 
