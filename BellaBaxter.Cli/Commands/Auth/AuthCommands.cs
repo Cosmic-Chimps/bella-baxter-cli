@@ -1,3 +1,4 @@
+using BellaBaxter.Client;
 using BellaCli.Infrastructure;
 using BellaCli.Services;
 using Spectre.Console;
@@ -85,7 +86,20 @@ public class AuthStatusCommand(
 
         try
         {
-            var status = await provider.CreateClient().Api.V1.Tenants.Me.Zke.GetAsync(cancellationToken: ct);
+            // #635 — the question here is "is MY key registered?", so the key has to be presented.
+            // This used to call `provider.CreateClient()`, which carries no device key, so the server
+            // saw no key, correctly answered `presentedKeyRegistered: false`, and `auth status` told a
+            // correctly registered operator they were NOT registered. Note `EnforcementOnlyAsync`
+            // below is right to use the plain client: it runs only when no device key exists and reads
+            // just the tenant flag, which does not depend on what was presented.
+            using var ecdh = zke.LoadEcdhKey();
+            using var handler = ecdh is null ? null : new ZkeDekHandler(ecdh);
+
+            var client = handler is null
+                ? provider.CreateClient()
+                : provider.CreateClientWithZke(handler);
+
+            var status = await client.Api.V1.Tenants.Me.Zke.GetAsync(cancellationToken: ct);
             var registered = status?.PresentedKeyRegistered ?? false;
             var label = status?.PresentedKeyLabel;
 

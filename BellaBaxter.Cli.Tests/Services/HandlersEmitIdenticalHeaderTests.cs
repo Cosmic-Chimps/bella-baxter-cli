@@ -63,16 +63,53 @@ public class HandlersEmitIdenticalHeaderTests
         Assert.DoesNotContain(headers.Keys, h => h.Contains("registered", StringComparison.OrdinalIgnoreCase));
     }
 
-    private static async Task<string?> CaptureHeaderAsync(DelegatingHandler handler) =>
-        (await CaptureAllHeadersAsync(handler)).GetValueOrDefault("X-E2E-Public-Key");
+    /// <summary>
+    /// Issue #635 — the CLI asks `getZkeStatus` BEFORE a read, and that call must carry the key.
+    /// </summary>
+    /// <remarks>
+    /// Both handlers gated the header on a `/secrets` path test, so the status call went out bare, the
+    /// server correctly answered `presentedKeyRegistered: false`, and the CLI refused itself before
+    /// reaching any secret. A registered, active device could not read anything — and this test file
+    /// missed it because every case here used a `/secrets` URL.
+    /// </remarks>
+    [Theory]
+    [InlineData("https://api.example.test/api/v1/tenants/me/zke")]
+    [InlineData("https://api.example.test/api/v1/projects/p/environments/dev/secrets")]
+    [InlineData("https://api.example.test/api/v1/environments/2f1c9d3e-0000-0000-0000-000000000000/tokens/issue")]
+    public async Task Both_handlers_present_the_key_on_every_api_path(string url)
+    {
+        using var key = ECDiffieHellman.Create(ECCurve.NamedCurves.nistP256);
 
-    private static async Task<Dictionary<string, string>> CaptureAllHeadersAsync(DelegatingHandler handler)
+        var fromDeviceKey = await CaptureHeaderAsync(new ZkeDekHandler(key), url);
+        var fromEphemeral = await CaptureHeaderAsync(new E2EEncryptionHandler(), url);
+
+        Assert.False(string.IsNullOrEmpty(fromDeviceKey), $"ZkeDekHandler sent no key to {url}");
+        Assert.False(string.IsNullOrEmpty(fromEphemeral), $"E2EEncryptionHandler sent no key to {url}");
+    }
+
+    [Fact]
+    public async Task The_key_is_not_presented_to_a_non_api_host()
+    {
+        using var key = ECDiffieHellman.Create(ECCurve.NamedCurves.nistP256);
+
+        // A public key discloses nothing, but it should still not follow a redirect off the API.
+        var leaked = await CaptureHeaderAsync(
+            new ZkeDekHandler(key), "https://telemetry.example.test/collect");
+
+        Assert.True(string.IsNullOrEmpty(leaked), "the device key was presented outside the API");
+    }
+
+    private static async Task<string?> CaptureHeaderAsync(DelegatingHandler handler, string? url = null) =>
+        (await CaptureAllHeadersAsync(handler, url)).GetValueOrDefault("X-E2E-Public-Key");
+
+    private static async Task<Dictionary<string, string>> CaptureAllHeadersAsync(
+        DelegatingHandler handler, string? url = null)
     {
         var recorder = new RecordingHandler();
         handler.InnerHandler = recorder;
 
         using var client = new HttpClient(handler);
-        using var response = await client.GetAsync(SecretsUrl, TestContext.Current.CancellationToken);
+        using var response = await client.GetAsync(url ?? SecretsUrl, TestContext.Current.CancellationToken);
 
         return recorder.Headers;
     }
