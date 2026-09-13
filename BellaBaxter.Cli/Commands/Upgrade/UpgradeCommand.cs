@@ -13,21 +13,6 @@ namespace BellaCli.Commands.Upgrade;
 
 public class UpgradeCommand(IOutputWriter output) : AsyncCommand<UpgradeCommand.Settings>
 {
-    /// <summary>
-    /// The PUBLIC CLI repository, which is where releases actually exist.
-    /// </summary>
-    /// <remarks>
-    /// This pointed at the monorepo (<c>cosmic-chimps/bella-baxter</c>), which has never published a
-    /// release: the endpoint answers <c>404</c>, so <c>bella upgrade</c> could not deliver anything,
-    /// ever. Releases are built in <c>bella-baxter-cli</c> — the repo <c>sync-cli.yml</c> subtree-syncs
-    /// <c>apps/cli-dotnet</c> into, and whose <c>publish.yml</c> attaches the platform artifacts.
-    ///
-    /// Found while working #635: that CLI fix was correct, merged, and unreachable, because the one
-    /// command that hands a new build to an operator was asking a repository with nothing in it.
-    /// </remarks>
-    private const string GitHubReleasesUrl =
-        "https://api.github.com/repos/Cosmic-Chimps/bella-baxter-cli/releases/latest";
-
     public class Settings : CommandSettings
     {
         [CommandOption("--check")]
@@ -60,12 +45,11 @@ public class UpgradeCommand(IOutputWriter output) : AsyncCommand<UpgradeCommand.
 
             if (settings.Version != null)
             {
-                var tagUrl = GitHubReleasesUrl.Replace("/latest", $"/tags/v{settings.Version.TrimStart('v')}");
-                release = await http.GetFromJsonAsync<GitHubRelease>(tagUrl, ct);
+                release = await http.GetFromJsonAsync<GitHubRelease>(ReleaseSource.TagUrl(settings.Version), ct);
             }
             else
             {
-                release = await http.GetFromJsonAsync<GitHubRelease>(GitHubReleasesUrl, ct);
+                release = await http.GetFromJsonAsync<GitHubRelease>(ReleaseSource.LatestUrl, ct);
             }
         }
         catch (Exception ex)
@@ -112,23 +96,39 @@ public class UpgradeCommand(IOutputWriter output) : AsyncCommand<UpgradeCommand.
             return 1;
         }
 
+        // The manifest is located BEFORE anything is downloaded: if the release cannot be verified there
+        // is no point spending 60 MB to find out, and refusing here keeps the running binary untouched.
+        var checksumsAsset = release.Assets?.FirstOrDefault(a =>
+            string.Equals(a.Name, ReleaseSource.ChecksumsAssetName, StringComparison.OrdinalIgnoreCase));
+
+        if (checksumsAsset?.BrowserDownloadUrl == null)
+        {
+            output.WriteError(
+                $"Release {latestVersion} publishes no {ReleaseSource.ChecksumsAssetName}, so the download cannot be verified.");
+            output.WriteInfo($"Refusing to replace the current binary. Download manually from: {release.HtmlUrl}");
+            return 1;
+        }
+
         // Download and replace current binary
         var currentExe = Environment.ProcessPath ?? Process.GetCurrentProcess().MainModule?.FileName
             ?? throw new InvalidOperationException("Cannot determine current executable path.");
 
         AnsiConsole.MarkupLine($"[dim]Downloading {Markup.Escape(asset.Name!)} ...[/]");
 
+        var tempFile = currentExe + ".new";
+
         try
         {
             using var http = new HttpClient();
             http.DefaultRequestHeaders.Add("User-Agent", "bella-cli");
+
+            var manifest = await http.GetStringAsync(checksumsAsset.BrowserDownloadUrl, ct);
 
             await AnsiConsole.Progress()
                 .StartAsync(async ctx =>
                 {
                     var task = ctx.AddTask($"Downloading v{latestVersion}");
                     task.Tag = asset.BrowserDownloadUrl;
-                    var tempFile = currentExe + ".new";
 
                     using var response = await http.GetAsync(asset.BrowserDownloadUrl, HttpCompletionOption.ResponseHeadersRead, ct);
                     response.EnsureSuccessStatusCode();
@@ -147,23 +147,47 @@ public class UpgradeCommand(IOutputWriter output) : AsyncCommand<UpgradeCommand.
                         if (total > 0) task.Value = downloaded * 100.0 / total;
                     }
                     task.Value = 100;
-
-                    dest.Close();
-
-                    // On Unix make executable
-                    if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
-                    {
-                        var chmod = Process.Start("chmod", $"+x {tempFile}");
-                        chmod?.WaitForExit();
-                    }
-
-                    // Atomic replace: rename old → .bak, new → current
-                    var bakFile = currentExe + ".bak";
-                    if (File.Exists(bakFile)) File.Delete(bakFile);
-                    File.Move(currentExe, bakFile, overwrite: true);
-                    File.Move(tempFile, currentExe, overwrite: true);
-                    if (File.Exists(bakFile)) File.Delete(bakFile);
                 });
+
+            // Verify BEFORE the replace, and outside the progress display so a refusal is readable.
+            // Everything above this line is reversible by deleting a temp file; everything below it
+            // overwrites the binary the operator is currently running.
+            var actual = await ReleaseChecksums.ComputeFileSha256Async(tempFile, ct);
+            var verification = ReleaseChecksums.Parse(manifest).Verify(asset.Name!, actual);
+
+            if (!verification.IsVerified)
+            {
+                TryDelete(tempFile);
+
+                if (verification.Verdict == ChecksumVerdict.NotListed)
+                {
+                    output.WriteError(
+                        $"{ReleaseSource.ChecksumsAssetName} for {latestVersion} does not list '{asset.Name}', so the download cannot be verified.");
+                }
+                else
+                {
+                    output.WriteError($"Checksum mismatch for '{asset.Name}' — the download does not match the published release.");
+                    output.WriteInfo($"expected {verification.Expected}");
+                    output.WriteInfo($"actual   {verification.Actual}");
+                }
+
+                output.WriteInfo("The current binary has not been modified.");
+                return 1;
+            }
+
+            // On Unix make executable
+            if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+            {
+                var chmod = Process.Start("chmod", $"+x {tempFile}");
+                chmod?.WaitForExit();
+            }
+
+            // Atomic replace: rename old -> .bak, new -> current
+            var bakFile = currentExe + ".bak";
+            if (File.Exists(bakFile)) File.Delete(bakFile);
+            File.Move(currentExe, bakFile, overwrite: true);
+            File.Move(tempFile, currentExe, overwrite: true);
+            if (File.Exists(bakFile)) File.Delete(bakFile);
 
             output.WriteSuccess($"bella upgraded to v{latestVersion}!");
             output.WriteInfo("Restart your shell or run 'bella --version' to confirm.");
@@ -171,8 +195,22 @@ public class UpgradeCommand(IOutputWriter output) : AsyncCommand<UpgradeCommand.
         }
         catch (Exception ex)
         {
+            TryDelete(tempFile);
             output.WriteError($"Upgrade failed: {ex.Message}");
             return 1;
+        }
+    }
+
+    /// <summary>A leftover <c>.new</c> would be picked up by nothing, but it is 60 MB of confusion.</summary>
+    private static void TryDelete(string path)
+    {
+        try
+        {
+            if (File.Exists(path)) File.Delete(path);
+        }
+        catch
+        {
+            // Best effort: failing to tidy up must not mask why the upgrade was refused.
         }
     }
 
