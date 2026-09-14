@@ -13,7 +13,8 @@ public class IssueCommand(
     BellaClientProvider clientProvider,
     CredentialStore credentials,
     ContextService contextService,
-    IOutputWriter output
+    IOutputWriter output,
+    ZkeClientSelection zkeSelection
 ) : AsyncCommand<IssueCommand.Settings>
 {
     public class Settings : CommandSettings
@@ -114,16 +115,36 @@ public class IssueCommand(
             return 1;
         }
 
-        BellaClientProvider.BellaClientWrapper wrapper;
-        try
-        {
-            wrapper = clientProvider.CreateClientWrapper();
-        }
-        catch (Exception ex)
-        {
-            output.WriteError($"Authentication error: {ex.Message}");
-            return 1;
-        }
+        // ── Client (#725) ────────────────────────────────────────────────────
+        //
+        // Through ZkeClientSelection, like every other command the device gate governs.
+        //
+        // This used to call CreateClientWrapper(), whose bearer branches build the client with
+        // `CreateWithBearerToken`, which chains an `E2EEncryptionHandler` — and that handler mints a
+        // FRESH ephemeral P-256 key per client. Since #635 made `ZkePresentedKey.ShouldPresent` cover
+        // every `/api/` path, that ephemeral key travelled as `X-E2E-Public-Key` to `tokens/issue`,
+        // which carries [RequireRegisteredDevice]. The gate looked it up, found a key registered to
+        // nobody, and refused — correctly. So no scoped token could be minted from the CLI in any
+        // enforcing tenant, however well set up the operator's device was.
+        //
+        // NOTE the two keys this command deals in, which must not be conflated:
+        //   • the HEADER key  — THIS operator's registered device, proving who is asking. Selected here.
+        //   • the BODY key    — the RUNNER's public key the minted token is bound to (spec 040),
+        //                       resolved further down from --public-key / --device-key-file / --generate.
+        // They are different machines by design: someone with a registered device issues a token for a
+        // CI runner that has none.
+        var selection = await zkeSelection.SelectAsync(
+            privateKeyOverride: null,
+            appClientOverride: null,
+            // No announcement: "secrets will be decrypted locally" is the reading commands' line and
+            // this one decrypts nothing.
+            announce: false,
+            ct);
+
+        if (selection.Stopped)
+            return selection.ExitCode!.Value;
+
+        var client = selection.Client!;
 
         // ── Resolve project + environment ────────────────────────────────────
         string projectSlug,
@@ -135,7 +156,7 @@ public class IssueCommand(
                 await contextService.ResolveProjectEnvironmentAsync(
                     settings.Project,
                     settings.Environment,
-                    wrapper.BellaClient,
+                    client,
                     ct,
                     strictJwtLocal: true,
                     bootstrapBellaFromExplicit: true
@@ -153,7 +174,7 @@ public class IssueCommand(
         try
         {
             environmentId = await contextService.ResolveEnvironmentIdAsync(
-                wrapper.BellaClient,
+                client,
                 projectSlug,
                 envId,
                 ct
@@ -211,8 +232,8 @@ public class IssueCommand(
         CreatedApiKeyResponse? response;
         try
         {
-            response = await wrapper
-                .BellaClient.Api.V1.Environments[environmentId]
+            response = await client
+                .Api.V1.Environments[environmentId]
                 .Tokens.Issue.PostAsync(
                     new IssueEnvironmentTokenRequest
                     {
@@ -248,6 +269,12 @@ public class IssueCommand(
                 );
                 return 1;
             }
+
+            // #725 — a device-gate refusal gets the sentence naming the command that fixes it, not a
+            // bare status code. The operator can turn enforcement on between the status call above and
+            // this request, so the refusal still has to be handled here even though we asked first.
+            if (zkeSelection.RenderRefusal(ex))
+                return ZkeClientSelection.RefusedExitCode;
 
             var detail = string.IsNullOrWhiteSpace(ex.Message) ? "" : $": {ex.Message}";
             output.WriteError($"API error ({ex.ResponseStatusCode}){detail}");

@@ -15,6 +15,12 @@ namespace BellaCli.Services.Spiffe;
 // An already-revoked workload resolves rather than being filtered out: revoking it again is a no-op
 // the caller should be TOLD about, and hiding it would report "no such workload" for something the
 // operator can see in the list.
+//
+// `ResolveById` is the way OUT of an ambiguous name. The refusal below names the candidate ids, which
+// is useless if the only way to name a row is the name that is ambiguous — the operator can read the
+// answer and cannot act on it. An id still resolves against the SAME list rather than going straight
+// to a DELETE: an id from another environment, or one already gone, must be refused here instead of
+// being posted at the API, and the row is what carries the name and SPIFFE ID the confirmation shows.
 
 /// <summary>What a name resolved to.</summary>
 public enum WorkloadResolutionKind
@@ -51,14 +57,14 @@ public sealed record WorkloadResolution(
     {
         WorkloadResolutionKind.Resolved => null,
         WorkloadResolutionKind.NotFound =>
-            "No workload identity by that name in this environment. Run 'bella spiffe list' to see "
-            + "what is registered here — the name is per environment, so check your context too.",
+            "No such workload identity in this environment. Run 'bella spiffe list' to see what is "
+            + "registered here — names and ids are per environment, so check your context too.",
         WorkloadResolutionKind.AlreadyRevoked =>
             "That workload identity is already revoked. Its leases were terminated when it was revoked; "
             + "nothing further to do.",
         WorkloadResolutionKind.Ambiguous =>
             "More than one workload identity carries that name in this environment, so revoking by name "
-            + "would be a guess. Refusing. Candidates: "
+            + "would be a guess. Refusing. Re-run with --id to name the row you mean. Candidates: "
             + string.Join(", ", Candidates.Select(c =>
                 $"{c.Id?.ToString() ?? "(no id)"}{(c.IsRevoked ? " (revoked)" : string.Empty)}")),
         _ => "Could not resolve that workload identity.",
@@ -106,5 +112,30 @@ public static class WorkloadResolver
                 WorkloadResolutionKind.AlreadyRevoked, match.Id.Value, match.SpiffeId, matches)
             : new WorkloadResolution(
                 WorkloadResolutionKind.Resolved, match.Id.Value, match.SpiffeId, matches);
+    }
+
+    /// <summary>Finds the workload an id refers to, refusing an id this environment does not hold.</summary>
+    /// <param name="id">The id the operator typed, normally copied from an ambiguous refusal.</param>
+    /// <param name="candidates">Everything the environment has registered.</param>
+    public static WorkloadResolution ResolveById(Guid id, IEnumerable<WorkloadCandidate>? candidates)
+    {
+        var all = (candidates ?? []).ToList();
+
+        // Checked against the list rather than passed straight to DELETE. An id belonging to another
+        // environment would otherwise be sent to an endpoint scoped to THIS one, and the operator would
+        // read whatever the API said about a row they cannot see — instead of "not here".
+        var match = all.FirstOrDefault(c => c.Id is not null && c.Id.Value == id);
+
+        if (match is null || id == Guid.Empty)
+        {
+            return new WorkloadResolution(WorkloadResolutionKind.NotFound, Guid.Empty, null, []);
+        }
+
+        // Same rule as by-name: already revoked is the desired state, reported and not an error.
+        return match.IsRevoked
+            ? new WorkloadResolution(
+                WorkloadResolutionKind.AlreadyRevoked, id, match.SpiffeId, [match])
+            : new WorkloadResolution(
+                WorkloadResolutionKind.Resolved, id, match.SpiffeId, [match]);
     }
 }

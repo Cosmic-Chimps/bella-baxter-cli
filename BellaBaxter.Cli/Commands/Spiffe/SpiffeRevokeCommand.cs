@@ -18,7 +18,9 @@ namespace BellaCli.Commands.Spiffe;
 //      it killed. An operator running this during an incident needs to know whether they just cut off
 //      one process or forty. The count is a report taken at that moment, not a guarantee.
 //   2. It refuses an ambiguous name instead of picking a row (see `WorkloadResolver`). Guessing here
-//      means revoking a workload nobody asked about.
+//      means revoking a workload nobody asked about. `--id` is the way out of that refusal — the
+//      operator names the row, the CLI never chooses it — and an id is still checked against the
+//      environment's list, so one belonging elsewhere is refused here rather than at the API.
 //   3. It confirms by default, and refuses rather than assuming yes when there is no terminal — the
 //      same rule the other destructive commands follow, and it matters more here because the effect is
 //      immediate and not undoable: a revoked identity is re-registered, not restored.
@@ -33,6 +35,12 @@ public class SpiffeRevokeSettings : CommandSettings
     [System.ComponentModel.Description("Name of the workload identity to revoke.")]
     public string? Name { get; init; }
 
+    [CommandOption("-i|--id <GUID>")]
+    [System.ComponentModel.Description(
+        "Id of the workload identity to revoke. Use this when two rows share a name — the ambiguous "
+        + "refusal prints the ids to choose from.")]
+    public string? Id { get; init; }
+
     [CommandOption("-p|--project <SLUG>")]
     public string? Project { get; init; }
 
@@ -46,10 +54,34 @@ public class SpiffeRevokeSettings : CommandSettings
     [CommandOption("--json")]
     public bool Json { get; init; }
 
-    public override Spectre.Console.ValidationResult Validate() =>
-        string.IsNullOrWhiteSpace(Name)
-            ? Spectre.Console.ValidationResult.Error("--name is required: which workload identity to revoke.")
+    /// <summary>The id when <c>--id</c> parsed as a GUID; null otherwise.</summary>
+    public Guid? ParsedId =>
+        Guid.TryParse(Id?.Trim(), out var parsed) ? parsed : null;
+
+    public override Spectre.Console.ValidationResult Validate()
+    {
+        var hasName = !string.IsNullOrWhiteSpace(Name);
+        var hasId = !string.IsNullOrWhiteSpace(Id);
+
+        // Both is refused rather than resolved in some precedence order. A name and an id that
+        // disagree is a mistake, and silently honouring one of them revokes something the operator
+        // did not name — the exact outcome the ambiguity refusal exists to prevent.
+        if (hasName && hasId)
+        {
+            return Spectre.Console.ValidationResult.Error(
+                "Pass either --name or --id, not both: they can disagree, and revocation is not undoable.");
+        }
+
+        if (!hasName && !hasId)
+        {
+            return Spectre.Console.ValidationResult.Error(
+                "--name (or --id) is required: which workload identity to revoke.");
+        }
+
+        return hasId && ParsedId is null
+            ? Spectre.Console.ValidationResult.Error($"--id is not a valid GUID: '{Id}'.")
             : Spectre.Console.ValidationResult.Success();
+    }
 }
 
 public class SpiffeRevokeCommand(
@@ -74,7 +106,8 @@ public class SpiffeRevokeCommand(
             return 1;
         }
 
-        var name = settings.Name!.Trim();
+        var byId = settings.ParsedId;
+        var name = settings.Name?.Trim();
 
         try
         {
@@ -84,12 +117,20 @@ public class SpiffeRevokeCommand(
             var env = client.Api.V1.Projects[projectSlug].Environments[envSlug];
 
             var list = await env.WorkloadIdentities.GetAsync(cancellationToken: ct);
-            var resolution = WorkloadResolver.Resolve(
-                name,
-                (list?.Items ?? []).Select(w => new WorkloadCandidate(
-                    w.Id, w.Name, w.SpiffeId,
-                    IsRevoked: w.RevokedAt is not null
-                        || string.Equals(w.Status, "Revoked", StringComparison.OrdinalIgnoreCase))));
+            var candidates = (list?.Items ?? []).Select(w => new WorkloadCandidate(
+                w.Id, w.Name, w.SpiffeId,
+                IsRevoked: w.RevokedAt is not null
+                    || string.Equals(w.Status, "Revoked", StringComparison.OrdinalIgnoreCase)))
+                .ToList();
+
+            var resolution = byId is { } wanted
+                ? WorkloadResolver.ResolveById(wanted, candidates)
+                : WorkloadResolver.Resolve(name!, candidates);
+
+            // What the operator typed is an id, so the messages have to say which row that was. Taken
+            // from the resolved candidate rather than echoed back, so the confirmation shows the name
+            // the registration carries and not the id the operator pasted.
+            name ??= resolution.Candidates.FirstOrDefault()?.Name ?? byId?.ToString() ?? "(unnamed)";
 
             if (resolution.Kind == WorkloadResolutionKind.AlreadyRevoked)
             {

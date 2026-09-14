@@ -81,6 +81,7 @@ public class BellaClientProvider(
             return BellaClientFactory.CreateWithBearerToken(
                 apiUrl,
                 envToken,
+                additionalHandler: DebugHandler(),
                 bellaClient: CliClientName,
                 appClient: appClient);
         }
@@ -108,6 +109,7 @@ public class BellaClientProvider(
                 apiUrl,
                 tokens.AccessToken,
                 BuildOAuthOuterHandler(),
+                DebugHandler(),
                 bellaClient: CliClientName,
                 appClient: appClient
             );
@@ -153,6 +155,7 @@ public class BellaClientProvider(
                 BellaClientFactory.CreateWithBearerToken(
                     apiUrl,
                     envToken,
+                    additionalHandler: DebugHandler(),
                     bellaClient: CliClientName,
                     appClient: appClient),
                 envToken
@@ -185,6 +188,7 @@ public class BellaClientProvider(
                     apiUrl,
                     tokens.AccessToken,
                     BuildOAuthOuterHandler(),
+                    DebugHandler(),
                     bellaClient: CliClientName,
                     appClient: appClient),
                 tokens.AccessToken
@@ -223,6 +227,7 @@ public class BellaClientProvider(
                 apiUrl,
                 envToken,
                 zkeHandler,
+                additionalHandler: DebugHandler(),
                 bellaClient: CliClientName,
                 appClient: appClient);
         }
@@ -247,6 +252,7 @@ public class BellaClientProvider(
                 tokens.AccessToken,
                 zkeHandler,
                 BuildOAuthOuterHandler(),
+                DebugHandler(),
                 bellaClient: CliClientName,
                 appClient: appClient);
         }
@@ -267,4 +273,17 @@ public class BellaClientProvider(
     /// request leaves the process, and retried on 401 responses.
     /// </summary>
     private TokenRefreshHandler BuildOAuthOuterHandler() => new(authService);
+
+    /// <summary>
+    /// Request logging when <c>BELLA_BAXTER_DEBUG</c> is set, for the paths that also need another
+    /// handler (#725).
+    /// </summary>
+    /// <remarks>
+    /// The HMAC branches always passed this; the bearer branches never could, because the single
+    /// handler slot was taken by the token refresher — or, on the env-token branch, simply left empty.
+    /// So `BELLA_BAXTER_DEBUG=1` was silent on every OAuth path, which is why a wrong
+    /// `X-E2E-Public-Key` on one request could not be seen from the CLI's own output.
+    /// </remarks>
+    private static DebugLoggingHandler? DebugHandler() =>
+        DebugLoggingHandler.IsEnabled ? new DebugLoggingHandler() : null;
 }

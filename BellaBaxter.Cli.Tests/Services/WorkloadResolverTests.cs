@@ -138,4 +138,82 @@ public class WorkloadResolverTests
         Assert.NotEqual(WorkloadResolutionKind.Resolved, result.Kind);
         Assert.Equal(Guid.Empty, result.Id);
     }
+
+    // ── ResolveById: the way OUT of an ambiguous name ────────────────────────────────────────────
+    //
+    // The ambiguous refusal prints the candidate ids. Without a way to act on one, an operator can
+    // read the answer and still not revoke the row they mean — which is how a duplicate registration
+    // becomes permanent. These pin that the escape hatch is not itself a way to guess.
+
+    [Fact]
+    public void An_id_picks_the_row_a_shared_name_could_not()
+    {
+        // The case the option exists for: two rows, one name, and the operator names the id.
+        var keep = Guid.NewGuid();
+        var drop = Guid.NewGuid();
+        var candidates = new[] { Live("app-a-revoked", keep), Live("app-a-revoked", drop) };
+
+        Assert.Equal(WorkloadResolutionKind.Ambiguous,
+            WorkloadResolver.Resolve("app-a-revoked", candidates).Kind);
+
+        var result = WorkloadResolver.ResolveById(drop, candidates);
+
+        Assert.Equal(WorkloadResolutionKind.Resolved, result.Kind);
+        Assert.Equal(drop, result.Id);
+    }
+
+    [Fact]
+    public void An_id_this_environment_does_not_hold_is_REFUSED_not_forwarded()
+    {
+        // The whole reason an id resolves against the list instead of going straight to DELETE. An id
+        // from another environment would otherwise be posted to a route scoped to this one, and the
+        // operator would read whatever the API said about a row they cannot see.
+        var result = WorkloadResolver.ResolveById(Guid.NewGuid(), [Live("app-a"), Live("billing")]);
+
+        Assert.Equal(WorkloadResolutionKind.NotFound, result.Kind);
+        Assert.Equal(Guid.Empty, result.Id);
+    }
+
+    [Fact]
+    public void An_empty_id_never_resolves()
+    {
+        // Guid.Empty is what a failed parse leaves behind. Resolving it would aim a DELETE at a route
+        // segment of all zeroes.
+        Assert.Equal(WorkloadResolutionKind.NotFound,
+            WorkloadResolver.ResolveById(Guid.Empty, [new WorkloadCandidate(Guid.Empty, "x", null, false)]).Kind);
+    }
+
+    [Fact]
+    public void An_already_revoked_id_reports_that_rather_than_erroring()
+    {
+        // Same rule as by-name: the desired state already holds, so a re-run of a playbook must not
+        // fail on work it already did.
+        var id = Guid.NewGuid();
+        var result = WorkloadResolver.ResolveById(id, [Revoked("app-a-revoked", id)]);
+
+        Assert.Equal(WorkloadResolutionKind.AlreadyRevoked, result.Kind);
+        Assert.Equal(id, result.Id);
+    }
+
+    [Fact]
+    public void A_resolved_id_carries_the_row_so_the_confirmation_can_name_it()
+    {
+        // The command prints the name and SPIFFE ID before revoking. With --id the operator typed
+        // neither, so both have to come off the resolved candidate — echoing the id back would show
+        // them nothing they did not already type.
+        var id = Guid.NewGuid();
+        var result = WorkloadResolver.ResolveById(id, [Live("billing-service", id)]);
+
+        Assert.Equal("spiffe://t/p/e/billing-service", result.SpiffeId);
+        Assert.Equal("billing-service", Assert.Single(result.Candidates).Name);
+    }
+
+    [Fact]
+    public void An_ambiguous_refusal_says_how_to_get_past_it()
+    {
+        // A refusal that names ids but not the option that takes one leaves the operator stuck.
+        var result = WorkloadResolver.Resolve("dup", [Live("dup"), Live("dup")]);
+
+        Assert.Contains("--id", result.Problem!, StringComparison.Ordinal);
+    }
 }
