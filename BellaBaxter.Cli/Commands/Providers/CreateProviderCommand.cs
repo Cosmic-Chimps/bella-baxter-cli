@@ -121,7 +121,9 @@ public class CreateProviderCommand(BellaClientProvider provider, IOutputWriter o
 
         try
         {
-            await AnsiConsole.Status().StartAsync("Creating provider...", async _ =>
+            await output.StatusAsync(
+"Creating provider...",
+async () =>
             {
                 await client.Api.V1.Providers.PostAsync(new SdkCreateProviderCommand
                 {

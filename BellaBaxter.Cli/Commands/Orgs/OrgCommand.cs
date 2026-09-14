@@ -76,7 +76,9 @@ public class OrgListCommand(
         }
 
         List<BellaBaxter.Client.Models.TenantAccess>? orgs = null;
-        await AnsiConsole.Status().StartAsync("Fetching orgs...", async _ =>
+        await output.StatusAsync(
+"Fetching orgs...",
+async () =>
         {
             orgs = await client.Api.Tenants.MyTenants.GetAsync(cancellationToken: ct);
         });
@@ -156,7 +158,9 @@ public class OrgSwitchCommand(
 
         // Resolve slug/id to tenant ID
         List<BellaBaxter.Client.Models.TenantAccess>? orgs = null;
-        await AnsiConsole.Status().StartAsync("Fetching orgs...", async _ =>
+        await output.StatusAsync(
+"Fetching orgs...",
+async () =>
         {
             orgs = await client.Api.Tenants.MyTenants.GetAsync(cancellationToken: ct);
         });
@@ -205,13 +209,17 @@ public class OrgSwitchCommand(
 
         // Call switch endpoint
         BellaBaxter.Client.Models.SwitchTenantResponse? switchResponse = null;
-        await AnsiConsole.Status().StartAsync($"Switching to org '{target.TenantName}'...", async _ =>
+        await output.StatusAsync(
+$"Switching to org '{target.TenantName}'...",
+async () =>
         {
             switchResponse = await client.Api.Tenants[target.TenantId!.Value.ToString()].Switch.PostAsync(cancellationToken: ct);
         });
 
         // Refresh token to get new JWT with updated tenant claims
-        await AnsiConsole.Status().StartAsync("Refreshing token...", async _ =>
+        await output.StatusAsync(
+"Refreshing token...",
+async () =>
         {
             await authService.RefreshAsync(ct);
         });

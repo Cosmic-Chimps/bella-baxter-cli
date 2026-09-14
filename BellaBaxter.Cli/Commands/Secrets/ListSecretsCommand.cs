@@ -65,11 +65,7 @@ public class ListSecretsCommand(
             List<EnvironmentProviderResponse>? providers = null;
             ListGlobalSecretsResponse? globalResp = null;
 
-            await AnsiConsole
-                .Status()
-                .StartAsync(
-                    "Loading secrets...",
-                    async _ =>
+            await output.StatusAsync("Loading secrets...", async () =>
                     {
                         providers = await client
                             .Api.V1.Projects[projectSlug]

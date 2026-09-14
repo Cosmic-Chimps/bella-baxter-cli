@@ -63,7 +63,9 @@ public class DeleteSshRoleCommand(BellaClientProvider provider, ContextService c
                 }
             }
 
-            await AnsiConsole.Status().StartAsync($"Deleting SSH role '{roleName}' from {envName}...", async _ =>
+            await output.StatusAsync(
+$"Deleting SSH role '{roleName}' from {envName}...",
+async () =>
             {
                 await client.Api.V1.Projects[projectSlug].Environments[envSlug].Ssh.Roles[roleName].DeleteAsync(cancellationToken: ct);
             });

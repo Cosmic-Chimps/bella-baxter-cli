@@ -84,11 +84,7 @@ public class SecretsScanCommand(
 
         // ── 1. Fetch secret key names from the manifest (no values fetched) ──
         List<string> keys = [];
-        await AnsiConsole
-            .Status()
-            .StartAsync(
-                $"Fetching manifest for {projectSlug}/{envSlug}...",
-                async _ =>
+        await output.StatusAsync($"Fetching manifest for {projectSlug}/{envSlug}...", async () =>
                 {
                     var manifest = await client
                         .Api.V1.Projects[projectSlug]
@@ -115,11 +111,7 @@ public class SecretsScanCommand(
         List<string> files = [];
         var usingGit = false;
 
-        await AnsiConsole
-            .Status()
-            .StartAsync(
-                $"Listing files in {Markup.Escape(scanPath)}...",
-                async _ =>
+        await output.StatusAsync($"Listing files in {Markup.Escape(scanPath)}...", async () =>
                 {
                     (files, usingGit) = await GetFilesAsync(scanPath, ct);
                 }
@@ -135,11 +127,7 @@ public class SecretsScanCommand(
         // key → list of relative file paths where it appears
         var findings = keys.ToDictionary(k => k, _ => new List<string>());
 
-        await AnsiConsole
-            .Status()
-            .StartAsync(
-                $"Scanning {files.Count} file(s)...",
-                async _ =>
+        await output.StatusAsync($"Scanning {files.Count} file(s)...", async () =>
                 {
                     foreach (var file in files)
                     {

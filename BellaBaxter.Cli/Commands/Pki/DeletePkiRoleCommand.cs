@@ -56,7 +56,9 @@ public class DeletePkiRoleCommand(BellaClientProvider provider, ContextService c
             if (!AnsiConsole.Confirm($"[red]Delete PKI role '{name}'?[/]"))
                 return 0;
 
-            await AnsiConsole.Status().StartAsync($"Deleting PKI role '{name}'...", async _ =>
+            await output.StatusAsync(
+$"Deleting PKI role '{name}'...",
+async () =>
             {
                 await client.Api.V1.Projects[projectSlug].Environments[envSlug].Pki.Roles[name].DeleteAsync(cancellationToken: ct);
             });

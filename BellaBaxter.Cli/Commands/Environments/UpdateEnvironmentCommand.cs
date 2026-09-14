@@ -65,7 +65,9 @@ public class UpdateEnvironmentCommand(BellaClientProvider provider, ContextServi
             if (string.IsNullOrWhiteSpace(description) && Interactivity.IsInteractive(output))
                 description = AnsiConsole.Ask("Description:", defaultValue: existing?.Description ?? "");
 
-            await AnsiConsole.Status().StartAsync("Updating environment...", async _ =>
+            await output.StatusAsync(
+"Updating environment...",
+async () =>
             {
                 await client.Api.V1.Projects[projectSlug].Environments[envSlug].PutAsync(
                     new BellaBaxter.Client.Models.UpdateEnvironmentCommand

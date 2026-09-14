@@ -44,7 +44,9 @@ public class GetPkiCaCommand(BellaClientProvider provider, ContextService contex
             var (envSlug, envName, _) = await context.ResolveEnvironmentAsync(settings.Environment, projectSlug, client, ct);
 
             PkiCaPublicKeyResponse? result = null;
-            await AnsiConsole.Status().StartAsync($"Fetching PKI CA for {envName}...", async _ =>
+            await output.StatusAsync(
+$"Fetching PKI CA for {envName}...",
+async () =>
             {
                 result = await client.Api.V1.Projects[projectSlug].Environments[envSlug].Pki.Ca.GetAsync(cancellationToken: ct);
             });

@@ -74,11 +74,7 @@ public class CreateEnvironmentCommand(
                 description = AnsiConsole.Ask("Description:", defaultValue: "");
 
             BellaBaxter.Client.Models.EnvironmentOperationResponse? created = null;
-            await AnsiConsole
-                .Status()
-                .StartAsync(
-                    "Creating environment...",
-                    async _ =>
+            await output.StatusAsync("Creating environment...", async () =>
                     {
                         created = await client
                             .Api.V1.Projects[projectSlug]

@@ -64,7 +64,9 @@ public class GenerateTotpCommand(BellaClientProvider provider, ContextService co
             }
 
             TotpKeyImportResponse? result = null;
-            await AnsiConsole.Status().StartAsync($"Generating TOTP key '{settings.Name}'...", async _ =>
+            await output.StatusAsync(
+$"Generating TOTP key '{settings.Name}'...",
+async () =>
             {
                 result = await client.Api.V1.Projects[projectSlug].Environments[envSlug].Totp.Generate
                     .PostAsync(new GenerateTotpKeyRequest

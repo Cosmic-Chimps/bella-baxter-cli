@@ -58,7 +58,9 @@ public class RevokePkiCertCommand(BellaClientProvider provider, ContextService c
                 return 0;
 
             PkiRevokeResponse? result = null;
-            await AnsiConsole.Status().StartAsync("Revoking certificate...", async _ =>
+            await output.StatusAsync(
+"Revoking certificate...",
+async () =>
             {
                 result = await client.Api.V1.Projects[projectSlug].Environments[envSlug].Pki.Revoke.PostAsync(
                     new PkiRevokeRequest { SerialNumber = serial },

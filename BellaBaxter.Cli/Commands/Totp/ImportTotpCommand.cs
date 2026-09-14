@@ -52,7 +52,9 @@ public class ImportTotpCommand(BellaClientProvider provider, ContextService cont
             var (envSlug, envName, _) = await context.ResolveEnvironmentAsync(settings.Environment, projectSlug, client, ct);
 
             TotpKeyImportResponse? result = null;
-            await AnsiConsole.Status().StartAsync($"Importing TOTP key '{settings.Name}'...", async _ =>
+            await output.StatusAsync(
+$"Importing TOTP key '{settings.Name}'...",
+async () =>
             {
                 result = await client.Api.V1.Projects[projectSlug].Environments[envSlug].Totp.Import
                     .PostAsync(new ImportTotpKeyRequest { Name = settings.Name, OtpauthUrl = settings.OtpauthUrl },

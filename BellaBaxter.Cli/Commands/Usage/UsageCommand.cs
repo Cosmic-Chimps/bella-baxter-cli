@@ -31,12 +31,12 @@ public class UsageCommand(BellaClientProvider provider, CredentialStore credenti
         try
         {
             var client = provider.CreateClient();
-            await AnsiConsole.Status()
-                .Spinner(Spinner.Known.Dots)
-                .StartAsync("Fetching usage...", async _ =>
-                {
-                    usage = await client.Api.V1.Tenant.Usage.GetAsync(cancellationToken: ct);
-                });
+            // The custom spinner is dropped along with the rest: choosing WHICH animation to show is
+            // the writer's business now, and it showed none in JSON mode either way.
+            await output.StatusAsync("Fetching usage...", async () =>
+            {
+                usage = await client.Api.V1.Tenant.Usage.GetAsync(cancellationToken: ct);
+            });
         }
         catch (Exception ex)
         {

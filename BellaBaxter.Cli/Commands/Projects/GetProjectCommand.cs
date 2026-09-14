@@ -34,7 +34,9 @@ public class GetProjectCommand(BellaClientProvider provider, IOutputWriter outpu
         try
         {
             GetProjectResponse? project = null;
-            await AnsiConsole.Status().StartAsync("Loading project...", async _ =>
+            await output.StatusAsync(
+"Loading project...",
+async () =>
             {
                 project = await client.Api.V1.Projects[settings.Identifier].GetAsync(cancellationToken: ct);
             });

@@ -52,7 +52,9 @@ public class GetEnvironmentCommand(BellaClientProvider provider, ContextService 
             EnvironmentResponse? env = null;
             List<EnvironmentProviderResponse>? providers = null;
 
-            await AnsiConsole.Status().StartAsync("Loading environment...", async _ =>
+            await output.StatusAsync(
+"Loading environment...",
+async () =>
             {
                 env = await client.Api.V1.Projects[projectSlug].Environments[envSlug].GetAsync(cancellationToken: ct);
                 providers = await client.Api.V1.Projects[projectSlug].Environments[envSlug].Providers.GetAsync(cancellationToken: ct);

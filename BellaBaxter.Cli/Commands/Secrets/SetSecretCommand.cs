@@ -158,11 +158,7 @@ public class SetSecretCommand(
 
             var created = false;
 
-            await AnsiConsole
-                .Status()
-                .StartAsync(
-                    $"Setting secret {settings.Key}...",
-                    async _ =>
+            await output.StatusAsync($"Setting secret {settings.Key}...", async () =>
                     {
                         // Update first, then create. The catch is narrowed to "it isn't there yet":
                         // a bare catch here turned every failure — a 403, a validation error, a

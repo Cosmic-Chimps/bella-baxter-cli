@@ -123,11 +123,7 @@ public class RemoveProviderFromEnvironmentCommand(
                 }
             }
 
-            await AnsiConsole
-                .Status()
-                .StartAsync(
-                    "Removing provider from environment...",
-                    async _ =>
+            await output.StatusAsync("Removing provider from environment...", async () =>
                     {
                         await client
                             .Api.V1.Projects[projectSlug]

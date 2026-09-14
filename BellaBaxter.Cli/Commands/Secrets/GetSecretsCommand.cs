@@ -108,11 +108,7 @@ public class GetSecretsCommand(
 
             Dictionary<string, string> allSecrets = new();
 
-            await AnsiConsole
-                .Status()
-                .StartAsync(
-                    "Downloading secrets...",
-                    async _ =>
+            await output.StatusAsync("Downloading secrets...", async () =>
                     {
                         if (!string.IsNullOrWhiteSpace(settings.Provider))
                         {

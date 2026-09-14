@@ -63,7 +63,9 @@ public class ConfigurePkiCaCommand(BellaClientProvider provider, ContextService 
             var (envSlug, envName, _) = await context.ResolveEnvironmentAsync(settings.Environment, projectSlug, client, ct);
 
             PkiCaResponse? result = null;
-            await AnsiConsole.Status().StartAsync($"Configuring PKI CA for {envName}...", async _ =>
+            await output.StatusAsync(
+$"Configuring PKI CA for {envName}...",
+async () =>
             {
                 result = await client.Api.V1.Projects[projectSlug].Environments[envSlug].Pki.Ca.PostAsync(
                     new PkiCaSetupRequest

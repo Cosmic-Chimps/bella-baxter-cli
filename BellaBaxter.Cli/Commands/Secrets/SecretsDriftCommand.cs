@@ -34,11 +34,7 @@ public class SecretsDriftCommand(
         var (projectSlug, _, _) = await context.ResolveProjectAsync(settings.Project, client, ct);
 
         DriftResponse? drift = null;
-        await AnsiConsole
-            .Status()
-            .StartAsync(
-                $"Fetching drift for {projectSlug}...",
-                async _ =>
+        await output.StatusAsync($"Fetching drift for {projectSlug}...", async () =>
                 {
                     drift = await client
                         .Api.V1.Projects[projectSlug]

@@ -230,11 +230,12 @@ public class ContextShowCommand(ConfigService config, CredentialStore credential
         AnsiConsole.MarkupLine($"[white]Project:[/]     [cyan]{Markup.Escape(project)}[/]");
         AnsiConsole.MarkupLine($"[white]Environment:[/] [cyan]{Markup.Escape(env)}[/]");
         AnsiConsole.MarkupLine(
-            $"[white]Source:[/]      [dim]{source switch {
-            "env"   => "$BELLA_BAXTER_PROJECT/$BELLA_BAXTER_ENV (session — ephemeral)",
-            "local" => "local .bella file (directory-scoped)",
-            _       => source
-        }}[/]"
+            $"[white]Source:[/]      [dim]{source switch
+            {
+                "env" => "$BELLA_BAXTER_PROJECT/$BELLA_BAXTER_ENV (session — ephemeral)",
+                "local" => "local .bella file (directory-scoped)",
+                _ => source
+            }}[/]"
         );
 
         if (source == "local")
@@ -323,11 +324,7 @@ public class ContextInitCommand(
             AnsiConsole.WriteLine();
 
             KeyContextService.KeyContext? ctx = null;
-            await AnsiConsole
-                .Status()
-                .StartAsync(
-                    "Resolving context from API key...",
-                    async _ =>
+            await output.StatusAsync("Resolving context from API key...", async () =>
                     {
                         ctx = await keyContext.DiscoverAsync(ct);
                     }
@@ -403,11 +400,7 @@ public class ContextInitCommand(
 
             // Step 1: Pick a project
             List<BellaBaxter.Client.Models.ProjectResponse> projects = [];
-            await AnsiConsole
-                .Status()
-                .StartAsync(
-                    "Fetching projects...",
-                    async _ =>
+            await output.StatusAsync("Fetching projects...", async () =>
                     {
                         var page = await client.Api.V1.Projects.GetAsync(
                             q =>
@@ -452,11 +445,7 @@ public class ContextInitCommand(
 
             // Step 2: Pick an environment
             List<BellaBaxter.Client.Models.EnvironmentResponse> envList = [];
-            await AnsiConsole
-                .Status()
-                .StartAsync(
-                    $"Fetching environments for {chosenProject.Name}...",
-                    async _ =>
+            await output.StatusAsync($"Fetching environments for {chosenProject.Name}...", async () =>
                     {
                         envList =
                             await client

@@ -121,14 +121,11 @@ public class LoginCommand(AuthService auth, CredentialStore credentials, KeyCont
         try
         {
             StoredTokens tokens = null!;
-            await AnsiConsole
-                .Status()
-                .Spinner(Spinner.Known.Dots)
-                .StartAsync(
+            await output.StatusAsync(
                     "Opening browser for login...",
-                    async ctx =>
+                    async setStatus =>
                     {
-                        ctx.Status("Waiting for browser login...");
+                        setStatus("Waiting for browser login...");
                         tokens = await auth.LoginWithBrowserAsync(ct);
                     }
                 );

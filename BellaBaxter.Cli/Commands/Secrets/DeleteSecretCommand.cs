@@ -96,11 +96,7 @@ public class DeleteSecretCommand(
                 return 1;
             }
 
-            await AnsiConsole
-                .Status()
-                .StartAsync(
-                    $"Deleting secret {settings.Key}...",
-                    async _ =>
+            await output.StatusAsync($"Deleting secret {settings.Key}...", async () =>
                     {
                         await client
                             .Api.V1.Projects[projectSlug]

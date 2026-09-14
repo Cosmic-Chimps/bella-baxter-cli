@@ -73,12 +73,7 @@ public class AuthOidcCommand(WorkloadIdentityService workloadIdentity, IOutputWr
             }
 
             // Obtain OIDC token from platform
-            await AnsiConsole
-                .Status()
-                .Spinner(Spinner.Known.Dots)
-                .StartAsync(
-                    $"Obtaining OIDC token from {platform}...",
-                    async _ =>
+            await output.StatusAsync($"Obtaining OIDC token from {platform}...", async () =>
                     {
                         oidcToken = await workloadIdentity.GetOidcTokenAsync(settings.Audience, ct);
                     }
@@ -98,12 +93,7 @@ public class AuthOidcCommand(WorkloadIdentityService workloadIdentity, IOutputWr
         // Global exchange — server finds matching TrustDomain by issuer + env context
         OidcExchangeResult? result = null;
         string? exchangeError = null;
-        await AnsiConsole
-            .Status()
-            .Spinner(Spinner.Known.Dots)
-            .StartAsync(
-                "Exchanging OIDC token for Bella key...",
-                async _ =>
+        await output.StatusAsync("Exchanging OIDC token for Bella key...", async () =>
                 {
                     var (tenantSlug, projectSlug, envSlug) = workloadIdentity.ResolveSlugs(
                         settings.Tenant, settings.Project, settings.Env);

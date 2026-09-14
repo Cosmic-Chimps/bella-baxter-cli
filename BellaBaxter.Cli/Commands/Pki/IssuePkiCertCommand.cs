@@ -68,7 +68,9 @@ public class IssuePkiCertCommand(BellaClientProvider provider, ContextService co
             if (string.IsNullOrWhiteSpace(roleName))
             {
                 PkiRolesResponse? rolesResp = null;
-                await AnsiConsole.Status().StartAsync("Fetching available PKI roles...", async _ =>
+                await output.StatusAsync(
+"Fetching available PKI roles...",
+async () =>
                 {
                     rolesResp = await client.Api.V1.Projects[projectSlug].Environments[envSlug].Pki.Roles.GetAsync(cancellationToken: ct);
                 });
@@ -111,7 +113,9 @@ public class IssuePkiCertCommand(BellaClientProvider provider, ContextService co
             }
 
             PkiIssuedCertificateResponse? result = null;
-            await AnsiConsole.Status().StartAsync($"Issuing certificate for {commonName}...", async _ =>
+            await output.StatusAsync(
+$"Issuing certificate for {commonName}...",
+async () =>
             {
                 result = await client.Api.V1.Projects[projectSlug].Environments[envSlug].Pki.Issue.PostAsync(
                     new PkiIssueCertificateRequest

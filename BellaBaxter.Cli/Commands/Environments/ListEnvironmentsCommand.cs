@@ -53,11 +53,7 @@ public class ListEnvironmentsCommand(
             );
 
             List<EnvironmentResponse>? envs = null;
-            await AnsiConsole
-                .Status()
-                .StartAsync(
-                    $"Loading environments for {projectName}...",
-                    async _ =>
+            await output.StatusAsync($"Loading environments for {projectName}...", async () =>
                     {
                         envs = await client
                             .Api.V1.Projects[projectSlug]

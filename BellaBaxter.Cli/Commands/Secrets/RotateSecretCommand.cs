@@ -76,11 +76,7 @@ public class RotateSecretCommand(
                 return 1;
             }
 
-            await AnsiConsole
-                .Status()
-                .StartAsync(
-                    $"Triggering rotation for {settings.Key}...",
-                    async _ =>
+            await output.StatusAsync($"Triggering rotation for {settings.Key}...", async () =>
                     {
                         await client
                             .Api.V1.Projects[projectSlug]

@@ -40,7 +40,9 @@ public class ListPkiRolesCommand(BellaClientProvider provider, ContextService co
             var (envSlug, envName, _) = await context.ResolveEnvironmentAsync(settings.Environment, projectSlug, client, ct);
 
             PkiRolesResponse? result = null;
-            await AnsiConsole.Status().StartAsync($"Fetching PKI roles for {envName}...", async _ =>
+            await output.StatusAsync(
+$"Fetching PKI roles for {envName}...",
+async () =>
             {
                 result = await client.Api.V1.Projects[projectSlug].Environments[envSlug].Pki.Roles.GetAsync(cancellationToken: ct);
             });

@@ -86,7 +86,9 @@ public class CreatePkiRoleCommand(BellaClientProvider provider, ContextService c
                 name = AnsiConsole.Ask<string>("[bold]Role name:[/]");
             }
 
-            await AnsiConsole.Status().StartAsync($"Creating PKI role '{name}'...", async _ =>
+            await output.StatusAsync(
+$"Creating PKI role '{name}'...",
+async () =>
             {
                 await client.Api.V1.Projects[projectSlug].Environments[envSlug].Pki.Roles.PostAsync(
                     new PkiCreateRoleRequest

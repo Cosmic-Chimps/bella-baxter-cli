@@ -44,7 +44,9 @@ public class ListProvidersCommand(BellaClientProvider provider, IOutputWriter ou
         try
         {
             List<ProviderResponse>? providers = null;
-            await AnsiConsole.Status().StartAsync("Loading providers...", async _ =>
+            await output.StatusAsync(
+"Loading providers...",
+async () =>
             {
                 providers = await client.Api.V1.Providers.GetAsync(cancellationToken: ct);
             });

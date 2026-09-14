@@ -66,7 +66,9 @@ public class DeleteEnvironmentCommand(BellaClientProvider provider, ContextServi
                 }
             }
 
-            await AnsiConsole.Status().StartAsync("Deleting environment...", async _ =>
+            await output.StatusAsync(
+"Deleting environment...",
+async () =>
             {
                 await client.Api.V1.Projects[projectSlug].Environments[envSlug].DeleteAsync(cancellationToken: ct);
             });

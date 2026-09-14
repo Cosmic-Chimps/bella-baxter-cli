@@ -52,7 +52,9 @@ public class ListProjectsCommand(BellaClientProvider provider, IOutputWriter out
         try
         {
             PageProjectResponse? page = null;
-            await AnsiConsole.Status().StartAsync("Loading projects...", async _ =>
+            await output.StatusAsync(
+"Loading projects...",
+async () =>
             {
                 page = await client.Api.V1.Projects.GetAsync(q =>
                 {

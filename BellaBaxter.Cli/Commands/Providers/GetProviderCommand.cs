@@ -34,7 +34,9 @@ public class GetProviderCommand(BellaClientProvider provider, IOutputWriter outp
         try
         {
             ProviderResponse? prov = null;
-            await AnsiConsole.Status().StartAsync("Loading provider...", async _ =>
+            await output.StatusAsync(
+"Loading provider...",
+async () =>
             {
                 if (Guid.TryParse(settings.Identifier, out var guid))
                 {

@@ -129,11 +129,7 @@ public class GenerateSecretsCodeCommand(
                 bootstrapBellaFromExplicit: true
             );
 
-            await AnsiConsole
-                .Status()
-                .StartAsync(
-                    "Fetching secrets manifest...",
-                    async _ =>
+            await output.StatusAsync("Fetching secrets manifest...", async () =>
                     {
                         var sdkManifest =
                             await client

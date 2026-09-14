@@ -93,7 +93,9 @@ public class UpdateProjectCommand(BellaClientProvider provider, IOutputWriter ou
             }
 
             BellaBaxter.Client.Models.GetProjectResponse? updated = null;
-            await AnsiConsole.Status().StartAsync("Updating project...", async _ =>
+            await output.StatusAsync(
+"Updating project...",
+async () =>
             {
                 updated = await client.Api.V1.Projects[settings.Identifier].PutAsync(
                     new BellaBaxter.Client.Models.UpdateProjectRequest

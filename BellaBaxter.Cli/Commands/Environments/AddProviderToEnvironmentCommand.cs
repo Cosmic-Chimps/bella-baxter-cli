@@ -77,11 +77,7 @@ public class AddProviderToEnvironmentCommand(
             var providerSlug = settings.ProviderSlug;
             List<ProviderResponse>? allProviders = null;
 
-            await AnsiConsole
-                .Status()
-                .StartAsync(
-                    "Loading providers...",
-                    async _ =>
+            await output.StatusAsync("Loading providers...", async () =>
                     {
                         allProviders = await client.Api.V1.Providers.GetAsync(
                             cancellationToken: ct
@@ -131,11 +127,7 @@ public class AddProviderToEnvironmentCommand(
                 return 1;
             }
 
-            await AnsiConsole
-                .Status()
-                .StartAsync(
-                    "Adding provider to environment...",
-                    async _ =>
+            await output.StatusAsync("Adding provider to environment...", async () =>
                     {
                         await client
                             .Api.V1.Projects[projectSlug]

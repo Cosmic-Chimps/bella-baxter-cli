@@ -50,7 +50,9 @@ public class DeleteProjectCommand(BellaClientProvider provider, IOutputWriter ou
                 }
             }
 
-            await AnsiConsole.Status().StartAsync("Deleting project...", async _ =>
+            await output.StatusAsync(
+"Deleting project...",
+async () =>
             {
                 await client.Api.V1.Projects[settings.Identifier].DeleteAsync(cancellationToken: ct);
             });

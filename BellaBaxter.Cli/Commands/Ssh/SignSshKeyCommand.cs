@@ -59,7 +59,9 @@ public class SignSshKeyCommand(BellaClientProvider provider, ContextService cont
             if (string.IsNullOrWhiteSpace(roleName))
             {
                 BellaBaxter.Client.Models.SshRolesResponse? rolesResp = null;
-                await AnsiConsole.Status().StartAsync("Fetching available roles...", async _ =>
+                await output.StatusAsync(
+"Fetching available roles...",
+async () =>
                 {
                     rolesResp = await client.Api.V1.Projects[projectSlug].Environments[envSlug].Ssh.Roles.GetAsync(cancellationToken: ct);
                 });
@@ -113,7 +115,9 @@ public class SignSshKeyCommand(BellaClientProvider provider, ContextService cont
             var certFilePath = ToCertPath(pubKeyPath);
 
             SshSignedCertResponse? result = null;
-            await AnsiConsole.Status().StartAsync("Signing SSH key...", async _ =>
+            await output.StatusAsync(
+"Signing SSH key...",
+async () =>
             {
                 result = await client.Api.V1.Projects[projectSlug].Environments[envSlug].Ssh.Sign.PostAsync(
                     new SshSignRequest

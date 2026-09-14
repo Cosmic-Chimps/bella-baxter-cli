@@ -70,11 +70,7 @@ public class CreateProjectCommand(
 
         try
         {
-            await AnsiConsole
-                .Status()
-                .StartAsync(
-                    "Creating project...",
-                    async _ =>
+            await output.StatusAsync("Creating project...", async () =>
                     {
                         await client.Api.V1.Projects.PostAsync(
                             new BellaBaxter.Client.Models.CreateProjectCommand

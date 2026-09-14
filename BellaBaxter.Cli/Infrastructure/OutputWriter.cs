@@ -5,6 +5,29 @@ namespace BellaCli.Infrastructure;
 
 public interface IOutputWriter
 {
+    /// <summary>
+    /// Runs <paramref name="work"/>, showing progress only where progress belongs.
+    /// </summary>
+    /// <remarks>
+    /// <para>Issue #742 — this exists because progress was written with <c>AnsiConsole.Status()</c>
+    /// directly, which bypasses this writer entirely and lands on STDOUT. In JSON mode stdout then
+    /// carried the progress line AND the document, so <c>bella secrets get --json | jq .</c> failed
+    /// while stderr sat empty. The pilot's Ansible role works around it by parsing only the last
+    /// line.</para>
+    ///
+    /// <para>The rule belongs here rather than in each command because there were 35 call sites and
+    /// the next one added would reintroduce it. A command says WHAT it is doing; the writer decides
+    /// whether saying so is allowed on this stream.</para>
+    /// </remarks>
+    Task StatusAsync(string message, Func<Task> work);
+
+    /// <summary>
+    /// As above, for work that reports a CHANGE of phase — "Opening browser…" becoming
+    /// "Waiting for browser login…". The callback receives an updater; in JSON mode it does nothing,
+    /// so the command does not have to know which mode it is in.
+    /// </summary>
+    Task StatusAsync(string message, Func<Action<string>, Task> work);
+
     void WriteObject<T>(T obj);
     void WriteList<T>(IEnumerable<T> items);
     void WriteTable(string[] headers, IEnumerable<string[]> rows);
@@ -16,6 +39,17 @@ public interface IOutputWriter
 
 public class HumanOutputWriter : IOutputWriter
 {
+    /// <summary>Shows the spinner, exactly as before.</summary>
+    public async Task StatusAsync(string message, Func<Task> work) =>
+        await AnsiConsole.Status().StartAsync(message, async _ => await work());
+
+    /// <inheritdoc />
+    public async Task StatusAsync(string message, Func<Action<string>, Task> work) =>
+        await AnsiConsole
+            .Status()
+            .Spinner(Spinner.Known.Dots)
+            .StartAsync(message, async ctx => await work(next => ctx.Status(next)));
+
     public void WriteObject<T>(T obj)
     {
         var json = JsonSerializer.Serialize(obj, new JsonSerializerOptions { WriteIndented = true });
@@ -64,6 +98,21 @@ public class JsonOutputWriter : IOutputWriter
         WriteIndented = false,
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase
     };
+
+    /// <summary>
+    /// Runs the work and says nothing. Stdout is the document's, and nothing else may share it.
+    /// </summary>
+    /// <remarks>
+    /// Progress is not redirected to stderr here, it is DROPPED. A spinner is a terminal animation —
+    /// redrawn with control characters for a human watching — and a machine reading stderr gains
+    /// nothing from it. Errors and warnings already go to stderr (below), which is where a scripted
+    /// caller looks when something is wrong.
+    /// </remarks>
+    public Task StatusAsync(string message, Func<Task> work) => work();
+
+    /// <inheritdoc />
+    /// <remarks>The updater is a no-op: there is no line to rewrite, because nothing was printed.</remarks>
+    public Task StatusAsync(string message, Func<Action<string>, Task> work) => work(_ => { });
 
     public void WriteObject<T>(T obj) =>
         Console.WriteLine(JsonSerializer.Serialize(obj, Options));

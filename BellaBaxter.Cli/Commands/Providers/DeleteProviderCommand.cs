@@ -70,7 +70,9 @@ public class DeleteProviderCommand(BellaClientProvider provider, IOutputWriter o
                 providerId = resolvedId;
             }
 
-            await AnsiConsole.Status().StartAsync("Deleting provider...", async _ =>
+            await output.StatusAsync(
+"Deleting provider...",
+async () =>
             {
                 await client.Api.V1.Providers[providerId].DeleteAsync(cancellationToken: ct);
             });

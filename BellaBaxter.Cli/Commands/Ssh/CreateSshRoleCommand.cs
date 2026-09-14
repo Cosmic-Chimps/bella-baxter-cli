@@ -79,7 +79,9 @@ public class CreateSshRoleCommand(BellaClientProvider provider, ContextService c
                         .WithConverter(s => s));
             }
 
-            await AnsiConsole.Status().StartAsync($"Creating SSH role '{name}' in {envName}...", async _ =>
+            await output.StatusAsync(
+$"Creating SSH role '{name}' in {envName}...",
+async () =>
             {
                 await client.Api.V1.Projects[projectSlug].Environments[envSlug].Ssh.Roles.PostAsync(
                     new SshCreateRoleRequest

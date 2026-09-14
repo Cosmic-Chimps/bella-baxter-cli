@@ -42,7 +42,9 @@ public class GetSshCaKeyCommand(BellaClientProvider provider, ContextService con
             var (envSlug, envName, _) = await context.ResolveEnvironmentAsync(settings.Environment, projectSlug, client, ct);
 
             BellaBaxter.Client.Models.SshCaPublicKeyResponse? result = null;
-            await AnsiConsole.Status().StartAsync($"Fetching SSH CA public key for {envName}...", async _ =>
+            await output.StatusAsync(
+$"Fetching SSH CA public key for {envName}...",
+async () =>
             {
                 result = await client.Api.V1.Projects[projectSlug].Environments[envSlug].Ssh.CaPublicKey.GetAsync(cancellationToken: ct);
             });
