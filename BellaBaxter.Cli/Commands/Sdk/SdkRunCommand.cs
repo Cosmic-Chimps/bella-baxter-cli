@@ -254,10 +254,15 @@ public class SdkRunCommand(
             if (selection.Stopped)
                 return selection.ExitCode!.Value;
 
-            var deviceKeyBase64 = zke.LoadPrivateKeyBase64();
-            if (deviceKeyBase64 is not null)
+            // #731 — PEM, not base64 DER. Python (`E2EKeyPair.from_pem`), JS (`fromPkcs8Pem`), Go
+            // (`PrivateKeyPEM`) and Java (`privateKeyPem()`) all read PEM, as does docs/e2ee-zke.md;
+            // only the .NET SDK accepted base64. Injecting base64 made `sdk run` unusable with a
+            // device key for four of the five SDKs — and under ZKE enforcement a device key is
+            // mandatory, so this is the normal path rather than an edge case.
+            var deviceKeyPem = zke.LoadPrivateKeyPem();
+            if (deviceKeyPem is not null)
             {
-                psi.Environment["BELLA_BAXTER_PRIVATE_KEY"] = deviceKeyBase64;
+                psi.Environment["BELLA_BAXTER_PRIVATE_KEY"] = deviceKeyPem;
                 AnsiConsole.MarkupLine("[dim]🔐 ZKE device key injected into subprocess.[/]");
             }
         }

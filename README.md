@@ -594,7 +594,7 @@ bella providers delete        Delete a provider
 
 bella secrets list            List secret keys (values masked)
 bella secrets get             Download all secrets as .env / JSON
-bella secrets set <key>       Create or update a secret
+bella secrets set <key>       Create or update a secret (--stdin / --from-file for automation)
 bella secrets delete <key>    Delete a secret
 bella secrets push            Push secrets from a .env file
 bella secrets generate <lang> Generate a typed secrets accessor class

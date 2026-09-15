@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using System.Text.RegularExpressions;
 using BellaBaxter.Client;
 using BellaBaxter.Client.Models;
@@ -14,8 +15,24 @@ public class SetSecretSettings : CommandSettings
     [CommandArgument(0, "<key>")]
     public string Key { get; init; } = "";
 
+    /// <summary>
+    /// The value, inline. Issue #743: an argument is visible in <c>ps</c> while the command runs and
+    /// lands in shell history, so automation should use <c>--stdin</c> or <c>--from-file</c>. Kept
+    /// because it is the convenient interactive form, and removing it would break existing scripts.
+    /// </summary>
     [CommandArgument(1, "[value]")]
+    [Description("The value. Visible in `ps` and shell history — prefer --stdin for automation")]
     public string? Value { get; init; }
+
+    /// <summary>Read the value from stdin: <c>printf %s "$V" | bella secrets set KEY --stdin</c>.</summary>
+    [CommandOption("--stdin")]
+    [Description("Read the value from stdin. The way to set a secret from a script or CI")]
+    public bool Stdin { get; init; }
+
+    /// <summary>Read the value from a file, bytes as they are — including any trailing newline.</summary>
+    [CommandOption("--from-file <PATH>")]
+    [Description("Read the value from a file, bytes as-is (a trailing newline is kept)")]
+    public string? FromFile { get; init; }
 
     [CommandOption("-p|--project <SLUG>")]
     public string? Project { get; init; }
@@ -88,6 +105,70 @@ public class SetSecretCommand(
             return 1;
         }
 
+        // Issue #743: settle WHERE the value comes from before anything else, for the same reason
+        // the tags are validated below — refusing a bad combination must cost nothing.
+        if (
+            !SecretValueSource.TrySelect(
+                settings.Value,
+                settings.Stdin,
+                settings.FromFile,
+                out var valueSource,
+                out var sourceError
+            )
+        )
+        {
+            output.WriteError(sourceError!);
+            return 1;
+        }
+
+        // …and read it here, still before any network call. A missing file or an empty pipe must be
+        // reported as itself, not after a context or login error that describes a different problem.
+        // The PROMPT is the exception: it stays below, so an operator is never asked to type a secret
+        // for a command that was going to fail on its context anyway.
+        string? value = null;
+        switch (valueSource)
+        {
+            case SecretValueSource.Kind.Stdin:
+                value = await SecretValueSource.ReadStdinAsync(ct);
+                if (value.Length == 0)
+                {
+                    // Almost always a closed stdin rather than a deliberate empty secret — what a CI
+                    // step that forgot to pipe anything looks like. Writing an empty value there
+                    // would overwrite a good secret with nothing.
+                    output.WriteError("--stdin was given but stdin was empty; nothing was written.");
+                    return 1;
+                }
+                break;
+
+            case SecretValueSource.Kind.File:
+                if (!File.Exists(settings.FromFile))
+                {
+                    output.WriteError($"File not found: {settings.FromFile}");
+                    return 1;
+                }
+                value = await SecretValueSource.ReadFileAsync(settings.FromFile!, ct);
+                if (value.Length == 0)
+                {
+                    output.WriteError($"'{settings.FromFile}' is empty; nothing was written.");
+                    return 1;
+                }
+                break;
+
+            case SecretValueSource.Kind.Positional:
+                value = settings.Value!;
+                // Issue #743: say it once, where the operator can still act on it. Only on a
+                // terminal — in a pipeline the advice is unreadable and the shell history it warns
+                // about does not exist.
+                if (Interactivity.IsInteractive(output))
+                {
+                    output.WriteWarning(
+                        "This value is now in your shell history and was visible in `ps` while the "
+                            + "command ran. For automation use --stdin or --from-file."
+                    );
+                }
+                break;
+        }
+
         // Issue #611: compose and validate the tag arguments BEFORE any network call, so a typo
         // costs nothing and never leaves a value written with the tags rejected.
         if (
@@ -125,12 +206,14 @@ public class SetSecretCommand(
                 bootstrapBellaFromExplicit: true
             );
 
-            var value = settings.Value;
-            if (string.IsNullOrEmpty(value))
+            if (value is null)
             {
                 if (!Interactivity.IsInteractive(output))
                 {
-                    output.WriteError("Value is required in non-interactive mode.");
+                    output.WriteError(
+                        "Value is required in non-interactive mode. Pass it with --stdin, "
+                            + "--from-file <path>, or as an argument."
+                    );
                     return 1;
                 }
                 value = await AnsiConsole.PromptAsync(

@@ -248,50 +248,89 @@ public class ZkeService
     ///
     /// Future: aws-kms://, vault://, azure-kv://
     /// </summary>
+    /// <summary>
+    /// Strips PEM armour to the base64 body, or returns raw base64 unchanged.
+    /// </summary>
+    /// <remarks>
+    /// <para>#731 — this was written twice inline (for <c>file://</c> and for a bare path) and NOT at
+    /// all for <c>env://</c>, which is the one <c>sdk run</c> writes into. So the moment the CLI
+    /// started emitting PEM, its own <c>pull --private-key env://</c> would have stopped reading it —
+    /// a fix for four SDKs that broke the tool shipping it.</para>
+    /// <para>Handles CRLF as well as LF: a key that has been through a Windows editor, a CI variable
+    /// or a copy-paste is still the same key, and failing on the line ending would present as
+    /// "malformed key" for a file the operator can see is correct.</para>
+    /// </remarks>
+    internal static string StripPemArmour(string content)
+    {
+        var trimmed = content.Trim();
+
+        if (!trimmed.StartsWith("-----BEGIN", StringComparison.Ordinal))
+            return trimmed;
+
+        return string.Concat(
+            trimmed
+                .Split('\n')
+                .Select(l => l.Trim())
+                .Where(l => l.Length > 0 && !l.StartsWith("-----", StringComparison.Ordinal)));
+    }
+
     public static string? ResolvePrivateKeyFromUrl(string url)
     {
         if (url.StartsWith("file://", StringComparison.OrdinalIgnoreCase))
         {
             var path = url["file://".Length..];
-            if (!File.Exists(path)) return null;
-
-            var content = File.ReadAllText(path).Trim();
-
-            // Handle PEM format
-            if (content.StartsWith("-----BEGIN"))
-            {
-                var lines = content.Split('\n');
-                var b64 = string.Concat(lines
-                    .Where(l => !l.StartsWith("-----"))
-                    .Select(l => l.Trim()));
-                return b64;
-            }
-
-            // Assume raw base64 PKCS#8
-            return content;
+            return File.Exists(path) ? StripPemArmour(File.ReadAllText(path)) : null;
         }
 
         if (url.StartsWith("env://", StringComparison.OrdinalIgnoreCase))
         {
             var varName = url["env://".Length..];
-            return Environment.GetEnvironmentVariable(varName);
+            var value = Environment.GetEnvironmentVariable(varName);
+
+            // #731 — the env var now normally CONTAINS PEM, because that is what `sdk run` injects
+            // and what every non-.NET SDK reads. Both forms are accepted so a caller who exported
+            // base64 by hand is not broken by the change.
+            return value is null ? null : StripPemArmour(value);
         }
 
         // Bare path — treat as file
         if (File.Exists(url))
-        {
-            var content = File.ReadAllText(url).Trim();
-            if (content.StartsWith("-----BEGIN"))
-            {
-                var lines = content.Split('\n');
-                return string.Concat(lines
-                    .Where(l => !l.StartsWith("-----"))
-                    .Select(l => l.Trim()));
-            }
-            return content;
-        }
+            return StripPemArmour(File.ReadAllText(url));
 
         return null;
+    }
+
+    /// <summary>
+    /// The device private key as PKCS#8 PEM — the format the Python, JS, Go and Java SDKs read, and
+    /// the one <c>docs/e2ee-zke.md</c> documents. Null when no device key exists.
+    /// </summary>
+    /// <remarks>
+    /// #731 — <c>sdk run</c> used to inject <see cref="LoadPrivateKeyBase64"/> raw, so four of the
+    /// five SDKs failed at client construction with a PEM framing error. Only the .NET SDK and the
+    /// CLI's own <c>env://</c> reader accepted base64, which is why the July matrix missed it: that
+    /// CLI version did not inject the key at all.
+    /// </remarks>
+    public string? LoadPrivateKeyPem()
+    {
+        var base64 = LoadPrivateKeyBase64();
+        if (base64 is null)
+            return null;
+
+        try
+        {
+            // Round-trip through the key type rather than wrapping the base64 in a header by hand:
+            // that would emit armour around whatever the file held, so a corrupt key would become a
+            // well-formed PEM containing garbage, and the failure would surface inside somebody
+            // else's SDK instead of here.
+            using var ecdh = System.Security.Cryptography.ECDiffieHellman.Create();
+            ecdh.ImportPkcs8PrivateKey(Convert.FromBase64String(base64), out _);
+            return new string(System.Security.Cryptography.PemEncoding.Write(
+                "PRIVATE KEY", ecdh.ExportPkcs8PrivateKey()));
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     /// <summary>
