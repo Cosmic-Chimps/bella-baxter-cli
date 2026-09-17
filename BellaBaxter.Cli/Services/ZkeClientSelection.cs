@@ -28,8 +28,10 @@ namespace BellaCli.Services;
 public sealed class ZkeClientSelection(
     ZkeService zke,
     BellaClientProvider provider,
+    CredentialStore credentials,
     DekLeaseCache dekCache,
-    IOutputWriter output)
+    IOutputWriter output
+)
 {
     /// <summary>The chosen client, or a refusal the caller returns as-is.</summary>
     public sealed record Selection(BellaClient? Client, int? ExitCode, bool DeviceKeyInUse)
@@ -47,7 +49,8 @@ public sealed class ZkeClientSelection(
         string? privateKeyOverride,
         string? appClientOverride,
         bool announce,
-        CancellationToken ct)
+        CancellationToken ct
+    )
     {
         var overridePresent = !string.IsNullOrEmpty(privateKeyOverride);
         ECDiffieHellman? ecdh = null;
@@ -79,7 +82,8 @@ public sealed class ZkeClientSelection(
                 handler = new ZkeDekHandler(
                     ecdh,
                     onWrappedDekReceived: (project, env, wrappedDek, expires) =>
-                        dekCache.Store(project, env, wrappedDek, expires));
+                        dekCache.Store(project, env, wrappedDek, expires)
+                );
                 client = provider.CreateClientWithZke(handler, appClientOverride);
             }
             else
@@ -109,11 +113,21 @@ public sealed class ZkeClientSelection(
             hasDeviceKey,
             overridePresent,
             overrideResolved: !overridePresent || ecdh is not null,
-            keyRegisteredHere: registeredHere);
+            keyRegisteredHere: registeredHere
+        );
 
         if (outcome.Stops())
         {
-            output.WriteError(ZkeGate.MessageFor(outcome) ?? "Refused by ZKE policy.", "zke-required");
+            // The tenant the refusal is about, named (#820). The gate's slug-aware branch existed from
+            // the start and no production call site ever passed one, so every rejection printed the
+            // placeholder as if it were the slug — useless to the operator it is written for, who works
+            // in several orgs and has to choose between 'bella auth setup' and 'bella org switch'.
+            var tenantSlug = credentials.LoadTokens()?.OrgSlug;
+
+            output.WriteError(
+                ZkeGate.MessageFor(outcome, tenantSlug) ?? "Refused by ZKE policy.",
+                "zke-required"
+            );
             return new Selection(null, ZkeGate.RefusedExitCode, false);
         }
 
@@ -123,7 +137,9 @@ public sealed class ZkeClientSelection(
             // to the plain client, exactly as before, and say so once.
             client = provider.CreateClient(appClientOverride);
             if (announce)
-                output.WriteWarning("Could not resolve --private-key; continuing without local decryption.");
+                output.WriteWarning(
+                    "Could not resolve --private-key; continuing without local decryption."
+                );
             return new Selection(client, null, false);
         }
 
@@ -165,7 +181,10 @@ public sealed class ZkeClientSelection(
         return null;
     }
 
-    private static async Task<ZkeStatusResponse?> TryGetStatusAsync(BellaClient client, CancellationToken ct)
+    private static async Task<ZkeStatusResponse?> TryGetStatusAsync(
+        BellaClient client,
+        CancellationToken ct
+    )
     {
         try
         {

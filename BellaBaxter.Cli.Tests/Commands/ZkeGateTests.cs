@@ -61,8 +61,38 @@ public class ZkeGateTests
             enforced: true, hasDeviceKey: true, overridePresent: false, overrideResolved: true, keyRegisteredHere: false);
 
         Assert.Equal(ZkeGateOutcome.StopNotRegisteredHere, outcome);
-        Assert.Contains("acme", ZkeGate.MessageFor(outcome, "acme"));
+        Assert.Contains("tenant 'acme'", ZkeGate.MessageFor(outcome, "acme"));
         Assert.Contains("bella auth setup", ZkeGate.MessageFor(outcome, "acme"));
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void An_unknown_tenant_is_never_dressed_up_as_a_slug(string? tenantSlug)
+    {
+        // #820: the fallback used to sit INSIDE the quotes, so a caller that passed no slug printed
+        // `tenant 'this tenant'` — indistinguishable from a real slug, which is precisely the thing the
+        // sentence exists to tell the operator. This test is on the parameterless shape because the
+        // pre-#820 tests only ever called MessageFor with an explicit slug, which is why it shipped.
+        var message = ZkeGate.MessageFor(ZkeGateOutcome.StopNotRegisteredHere, tenantSlug);
+
+        Assert.NotNull(message);
+        Assert.DoesNotContain("'this tenant'", message);
+        Assert.DoesNotContain("tenant ''", message);
+        Assert.Contains("this tenant", message);
+        Assert.Contains("bella auth setup", message);
+    }
+
+    [Fact]
+    public void The_refusal_offers_both_ways_out()
+    {
+        // Registering this machine here, or moving to the org where it IS registered — an operator
+        // working across several cannot tell which they want without being told which tenant refused.
+        var message = ZkeGate.MessageFor(ZkeGateOutcome.StopNotRegisteredHere, "acme");
+
+        Assert.Contains("bella auth setup", message);
+        Assert.Contains("bella org switch", message);
     }
 
     [Fact]

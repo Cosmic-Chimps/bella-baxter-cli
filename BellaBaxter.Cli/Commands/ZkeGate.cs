@@ -84,11 +84,25 @@ public static class ZkeGate
         ZkeGateOutcome.StopNeedsSetup =>
             "This tenant requires a registered device key. Run 'bella auth setup'.",
         ZkeGateOutcome.StopNotRegisteredHere =>
-            $"Your device key is not registered in tenant '{tenantSlug ?? "this tenant"}'. Run 'bella auth setup'.",
+            $"Your device key is not registered in {NameTenant(tenantSlug)}. Run 'bella auth setup' "
+            + "(or 'bella org switch' if you meant another org).",
         ZkeGateOutcome.StopUnresolvableKey =>
             "This tenant requires a registered device key, and --private-key could not be resolved.",
         _ => null,
     };
+
+    /// <summary>
+    /// The tenant as the sentence should name it (#820).
+    /// </summary>
+    /// <remarks>
+    /// The fallback sits OUTSIDE the quotes deliberately. Written as
+    /// <c>tenant '{tenantSlug ?? "this tenant"}'</c>, an unknown slug printed as <c>tenant 'this
+    /// tenant'</c> — quoted exactly like a real slug, so an operator working across several orgs read it
+    /// as the name of the tenant refusing them and had no way to tell it was a placeholder. A refusal
+    /// that names the wrong thing is worse than one that names nothing.
+    /// </remarks>
+    private static string NameTenant(string? tenantSlug) =>
+        string.IsNullOrWhiteSpace(tenantSlug) ? "this tenant" : $"tenant '{tenantSlug}'";
 
     /// <summary>True when the command must stop rather than issue the secret request.</summary>
     public static bool Stops(this ZkeGateOutcome outcome) =>
