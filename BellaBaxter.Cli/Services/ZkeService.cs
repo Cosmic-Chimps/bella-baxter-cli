@@ -80,6 +80,45 @@ public class ZkeService
     public bool HasKeypair() => File.Exists(PrivateKeyFile);
 
     /// <summary>
+    /// Reads the stored device key and imports it, zeroing the PKCS#8 bytes on the way out (#829).
+    /// </summary>
+    /// <remarks>
+    /// <para>These four lines were written out three times in this file and once more in
+    /// <c>ZkeClientSelection</c>, and none of the four zeroed anything. Key material living longer
+    /// than it needs to is exactly the kind of omission that survives review when the code is
+    /// duplicated, so there is now one copy with the <c>finally</c> attached to it.</para>
+    ///
+    /// <para><b>What this does NOT reach, stated because zeroing invites the assumption that it
+    /// did.</b> <c>IDataProtector.Unprotect</c> returns an immutable <c>string</c> holding the
+    /// base64 private key. A .NET string cannot be reliably zeroed — it is interned-adjacent, may be
+    /// moved by the GC, and there is no supported way to overwrite it. So the private key remains
+    /// recoverable from a heap dump until that string is collected, whatever this method does to the
+    /// byte array. Closing that means protecting and unprotecting BYTES, which changes the on-disk
+    /// format and needs a migration for every device already set up — worth doing, not worth
+    /// smuggling into a hardening fix. The array is still worth zeroing: it is the copy that lives
+    /// as long as the process, and it costs nothing.</para>
+    /// </remarks>
+    private ECDiffieHellman ImportStoredKey()
+    {
+        var pkcs8 = Convert.FromBase64String(_protector.Unprotect(File.ReadAllText(PrivateKeyFile)));
+        var ecdh = ECDiffieHellman.Create();
+        try
+        {
+            ecdh.ImportPkcs8PrivateKey(pkcs8, out _);
+            return ecdh;
+        }
+        catch
+        {
+            ecdh.Dispose();
+            throw;
+        }
+        finally
+        {
+            CryptographicOperations.ZeroMemory(pkcs8);
+        }
+    }
+
+    /// <summary>
     /// Loads the stored private key as an <see cref="ECDiffieHellman"/> object for use in
     /// <see cref="BellaBaxter.Client.ZkeDekHandler"/>. The caller is responsible for disposing.
     /// Returns null if no keypair is set up or if loading fails.
@@ -89,11 +128,7 @@ public class ZkeService
         if (!File.Exists(PrivateKeyFile)) return null;
         try
         {
-            var encrypted = File.ReadAllText(PrivateKeyFile);
-            var pkcs8 = Convert.FromBase64String(_protector.Unprotect(encrypted));
-            var ecdh = ECDiffieHellman.Create();
-            ecdh.ImportPkcs8PrivateKey(pkcs8, out _);
-            return ecdh;
+            return ImportStoredKey();
         }
         catch
         {
@@ -111,9 +146,20 @@ public class ZkeService
         using var ecdh = ECDiffieHellman.Create(ECCurve.NamedCurves.nistP256);
 
         // Save private key (PKCS#8 format, DataProtection encrypted)
+        //
+        // The export is zeroed too (#829 did not list this one — it inventoried the IMPORT sites).
+        // A key is at its most exposed the moment it is created: this array is the only copy that
+        // has ever held it in this process, and it used to be left for the GC.
         var pkcs8 = ecdh.ExportPkcs8PrivateKey();
-        var encrypted = _protector.Protect(Convert.ToBase64String(pkcs8));
-        PrivateFiles.WritePrivate(PrivateKeyFile, encrypted);
+        try
+        {
+            var encrypted = _protector.Protect(Convert.ToBase64String(pkcs8));
+            PrivateFiles.WritePrivate(PrivateKeyFile, encrypted);
+        }
+        finally
+        {
+            CryptographicOperations.ZeroMemory(pkcs8);
+        }
 
         // Return public key as base64 SPKI for API registration
         var spki = ecdh.ExportSubjectPublicKeyInfo();
@@ -129,10 +175,7 @@ public class ZkeService
 
         try
         {
-            var encrypted = File.ReadAllText(PrivateKeyFile);
-            var pkcs8 = Convert.FromBase64String(_protector.Unprotect(encrypted));
-            using var ecdh = ECDiffieHellman.Create();
-            ecdh.ImportPkcs8PrivateKey(pkcs8, out _);
+            using var ecdh = ImportStoredKey();
             return Convert.ToBase64String(ecdh.ExportSubjectPublicKeyInfo());
         }
         catch
@@ -161,10 +204,7 @@ public class ZkeService
 
         try
         {
-            var encrypted = File.ReadAllText(PrivateKeyFile);
-            var pkcs8 = Convert.FromBase64String(_protector.Unprotect(encrypted));
-            using var ecdh = ECDiffieHellman.Create();
-            ecdh.ImportPkcs8PrivateKey(pkcs8, out _);
+            using var ecdh = ImportStoredKey();
 
             // Decode header: base64(UTF8 JSON of E2EEncryptedPayload)
             var wrappedDekJson = Encoding.UTF8.GetString(Convert.FromBase64String(wrappedDekBase64Header));

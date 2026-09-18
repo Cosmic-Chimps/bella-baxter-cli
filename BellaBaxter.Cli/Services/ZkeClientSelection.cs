@@ -60,8 +60,19 @@ public sealed class ZkeClientSelection(
             var pkcs8b64 = ZkeService.ResolvePrivateKeyFromUrl(privateKeyOverride!);
             if (pkcs8b64 is not null)
             {
-                ecdh = ECDiffieHellman.Create();
-                ecdh.ImportPkcs8PrivateKey(Convert.FromBase64String(pkcs8b64), out _);
+                // Zeroed after the import (#829). The base64 STRING it was decoded from cannot be —
+                // see ZkeService.ImportStoredKey for why that is a storage-format problem and not an
+                // oversight here.
+                var pkcs8 = Convert.FromBase64String(pkcs8b64);
+                try
+                {
+                    ecdh = ECDiffieHellman.Create();
+                    ecdh.ImportPkcs8PrivateKey(pkcs8, out _);
+                }
+                finally
+                {
+                    CryptographicOperations.ZeroMemory(pkcs8);
+                }
             }
         }
         else
