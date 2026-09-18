@@ -150,7 +150,7 @@ public class GetSecretsCommand(
                     "json-nested" => FormatJsonNested(allSecrets),
                     _ => FormatEnv(allSecrets),
                 };
-                await File.WriteAllTextAsync(effectiveOutputFile, content, ct);
+                await PrivateFiles.WritePrivateAsync(effectiveOutputFile, content, ct);
                 output.WriteSuccess(
                     $"Secrets written to '{effectiveOutputFile}' ({allSecrets.Count} keys)"
                 );

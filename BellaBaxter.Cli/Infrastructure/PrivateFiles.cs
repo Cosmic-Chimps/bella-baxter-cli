@@ -3,7 +3,15 @@ using System.Runtime.InteropServices;
 namespace BellaCli.Infrastructure;
 
 /// <summary>
-/// Owner-only creation and repair for the CLI's credential directory.
+/// Owner-only creation and repair for the files the CLI writes that hold secret material.
+///
+/// <para>Two populations, and the second one arrived later (#832). The CLI's own state under
+/// <c>~/.config/bella-cli</c> is below; the other is files the OPERATOR asks for — a freshly issued
+/// PKI private key, an environment dumped to <c>.env</c>, the sinks <c>bella agent</c> rewrites on
+/// every change. Those went through plain <c>File.WriteAllText</c>, i.e. the process umask, which is
+/// 0644 on a typical host. The directory they land in is left alone: it is usually the operator's
+/// project or an application's config directory, and tightening a directory we were merely asked to
+/// write into would be a surprise. The files are ours to create.</para>
 ///
 /// <para>Pilot F3: <c>~/.config/bella-cli</c> and everything under it — <c>tokens.json</c>,
 /// <c>apikey.json</c>, <c>zke-private-key.dat</c>, and the DataProtection key ring in
@@ -93,6 +101,41 @@ public static class PrivateFiles
 
         using var writer = new StreamWriter(new FileStream(path, options));
         writer.Write(contents);
+    }
+
+    /// <summary>
+    /// <see cref="WritePrivate"/> for the callers that already await their write.
+    /// </summary>
+    /// <remarks>
+    /// Separate rather than <c>WritePrivate</c> calling <c>.Wait()</c>: blocking on a file write
+    /// inside a command that is otherwise async is how a CLI deadlocks on a synchronization context
+    /// it does not control.
+    /// </remarks>
+    public static async Task WritePrivateAsync(
+        string path,
+        string contents,
+        CancellationToken ct = default
+    )
+    {
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+        {
+            await File.WriteAllTextAsync(path, contents, ct);
+            return;
+        }
+
+        if (File.Exists(path))
+            TightenFile(path);
+
+        var options = new FileStreamOptions
+        {
+            Mode = FileMode.Create,
+            Access = FileAccess.Write,
+            Options = FileOptions.Asynchronous,
+            UnixCreateMode = FilePermissions,
+        };
+
+        await using var writer = new StreamWriter(new FileStream(path, options));
+        await writer.WriteAsync(contents.AsMemory(), ct);
     }
 
     /// <summary>

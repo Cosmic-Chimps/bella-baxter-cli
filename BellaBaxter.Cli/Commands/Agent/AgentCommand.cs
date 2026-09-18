@@ -244,7 +244,9 @@ public class AgentCommand(BellaClientProvider provider, IOutputWriter output)
 
     // ── Sink writers ─────────────────────────────────────────────────────────
 
-    private static void WriteAllSinks(List<SinkConfig> sinks, Dictionary<string, string> secrets)
+    // internal so the permissions of what it writes can be asserted directly (#832); the csproj
+    // already exposes internals to the test project for exactly this reason.
+    internal static void WriteAllSinks(List<SinkConfig> sinks, Dictionary<string, string> secrets)
     {
         foreach (var sink in sinks)
         {
@@ -255,15 +257,24 @@ public class AgentCommand(BellaClientProvider provider, IOutputWriter output)
                 {
                     case "dotenv":
                         var dotenvLines = secrets.OrderBy(k => k.Key).Select(kvp => $"{kvp.Key}={JsonSerializer.Serialize(kvp.Value)}");
-                        File.WriteAllText(sink.Path, string.Join('\n', dotenvLines) + '\n');
+                        PrivateFiles.WritePrivate(
+                            sink.Path,
+                            string.Join('\n', dotenvLines) + '\n'
+                        );
                         break;
                     case "json":
                         var ordered = new SortedDictionary<string, string>(secrets);
-                        File.WriteAllText(sink.Path, JsonSerializer.Serialize(ordered, new JsonSerializerOptions { WriteIndented = true }) + '\n');
+                        PrivateFiles.WritePrivate(
+                            sink.Path,
+                            JsonSerializer.Serialize(
+                                ordered,
+                                new JsonSerializerOptions { WriteIndented = true }
+                            ) + '\n'
+                        );
                         break;
                     case "yaml":
                         var yamlLines = secrets.OrderBy(k => k.Key).Select(kvp => $"{kvp.Key}: {JsonSerializer.Serialize(kvp.Value)}");
-                        File.WriteAllText(sink.Path, string.Join('\n', yamlLines) + '\n');
+                        PrivateFiles.WritePrivate(sink.Path, string.Join('\n', yamlLines) + '\n');
                         break;
                     default:
                         Console.Error.WriteLine($"  ⚠ Unknown sink type '{sink.Type}' — skipping");

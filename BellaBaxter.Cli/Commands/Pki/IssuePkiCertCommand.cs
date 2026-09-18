@@ -138,8 +138,15 @@ async () =>
             if (!string.IsNullOrWhiteSpace(settings.Out))
             {
                 var prefix = settings.Out;
+                // The certificate and the chain are public material and stay at the umask — a
+                // deployment usually needs them readable by the service that serves them. The KEY is
+                // the one file here that must not be.
                 await File.WriteAllTextAsync($"{prefix}.crt", result.Certificate + "\n", ct);
-                await File.WriteAllTextAsync($"{prefix}.key", (result.PrivateKey ?? "") + "\n", ct);
+                await PrivateFiles.WritePrivateAsync(
+                    $"{prefix}.key",
+                    (result.PrivateKey ?? "") + "\n",
+                    ct
+                );
                 if (result.CaChain?.Count > 0)
                     await File.WriteAllTextAsync($"{prefix}-chain.pem", string.Join("\n", result.CaChain) + "\n", ct);
 
