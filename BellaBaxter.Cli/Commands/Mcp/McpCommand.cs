@@ -66,6 +66,39 @@ public class McpCommand(ConfigService config, CredentialStore credentials)
         ConcurrentDictionary<string, CallToolResult> Results
     );
 
+    /// <summary>
+    /// Issue #831 — what a freshness check established. THREE outcomes, because the two-valued
+    /// <c>(bool Changed, string? NewETag)</c> this replaced had nowhere to put the third and folded it
+    /// into "unchanged".
+    /// </summary>
+    /// <remarks>
+    /// <para>"Nothing changed" and "I could not find out" are different answers, and only the first
+    /// one authorises serving a cached secret. A revoked API key does not produce a 304 — it produces
+    /// a 401, which landed in the <c>Unverifiable</c> case and was read as <c>Unchanged</c>. So the
+    /// proxy kept handing the assistant secrets it had fetched while still authorised, indefinitely:
+    /// the only eviction path was a successful 200 with a new ETag, which a revoked key can never
+    /// obtain either. Network failure had the same shape.</para>
+    ///
+    /// <para>Deriving a verdict from a failed read is the mistake this codebase keeps re-finding —
+    /// spec 025's <c>superseded-keys-unreadable</c>, spec 023's "never derive a verdict from a failed
+    /// appliance read", spec 021's "an unreadable binding is never treated as absent". An empty or
+    /// failed answer IS a verdict, and it must not be the permissive one.</para>
+    /// </remarks>
+    internal enum EtagFreshness
+    {
+        /// <summary>304 — the server confirmed, to an authenticated caller, that nothing changed.</summary>
+        Unchanged,
+
+        /// <summary>200 with a new ETag — the secrets moved; the cached results are stale.</summary>
+        Changed,
+
+        /// <summary>
+        /// Anything else: an unexpected status (401 from a revoked key, 403, 5xx) or a transport
+        /// fault. Nothing was established, so nothing cached may be served on the strength of it.
+        /// </summary>
+        Unverifiable,
+    }
+
     private readonly ConcurrentDictionary<string, EnvCacheEntry> _secretsCache = new();
 
     private static readonly HashSet<string> _cachedTools = ["get_secret", "list_secret_keys"];
@@ -111,7 +144,7 @@ public class McpCommand(ConfigService config, CredentialStore credentials)
                     + "To fix:\n"
                     + "  1. Create an API key in the Bella Baxter WebApp → Settings → API Keys\n"
                     + "  2. Set BELLA_BAXTER_API_KEY=bax-<your-key> in your MCP host config\n"
-                    + "     OR run: bella login --api-key bax-<your-key>"
+                    + "     OR run: bella login   (prompts for the key without echoing it)"
             );
             return 1;
         }
@@ -213,22 +246,47 @@ public class McpCommand(ConfigService config, CredentialStore credentials)
     {
         if (_secretsCache.TryGetValue(envKey, out var entry))
         {
-            var (etagChanged, newETag) = await CheckETagAsync(apiBase, envKey, entry.ETag, hashHttpClient, ct);
+            var (freshness, newETag) = await CheckETagAsync(apiBase, envKey, entry.ETag, hashHttpClient, ct);
 
-            if (!etagChanged)
+            switch (freshness)
             {
-                // 304 Not Modified — secrets unchanged
-                if (entry.Results.TryGetValue(resultKey, out var cached))
-                    return cached;  // cache hit — zero metered calls
+                case EtagFreshness.Unchanged:
+                    // The server confirmed it, to an authenticated caller. This is the ONLY branch
+                    // that may answer from memory.
+                    if (entry.Results.TryGetValue(resultKey, out var cached))
+                        return cached;  // cache hit — zero metered calls
 
-                // ETag still valid but this specific result not yet cached — fall through to fetch
+                    // Verified fresh, but this particular result was never cached — fetch it.
+                    break;
+
+                case EtagFreshness.Changed when newETag is not null:
+                    // Secrets moved — drop every cached result and re-anchor on the new ETag.
+                    _secretsCache[envKey] = new EnvCacheEntry(
+                        newETag, new ConcurrentDictionary<string, CallToolResult>());
+                    break;
+
+                case EtagFreshness.Unverifiable:
+                    // Issue #831 — EVICT, then forward. Both halves matter and neither is sufficient:
+                    //
+                    // Evicting is what stops the stale serve. Forwarding is what restores the SERVER
+                    // as the authority — it re-authenticates the key, so a revoked one is refused
+                    // upstream, and the refusal is recorded there. While this branch returned the
+                    // cached result, the API never saw the call at all, so there was no audit row and
+                    // no refusal for anyone to find.
+                    //
+                    // The cached value here is a secret the assistant already holds, so eviction does
+                    // not un-disclose anything; what it stops is the NEXT disclosure, after authority
+                    // to make it has gone. (Revocation stops access, not knowledge — spec 037.)
+                    //
+                    // No TTL is needed once this branch exists, and that is worth stating because the
+                    // issue offers one as an alternative. Every cached serve now requires a fresh,
+                    // authenticated 304 obtained during that very call, so the cache cannot outlive
+                    // revocation by more than the one call that discovers it. A TTL would only bound
+                    // the case where the server keeps confirming freshness to a still-valid key —
+                    // which is the cache working correctly.
+                    _secretsCache.TryRemove(envKey, out _);
+                    break;
             }
-            else if (newETag is not null)
-            {
-                // Secrets changed — evict stale results, update ETag
-                _secretsCache[envKey] = new EnvCacheEntry(newETag, new ConcurrentDictionary<string, CallToolResult>());
-            }
-            // If ETag check failed (network error etc.) we fall through and forward without caching
         }
 
         // Forward to upstream
@@ -241,65 +299,99 @@ public class McpCommand(ConfigService config, CredentialStore credentials)
         }
         else
         {
-            // First call for this env — fetch ETag to seed the cache
+            // First call for this env — seed the cache, but ONLY if we can anchor it to a real ETag.
+            //
+            // Issue #831: this used to seed with "" whenever the fetch failed, creating an entry
+            // holding a secret value that no freshness check could ever confirm. It self-corrected
+            // (an empty If-None-Match draws a 200, so the next call re-fetched) but it meant a cached
+            // secret could exist with nothing to validate it against. A cached secret result now
+            // exists only alongside an ETag the server actually gave us.
             var etag = await FetchInitialETagAsync(apiBase, envKey, hashHttpClient, ct);
-            var newEntry = new EnvCacheEntry(etag, new ConcurrentDictionary<string, CallToolResult>());
-            newEntry.Results[resultKey] = result;
-            _secretsCache.TryAdd(envKey, newEntry);
+
+            if (etag is not null)
+            {
+                var newEntry = new EnvCacheEntry(etag, new ConcurrentDictionary<string, CallToolResult>());
+                newEntry.Results[resultKey] = result;
+                _secretsCache.TryAdd(envKey, newEntry);
+            }
         }
 
         return result;
     }
 
     /// <summary>
-    /// Sends a conditional GET to /secrets/hash with If-None-Match.
-    /// Returns (changed: false, newETag: null) on 304, (changed: true, newETag) on 200,
-    /// (changed: false, null) on error (fail open — keep serving from cache).
+    /// Sends a conditional GET to <c>/secrets/hash</c> with <c>If-None-Match</c> and reports which of
+    /// the three <see cref="EtagFreshness"/> outcomes was established.
     /// </summary>
-    private static async Task<(bool Changed, string? NewETag)> CheckETagAsync(
+    /// <remarks>
+    /// Issue #831 — every one of these returns used to be a two-valued tuple, and the two error paths
+    /// returned the SAME value as a 304. They are now <see cref="EtagFreshness.Unverifiable"/>, which
+    /// the caller answers by evicting and forwarding. Do not reintroduce a "fail open" comment here:
+    /// serving a cached secret because the freshness check failed is precisely the defect, and the
+    /// failure it hides is a revoked credential.
+    /// </remarks>
+    internal static async Task<(EtagFreshness Freshness, string? NewETag)> CheckETagAsync(
         string apiBase, string envKey, string etag, HttpClient client, CancellationToken ct)
     {
         try
         {
             var url = BuildHashUrl(apiBase, envKey);
-            if (url is null) return (false, null);
+
+            // A URL we cannot even build establishes nothing about freshness.
+            if (url is null) return (EtagFreshness.Unverifiable, null);
 
             using var req = new HttpRequestMessage(HttpMethod.Get, url);
             req.Headers.TryAddWithoutValidation("If-None-Match", etag);
             using var resp = await client.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, ct);
 
             if (resp.StatusCode == HttpStatusCode.NotModified)
-                return (false, null);
+                return (EtagFreshness.Unchanged, null);
 
             if (resp.IsSuccessStatusCode)
             {
                 var newETag = resp.Headers.ETag?.ToString() ?? "";
-                return (true, newETag);
+
+                // A 200 carrying no ETag leaves us unable to anchor the cache on anything. Treat it as
+                // unverifiable rather than caching under an empty tag.
+                return newETag.Length == 0
+                    ? (EtagFreshness.Unverifiable, null)
+                    : (EtagFreshness.Changed, newETag);
             }
 
-            return (false, null); // unexpected status — fail open
+            // 401 (the revoked key), 403, 404, 5xx — the server did not confirm freshness.
+            return (EtagFreshness.Unverifiable, null);
         }
         catch
         {
-            return (false, null); // network error — fail open, serve from cache
+            // Transport fault. Indistinguishable, from here, from a host that is refusing us.
+            return (EtagFreshness.Unverifiable, null);
         }
     }
 
-    /// <summary>Fetches /secrets/hash to get the initial ETag for a newly-cached env.</summary>
-    private static async Task<string> FetchInitialETagAsync(
+    /// <summary>
+    /// Fetches <c>/secrets/hash</c> for a newly-cached env, or <c>null</c> when no ETag could be
+    /// established — in which case the caller does not create the entry at all (issue #831).
+    /// </summary>
+    private static async Task<string?> FetchInitialETagAsync(
         string apiBase, string envKey, HttpClient client, CancellationToken ct)
     {
         try
         {
             var url = BuildHashUrl(apiBase, envKey);
-            if (url is null) return "";
+            if (url is null) return null;
 
             using var resp = await client.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, ct);
-            return resp.IsSuccessStatusCode ? (resp.Headers.ETag?.ToString() ?? "") : "";
+
+            if (!resp.IsSuccessStatusCode) return null;
+
+            var etag = resp.Headers.ETag?.ToString();
+
+            // An empty tag is not a tag. Returning "" here is what let an unanchored entry exist.
+            return string.IsNullOrEmpty(etag) ? null : etag;
         }
         catch
         {
-            return "";
+            return null;
         }
     }
 
@@ -366,7 +458,8 @@ public class McpCommand(ConfigService config, CredentialStore credentials)
                 $"  Connector address : {address}",
                 "  Advanced settings : OAuth Client ID = bella-mcp-connector   (no client secret)",
                 "Sign in with your Bella account; the connection appears under Profile → Connected AI clients,",
-                "where it can be revoked. Changes there take effect within 5 minutes.",
+                "where it can be revoked. A revoked connector stops within 5 minutes (its access-token",
+                "lifespan); revoking an API key stops `bella mcp` on its next tool call.",
                 "",
             ]
         );

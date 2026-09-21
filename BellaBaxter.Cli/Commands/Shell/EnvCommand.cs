@@ -101,8 +101,11 @@ public class EnvCommand(ConfigService config, CredentialStore credentials) : Com
         if (storedKey == null)
         {
             Console.Error.WriteLine(
+                // Issue #833: `bella login` prompts for the key without echoing it; the flag form
+                // that used to be printed here lands the key in shell history.
                 "bella env: no API key stored. Log in first:\n" +
-                "  bella login --api-key bax-<keyId>-<secret>"
+                "  bella login                     (prompts for the key, not echoed)\n" +
+                "  BELLA_BAXTER_API_KEY=bax-...    (for automation)"
             );
             return 1;
         }

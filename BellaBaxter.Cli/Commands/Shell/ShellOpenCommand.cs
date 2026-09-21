@@ -84,8 +84,12 @@ public class ShellOpenCommand(ConfigService config, CredentialStore credentials)
         if (storedKey == null)
         {
             AnsiConsole.MarkupLine(
+                // Issue #833: this used to show `--api-key bax-<keyId>-<secret>`, which teaches the
+                // one form that puts the key in `ps` and in shell history. `bella login` asks for it
+                // on a hidden prompt that clears itself.
                 "[red]No API key stored.[/] Log in first:\n" +
-                "  [cyan]bella login --api-key bax-<keyId>-<secret>[/]"
+                "  [cyan]bella login[/]                       (prompts for the key, not echoed)\n" +
+                "  [cyan]BELLA_BAXTER_API_KEY=bax-...[/]      (for automation)"
             );
             return 1;
         }

@@ -128,7 +128,7 @@ bella upgrade --check   # check without installing
 bella login
 
 # 2. Log in with an API key (CI/CD, no browser)
-bella login --api-key bax-mykeyid-mysigningsecret
+bella login
 
 # 3. List your projects
 bella projects list
@@ -166,7 +166,7 @@ bella login          # opens a browser window
 ### API keys — for machines
 
 ```bash
-bella login --api-key bax-<keyid>-<secret>
+bella login
 ```
 
 - Authenticates with a pre-issued API key (issued from the Bella web app)
@@ -181,7 +181,7 @@ bella login --api-key bax-<keyid>-<secret>
 | **OAuth** | **Yes** | Token has no project/env context — Bella reads it from `.bella` or `-p`/`-e` flags |
 | **API key** | No | Project + env are encoded in the key itself |
 
-When you run `bella login --api-key bax-…`, Bella **automatically creates a `.bella` file** in the current directory with the project and environment extracted from the key. This is why you'll see a `.bella` file appear after API key login — it is generated for you.
+When you run `bella login`, Bella **automatically creates a `.bella` file** in the current directory with the project and environment extracted from the key. This is why you'll see a `.bella` file appear after API key login — it is generated for you.
 
 You can commit the `.bella` file to share context with your team, or add it to `.gitignore` to keep it personal.
 
@@ -223,7 +223,7 @@ environment = "dev"
 
 You can commit it to your repository to share the default context with your team, or add it to `.gitignore` if it's personal.
 
-> **Note:** When using OAuth, the `.bella` file is **required** because the token has no project/environment context built in. When using an API key, the file is optional (the key already encodes the project/env) and is auto-created by `bella login --api-key`. See [Authentication & Billing](#authentication--billing) for details.
+> **Note:** When using OAuth, the `.bella` file is **required** because the token has no project/environment context built in. When using an API key, the file is optional (the key already encodes the project/env) and is auto-created by `bella login`. See [Authentication & Billing](#authentication--billing) for details.
 
 ---
 
@@ -759,7 +759,7 @@ command: ["bella", "sdk", "run", "-p", "my-project", "-e", "production", "--", "
 `bella sdk run` and `bella run` resolve credentials in this order:
 
 1. **Workload identity** — GitHub Actions OIDC or Kubernetes SA token (automatic, no config)
-2. **Stored API key** — from `bella login --api-key`
+2. **Stored API key** — from `bella login`
 3. **`BELLA_BAXTER_API_KEY` env var** — explicit override
 4. **Stored OAuth2 tokens** — from `bella login` (browser flow)
 
@@ -836,7 +836,7 @@ Variables exported:
 | `BELLA_BAXTER_URL` | API base URL (only when non-default) |
 | `BELLA_API_KEY` / `BELLA_PROJECT` / `BELLA_ENV` | Deprecated aliases |
 
-> **Note:** `bella env` requires a stored API key (`bella login --api-key`). For OAuth2 sessions, use `bella shell open` instead.
+> **Note:** `bella env` requires a stored API key (`bella login`). For OAuth2 sessions, use `bella shell open` instead.
 
 ---
 

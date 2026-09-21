@@ -30,7 +30,7 @@ public class BellaClientProvider(
         + "OAuth tokens are short-lived and not suitable for automation.\n\n"
         + "Use one of:\n"
         + "  BELLA_BAXTER_API_KEY=bax-...   (API key from the WebApp)\n"
-        + "  bella login --api-key bax-...  (store it locally)\n"
+        + "  bella login                    (store it locally; prompts, never echoed — #833)\n"
         + "  Workload identity              (keyless OIDC — no secret needed)\n\n"
         + "See: https://docs.bella.cosmicchimps.io/keyless";
 

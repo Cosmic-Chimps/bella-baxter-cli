@@ -167,8 +167,7 @@ public class ExecCommand(
         {
             output.WriteError(
                 "Not authenticated.\n"
-                    + "Run: bella login           (JWT / interactive)\n"
-                    + "     bella login --api-key  (API key)\n"
+                    + "Run: bella login           (JWT, or an API key on a hidden prompt)\n"
                     + "Or set: BELLA_BAXTER_API_KEY environment variable"
             );
             return 1;

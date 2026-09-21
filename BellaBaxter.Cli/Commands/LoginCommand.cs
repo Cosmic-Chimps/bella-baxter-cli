@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using BellaCli.Infrastructure;
 using BellaCli.Services;
 using Spectre.Console;
@@ -7,7 +8,14 @@ namespace BellaCli.Commands;
 
 public class LoginSettings : CommandSettings
 {
+    /// <summary>
+    /// The API key, inline. Issue #833: a key passed as an argument is visible in <c>ps</c> for the
+    /// life of the process and lands in shell history — and this key does not expire, so the
+    /// exposure does not either. Kept because removing it would break existing scripts; no longer
+    /// recommended anywhere, and <c>bella login</c> with no flag asks for it on a hidden prompt.
+    /// </summary>
     [CommandOption("--api-key <KEY>")]
+    [Description("The API key. Visible in `ps` and shell history — prefer plain `bella login`")]
     public string? ApiKey { get; init; }
 
     [CommandOption("--force")]
@@ -71,6 +79,19 @@ public class LoginCommand(AuthService auth, CredentialStore credentials, KeyCont
             {
                 auth.LoginWithApiKey(settings.ApiKey);
                 output.WriteSuccess("API key stored successfully.");
+                // Issue #833, and the reason it is said AFTER the success: the key is already
+                // stored and already in the history, so this is advice for next time rather than a
+                // refusal. Terminal only — in a pipeline the advice is unreadable and the shell
+                // history it warns about does not exist. Same placement as #743's.
+                if (Interactivity.IsInteractive(output))
+                {
+                    output.WriteWarning(
+                        "That key is now in your shell history and was visible in `ps` while the "
+                            + "command ran, and an API key does not expire. Next time run "
+                            + "`bella login` with no flag — it prompts without echoing — or set "
+                            + "BELLA_BAXTER_API_KEY for automation."
+                    );
+                }
                 await TryWriteBellaContextAsync(ct);
                 return 0;
             }

@@ -79,7 +79,7 @@ public class WhoAmICommand(
         if (failure == ServerProbeFailure.Rejected)
         {
             output.WriteError(
-                "API key revoked or invalid. Create a new key and run 'bella login --api-key'.",
+                "API key revoked or invalid. Create a new key and run 'bella login'.",
                 "key_rejected"
             );
             return 1;

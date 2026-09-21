@@ -230,7 +230,8 @@ app.Configure(config =>
                         + "Generates a P-256 keypair (private half stored owner-only under ~/.config/bella-cli) "
                         + "and REGISTERS the public half with Bella. Where the tenant enforces ZKE, only a "
                         + "registered device may read secrets or obtain credentials — second-factor codes, "
-                        + "SSH certificates and access tokens. Safe to re-run; register again per tenant."
+                        + "SSH certificates, access tokens, TLS certificates and database credentials. "
+                        + "Safe to re-run; register again per tenant."
                 )
                 .WithExample("auth", "setup")
                 .WithExample("auth", "setup", "--device-name", "\"MacBook Pro\"")

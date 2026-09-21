@@ -844,7 +844,12 @@ public class GenerateSecretsCodeCommand(
         {
             "csharp" => $"{className}.cs",
             "fsharp" => $"{className}.fs",
-            "python" => "secrets.py",
+            // #733: NOT "secrets.py". Python resolves the script's own directory first, so a file
+            // with that name shadows the stdlib `secrets` module for the whole program — and the
+            // stdlib one is what generates tokens. The symptom is an ImportError or, worse, a
+            // silently different `secrets.token_hex`. The sample that demonstrated this command was
+            // broken by exactly that, faithfully following what the command wrote.
+            "python" => "bella_secrets.py",
             "go" => "secrets.go",
             "typescript" when types => "bella-secrets.d.ts",
             "typescript" => "secrets.ts",
