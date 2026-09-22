@@ -14,7 +14,7 @@ public class ImportProviderGateTests
     public void A_certificate_source_with_a_prefix_is_accepted()
     {
         var refusal = CertificateImportPlanner.RefuseSource(
-            "prosa-certs",
+            "acme-certs",
             "BellaBaxterSecretsSource",
             "GIGAMON_CERT_"
         );
@@ -26,7 +26,7 @@ public class ImportProviderGateTests
     public void The_type_is_matched_case_insensitively()
     {
         var refusal = CertificateImportPlanner.RefuseSource(
-            "prosa-certs",
+            "acme-certs",
             "bellabaxtersecretssource",
             "GIGAMON_CERT_"
         );
@@ -65,7 +65,7 @@ public class ImportProviderGateTests
     public void A_source_with_no_prefix_is_refused(string? prefix)
     {
         var refusal = CertificateImportPlanner.RefuseSource(
-            "prosa-certs",
+            "acme-certs",
             "BellaBaxterSecretsSource",
             prefix
         );
@@ -80,19 +80,19 @@ public class ImportProviderGateTests
     public void A_common_name_with_dots_makes_a_valid_secret_key()
     {
         // The env-var pattern used by `bella secrets set` would reject this. Certificates need it.
-        Assert.True(CertificateImportPlanner.IsValidSecretKey("GIGAMON_CERT_adyen.prosa.com.mx"));
+        Assert.True(CertificateImportPlanner.IsValidSecretKey("GIGAMON_CERT_daffy.acme.com.mx"));
     }
 
     [Fact]
     public void A_mixed_case_common_name_is_preserved_in_the_key()
     {
-        Assert.True(CertificateImportPlanner.IsValidSecretKey("GIGAMON_CERT_ADkushki.prosa.com.mx"));
+        Assert.True(CertificateImportPlanner.IsValidSecretKey("GIGAMON_CERT_RoadRunner.acme.com.mx"));
     }
 
     [Fact]
     public void A_hyphenated_common_name_makes_a_valid_secret_key()
     {
-        Assert.True(CertificateImportPlanner.IsValidSecretKey("GIGAMON_CERT_B425-HH-E.prosa.com.mx"));
+        Assert.True(CertificateImportPlanner.IsValidSecretKey("GIGAMON_CERT_B425-HH-E.acme.com.mx"));
     }
 
     [Theory]

@@ -21,8 +21,8 @@ public class ManifestReaderTests : IDisposable
         var path = WriteXlsx(
             [
                 ["Common Name", "Contraseña"],
-                ["ADkushki.prosa.example", "ADkushkiPass@12"],
-                ["adyen.prosa.example", "adyenPass@11"],
+                ["RoadRunner.acme.example", "RoadRunnerPass@12"],
+                ["daffy.acme.example", "daffyPass@11"],
             ]
         );
 
@@ -31,9 +31,9 @@ public class ManifestReaderTests : IDisposable
         Assert.Equal(2, rows.Count);
         // Capitalisation is preserved exactly — the manifest's common name matches the
         // certificate's, and that is the join key.
-        Assert.Equal("ADkushki.prosa.example", rows[0].CommonName);
-        Assert.Equal("ADkushkiPass@12", rows[0].Passphrase);
-        Assert.Equal("adyen.prosa.example", rows[1].CommonName);
+        Assert.Equal("RoadRunner.acme.example", rows[0].CommonName);
+        Assert.Equal("RoadRunnerPass@12", rows[0].Passphrase);
+        Assert.Equal("daffy.acme.example", rows[1].CommonName);
     }
 
     [Fact]
@@ -41,13 +41,13 @@ public class ManifestReaderTests : IDisposable
     {
         var path = WriteText(
             "manifest.csv",
-            "Common Name,Contraseña\nADkushki.prosa.example,ADkushkiPass@12\nadyen.prosa.example,adyenPass@11\n"
+            "Common Name,Contraseña\nRoadRunner.acme.example,RoadRunnerPass@12\ndaffy.acme.example,daffyPass@11\n"
         );
 
         var rows = ManifestReader.Read(path);
 
         Assert.Equal(2, rows.Count);
-        Assert.Equal("ADkushkiPass@12", rows[0].Passphrase);
+        Assert.Equal("RoadRunnerPass@12", rows[0].Passphrase);
     }
 
     [Fact]

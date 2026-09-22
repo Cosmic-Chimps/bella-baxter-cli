@@ -16,7 +16,7 @@ namespace BellaBaxter.Cli.Tests.Commands.Certs;
 public class ImportOutputRedactionTests
 {
     private const string Prefix = "GIGAMON_CERT_";
-    private const string Passphrase = "adyenProsa@11-verySecret";
+    private const string Passphrase = "daffyAcme@11-verySecret";
 
     [Fact]
     public void The_reported_payload_never_contains_the_private_key()
@@ -47,7 +47,7 @@ public class ImportOutputRedactionTests
         var rendered = RenderReportPayload(planned);
 
         // The point of the report: public facts, in full.
-        Assert.Contains("adyen.prosa.example", rendered);
+        Assert.Contains("daffy.acme.example", rendered);
         Assert.Contains("Fixture Intermediate CA", rendered);
     }
 
@@ -66,7 +66,7 @@ public class ImportOutputRedactionTests
     public void A_rejection_reason_never_quotes_key_material()
     {
         using var drop = new DropBuilder();
-        drop.Add(CertificateFixtures.CreateWithMismatchedKey("bad.prosa.example"));
+        drop.Add(CertificateFixtures.CreateWithMismatchedKey("bad.acme.example"));
 
         var planned = CertificateImportPlanner.Plan(
             CertificateDropReader.Read(drop.Root),
@@ -86,17 +86,17 @@ public class ImportOutputRedactionTests
         try
         {
             drop.Add(
-                CertificateFixtures.CreateValidChain("adyen.prosa.example"),
+                CertificateFixtures.CreateValidChain("daffy.acme.example"),
                 passphrase: Passphrase
             );
 
             var planned = CertificateImportPlanner.Plan(
                 CertificateDropReader.Read(drop.Root),
                 Prefix,
-                [new ManifestRow("adyen.prosa.example", Passphrase)],
+                [new ManifestRow("daffy.acme.example", Passphrase)],
                 stripRoot: false
             );
-            return (planned, "adyen.prosa.example");
+            return (planned, "daffy.acme.example");
         }
         finally
         {

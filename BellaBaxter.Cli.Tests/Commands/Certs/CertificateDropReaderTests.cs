@@ -16,8 +16,8 @@ public class CertificateDropReaderTests
     public void Finds_one_certificate_per_subfolder()
     {
         using var drop = new DropBuilder();
-        drop.Add(CertificateFixtures.CreateValidChain("adyen.prosa.example"))
-            .Add(CertificateFixtures.CreateValidChain("albatross.prosa.example"));
+        drop.Add(CertificateFixtures.CreateValidChain("daffy.acme.example"))
+            .Add(CertificateFixtures.CreateValidChain("tweety.acme.example"));
 
         var result = CertificateDropReader.Read(drop.Root);
 
@@ -28,18 +28,18 @@ public class CertificateDropReaderTests
     [Fact]
     public void Identity_comes_from_the_certificate_not_the_folder_name()
     {
-        // The real drop: folder "ADkushki", file "adkushki_prosa_com_mx.pem", common name
-        // "ADkushki.prosa.com.mx". Only the certificate preserves the capitalisation.
+        // The real drop: folder "RoadRunner", file "roadrunner_acme_com_mx.pem", common name
+        // "RoadRunner.acme.com.mx". Only the certificate preserves the capitalisation.
         using var drop = new DropBuilder();
         drop.Add(
-            CertificateFixtures.CreateValidChain("ADkushki.prosa.example"),
-            folderName: "ADkushki"
+            CertificateFixtures.CreateValidChain("RoadRunner.acme.example"),
+            folderName: "RoadRunner"
         );
 
         var entry = CertificateDropReader.Read(drop.Root).Entries.Single();
 
-        Assert.Equal("ADkushki", entry.SourceDirectory);
-        Assert.Equal("ADkushki.prosa.example", entry.CommonName);
+        Assert.Equal("RoadRunner", entry.SourceDirectory);
+        Assert.Equal("RoadRunner.acme.example", entry.CommonName);
     }
 
     [Fact]

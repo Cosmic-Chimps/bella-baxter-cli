@@ -38,7 +38,7 @@ public class SecretProviderResolverTests
         var attached = new[]
         {
             CertRotation("gigamon-fm", "Gigamon"),
-            CertRotation("prosa-certs", "BellaBaxterSecretsSource"),
+            CertRotation("acme-certs", "BellaBaxterSecretsSource"),
             CertRotation("cloudflare-dns", "Dns"),
             Secrets("openbao"),
         };
@@ -133,7 +133,7 @@ public class SecretProviderResolverTests
         var attached = new[]
         {
             CertRotation("gigamon-fm", "Gigamon"),
-            CertRotation("prosa-certs", "BellaBaxterSecretsSource"),
+            CertRotation("acme-certs", "BellaBaxterSecretsSource"),
         };
 
         var decision = SecretProviderSelection.Decide(attached, null, canPrompt: true);

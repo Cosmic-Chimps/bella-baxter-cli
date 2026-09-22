@@ -22,28 +22,28 @@ public class ImportCertsCommandTests
     public void A_three_certificate_drop_plans_three_creates()
     {
         using var drop = new DropBuilder();
-        drop.Add(CertificateFixtures.CreateValidChain("adyen.prosa.example"))
-            .Add(CertificateFixtures.CreateValidChain("albatross.prosa.example"))
+        drop.Add(CertificateFixtures.CreateValidChain("daffy.acme.example"))
+            .Add(CertificateFixtures.CreateValidChain("tweety.acme.example"))
             .Add(
-                CertificateFixtures.CreateValidChain("ADkushki.prosa.example"),
-                folderName: "ADkushki"
+                CertificateFixtures.CreateValidChain("RoadRunner.acme.example"),
+                folderName: "RoadRunner"
             );
 
         var planned = Plan(drop);
 
         Assert.Equal(3, planned.Count);
         Assert.All(planned, p => Assert.Equal(ImportAction.Created, p.Action));
-        Assert.Contains(planned, p => p.SecretKey == Prefix + "adyen.prosa.example");
+        Assert.Contains(planned, p => p.SecretKey == Prefix + "daffy.acme.example");
         // Capitalisation comes from the certificate, not the folder or file name.
-        Assert.Contains(planned, p => p.SecretKey == Prefix + "ADkushki.prosa.example");
+        Assert.Contains(planned, p => p.SecretKey == Prefix + "RoadRunner.acme.example");
     }
 
     [Fact]
     public void Re_running_an_unchanged_drop_reports_everything_unchanged()
     {
         using var drop = new DropBuilder();
-        drop.Add(CertificateFixtures.CreateValidChain("adyen.prosa.example"))
-            .Add(CertificateFixtures.CreateValidChain("albatross.prosa.example"));
+        drop.Add(CertificateFixtures.CreateValidChain("daffy.acme.example"))
+            .Add(CertificateFixtures.CreateValidChain("tweety.acme.example"));
 
         var first = Plan(drop);
         // Simulate the environment after the first import.
@@ -60,7 +60,7 @@ public class ImportCertsCommandTests
     public void A_renewed_certificate_plans_an_update()
     {
         using var drop = new DropBuilder();
-        drop.Add(CertificateFixtures.CreateValidChain("adyen.prosa.example"));
+        drop.Add(CertificateFixtures.CreateValidChain("daffy.acme.example"));
         var planned = Plan(drop);
         var stored = planned.ToDictionary(
             p => p.SecretKey!,
@@ -70,7 +70,7 @@ public class ImportCertsCommandTests
 
         // A new drop for the same common name: different key and certificate, same name.
         using var renewed = new DropBuilder();
-        renewed.Add(CertificateFixtures.CreateValidChain("adyen.prosa.example"));
+        renewed.Add(CertificateFixtures.CreateValidChain("daffy.acme.example"));
         var second = Plan(renewed);
         CertificateImportPlanner.Refine(second, stored);
 
@@ -81,9 +81,9 @@ public class ImportCertsCommandTests
     public void One_bad_folder_is_rejected_while_the_rest_still_plan()
     {
         using var drop = new DropBuilder();
-        drop.Add(CertificateFixtures.CreateValidChain("good-one.prosa.example"))
-            .Add(CertificateFixtures.CreateWithMismatchedKey("bad-one.prosa.example"))
-            .Add(CertificateFixtures.CreateValidChain("good-two.prosa.example"));
+        drop.Add(CertificateFixtures.CreateValidChain("good-one.acme.example"))
+            .Add(CertificateFixtures.CreateWithMismatchedKey("bad-one.acme.example"))
+            .Add(CertificateFixtures.CreateValidChain("good-two.acme.example"));
 
         var planned = Plan(drop);
 
@@ -99,7 +99,7 @@ public class ImportCertsCommandTests
     public void An_expired_certificate_is_rejected()
     {
         using var drop = new DropBuilder();
-        drop.Add(CertificateFixtures.CreateExpired("expired.prosa.example"));
+        drop.Add(CertificateFixtures.CreateExpired("expired.acme.example"));
 
         var planned = Plan(drop);
 
@@ -112,8 +112,8 @@ public class ImportCertsCommandTests
     public void Two_folders_with_the_same_common_name_are_refused()
     {
         using var drop = new DropBuilder();
-        drop.Add(CertificateFixtures.CreateValidChain("duplicate.prosa.example"), folderName: "a")
-            .Add(CertificateFixtures.CreateValidChain("duplicate.prosa.example"), folderName: "b");
+        drop.Add(CertificateFixtures.CreateValidChain("duplicate.acme.example"), folderName: "a")
+            .Add(CertificateFixtures.CreateValidChain("duplicate.acme.example"), folderName: "b");
 
         var planned = Plan(drop);
 
@@ -126,8 +126,8 @@ public class ImportCertsCommandTests
     public void A_folder_missing_its_key_is_skipped_not_rejected()
     {
         using var drop = new DropBuilder();
-        drop.Add(CertificateFixtures.CreateValidChain("keyless.prosa.example"), omitKey: true)
-            .Add(CertificateFixtures.CreateValidChain("fine.prosa.example"));
+        drop.Add(CertificateFixtures.CreateValidChain("keyless.acme.example"), omitKey: true)
+            .Add(CertificateFixtures.CreateValidChain("fine.acme.example"));
 
         var planned = Plan(drop);
 
@@ -141,7 +141,7 @@ public class ImportCertsCommandTests
     public void Strip_root_stores_a_shorter_chain_than_the_default()
     {
         using var drop = new DropBuilder();
-        drop.Add(CertificateFixtures.CreateValidChain("app.prosa.example"));
+        drop.Add(CertificateFixtures.CreateValidChain("app.acme.example"));
 
         var asDelivered = Plan(drop, stripRoot: false).Single();
         var stripped = Plan(drop, stripRoot: true).Single();
@@ -159,7 +159,7 @@ public class ImportCertsCommandTests
     public void Strip_root_still_counts_as_a_change_against_a_stored_full_chain()
     {
         using var drop = new DropBuilder();
-        drop.Add(CertificateFixtures.CreateValidChain("app.prosa.example"));
+        drop.Add(CertificateFixtures.CreateValidChain("app.acme.example"));
         var stored = Plan(drop, stripRoot: false)
             .ToDictionary(p => p.SecretKey!, p => p.Value!, StringComparer.Ordinal);
 
@@ -175,18 +175,18 @@ public class ImportCertsCommandTests
     public void A_manifest_row_with_no_folder_is_a_warning_not_a_failure()
     {
         using var drop = new DropBuilder();
-        drop.Add(CertificateFixtures.CreateValidChain("present.prosa.example"));
+        drop.Add(CertificateFixtures.CreateValidChain("present.acme.example"));
 
         var planned = Plan(drop);
         var manifest = new List<ManifestRow>
         {
-            new("present.prosa.example", "pw1"),
-            new("absent.prosa.example", "pw2"),
+            new("present.acme.example", "pw1"),
+            new("absent.acme.example", "pw2"),
         };
 
         var warnings = CertificateImportPlanner.CrossCheckManifest(manifest, planned);
 
-        Assert.Contains(warnings, w => w.Contains("absent.prosa.example"));
+        Assert.Contains(warnings, w => w.Contains("absent.acme.example"));
         Assert.Equal(ImportAction.Created, planned.Single().Action);
         Assert.Equal(0, CertificateImportPlanner.ExitCode(planned, writeFailure: false));
     }
@@ -195,21 +195,21 @@ public class ImportCertsCommandTests
     public void A_folder_missing_from_the_manifest_is_a_warning()
     {
         using var drop = new DropBuilder();
-        drop.Add(CertificateFixtures.CreateValidChain("unlisted.prosa.example"));
+        drop.Add(CertificateFixtures.CreateValidChain("unlisted.acme.example"));
 
         var warnings = CertificateImportPlanner.CrossCheckManifest(
             [new ManifestRow("something.else.example", "pw")],
             Plan(drop)
         );
 
-        Assert.Contains(warnings, w => w.Contains("unlisted.prosa.example"));
+        Assert.Contains(warnings, w => w.Contains("unlisted.acme.example"));
     }
 
     [Fact]
     public void No_manifest_means_no_warnings()
     {
         using var drop = new DropBuilder();
-        drop.Add(CertificateFixtures.CreateValidChain("app.prosa.example"));
+        drop.Add(CertificateFixtures.CreateValidChain("app.acme.example"));
 
         Assert.Empty(CertificateImportPlanner.CrossCheckManifest([], Plan(drop)));
     }
@@ -220,7 +220,7 @@ public class ImportCertsCommandTests
     public void A_write_failure_outranks_a_clean_plan()
     {
         using var drop = new DropBuilder();
-        drop.Add(CertificateFixtures.CreateValidChain("app.prosa.example"));
+        drop.Add(CertificateFixtures.CreateValidChain("app.acme.example"));
 
         Assert.Equal(3, CertificateImportPlanner.ExitCode(Plan(drop), writeFailure: true));
     }
