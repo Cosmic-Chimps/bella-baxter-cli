@@ -1,5 +1,6 @@
 using System.Text.Json;
 using BellaBaxter.Cli.Tests.Helpers;
+using BellaBaxter.Crypto.Certificates;
 using BellaCli.Commands.Certs;
 
 namespace BellaBaxter.Cli.Tests.Commands.Certs;
@@ -67,7 +68,7 @@ public class ImportOutputRedactionTests
         using var drop = new DropBuilder();
         drop.Add(CertificateFixtures.CreateWithMismatchedKey("bad.prosa.example"));
 
-        var planned = ImportPlanner.Plan(
+        var planned = CertificateImportPlanner.Plan(
             CertificateDropReader.Read(drop.Root),
             Prefix,
             [],
@@ -89,7 +90,7 @@ public class ImportOutputRedactionTests
                 passphrase: Passphrase
             );
 
-            var planned = ImportPlanner.Plan(
+            var planned = CertificateImportPlanner.Plan(
                 CertificateDropReader.Read(drop.Root),
                 Prefix,
                 [new ManifestRow("adyen.prosa.example", Passphrase)],

@@ -1,4 +1,5 @@
 using BellaBaxter.Cli.Tests.Helpers;
+using BellaBaxter.Crypto.Certificates;
 using BellaCli.Commands.Certs;
 
 namespace BellaBaxter.Cli.Tests.Commands.Certs;

@@ -1,4 +1,5 @@
 using BellaBaxter.Cli.Tests.Helpers;
+using BellaBaxter.Crypto.Certificates;
 using BellaCli.Commands.Certs;
 
 namespace BellaBaxter.Cli.Tests.Commands.Certs;
@@ -49,10 +50,10 @@ public class ImportCertsCommandTests
         var stored = first.ToDictionary(p => p.SecretKey!, p => p.Value!, StringComparer.Ordinal);
 
         var second = Plan(drop);
-        ImportPlanner.Refine(second, stored);
+        CertificateImportPlanner.Refine(second, stored);
 
         Assert.All(second, p => Assert.Equal(ImportAction.Unchanged, p.Action));
-        Assert.Equal(0, ImportPlanner.ExitCode(second, writeFailure: false));
+        Assert.Equal(0, CertificateImportPlanner.ExitCode(second, writeFailure: false));
     }
 
     [Fact]
@@ -71,7 +72,7 @@ public class ImportCertsCommandTests
         using var renewed = new DropBuilder();
         renewed.Add(CertificateFixtures.CreateValidChain("adyen.prosa.example"));
         var second = Plan(renewed);
-        ImportPlanner.Refine(second, stored);
+        CertificateImportPlanner.Refine(second, stored);
 
         Assert.Equal(ImportAction.Updated, second.Single().Action);
     }
@@ -91,7 +92,7 @@ public class ImportCertsCommandTests
         Assert.Contains("does not belong", rejected.Reason!);
 
         // Exit status alone tells the operator something needs attention (SC-009).
-        Assert.Equal(2, ImportPlanner.ExitCode(planned, writeFailure: false));
+        Assert.Equal(2, CertificateImportPlanner.ExitCode(planned, writeFailure: false));
     }
 
     [Fact]
@@ -163,7 +164,7 @@ public class ImportCertsCommandTests
             .ToDictionary(p => p.SecretKey!, p => p.Value!, StringComparer.Ordinal);
 
         var stripped = Plan(drop, stripRoot: true);
-        ImportPlanner.Refine(stripped, stored);
+        CertificateImportPlanner.Refine(stripped, stored);
 
         Assert.Equal(ImportAction.Updated, stripped.Single().Action);
     }
@@ -183,11 +184,11 @@ public class ImportCertsCommandTests
             new("absent.prosa.example", "pw2"),
         };
 
-        var warnings = ImportPlanner.CrossCheckManifest(manifest, planned);
+        var warnings = CertificateImportPlanner.CrossCheckManifest(manifest, planned);
 
         Assert.Contains(warnings, w => w.Contains("absent.prosa.example"));
         Assert.Equal(ImportAction.Created, planned.Single().Action);
-        Assert.Equal(0, ImportPlanner.ExitCode(planned, writeFailure: false));
+        Assert.Equal(0, CertificateImportPlanner.ExitCode(planned, writeFailure: false));
     }
 
     [Fact]
@@ -196,7 +197,7 @@ public class ImportCertsCommandTests
         using var drop = new DropBuilder();
         drop.Add(CertificateFixtures.CreateValidChain("unlisted.prosa.example"));
 
-        var warnings = ImportPlanner.CrossCheckManifest(
+        var warnings = CertificateImportPlanner.CrossCheckManifest(
             [new ManifestRow("something.else.example", "pw")],
             Plan(drop)
         );
@@ -210,7 +211,7 @@ public class ImportCertsCommandTests
         using var drop = new DropBuilder();
         drop.Add(CertificateFixtures.CreateValidChain("app.prosa.example"));
 
-        Assert.Empty(ImportPlanner.CrossCheckManifest([], Plan(drop)));
+        Assert.Empty(CertificateImportPlanner.CrossCheckManifest([], Plan(drop)));
     }
 
     // ── Exit codes (contracts/cli-certs-import.md) ───────────────────────────
@@ -221,13 +222,13 @@ public class ImportCertsCommandTests
         using var drop = new DropBuilder();
         drop.Add(CertificateFixtures.CreateValidChain("app.prosa.example"));
 
-        Assert.Equal(3, ImportPlanner.ExitCode(Plan(drop), writeFailure: true));
+        Assert.Equal(3, CertificateImportPlanner.ExitCode(Plan(drop), writeFailure: true));
     }
 
     private static List<PlannedCertificate> Plan(DropBuilder drop, bool stripRoot = false)
     {
         var read = CertificateDropReader.Read(drop.Root);
-        return ImportPlanner.Plan(read, Prefix, [], stripRoot);
+        return CertificateImportPlanner.Plan(read, Prefix, [], stripRoot);
     }
 
     private static int CountBlocks(string bundleJson)

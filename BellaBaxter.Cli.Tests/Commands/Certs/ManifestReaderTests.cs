@@ -1,5 +1,6 @@
 using System.IO.Compression;
 using System.Text;
+using BellaBaxter.Crypto.Certificates;
 using BellaCli.Commands.Certs;
 
 namespace BellaBaxter.Cli.Tests.Commands.Certs;

@@ -1,3 +1,4 @@
+using BellaBaxter.Crypto.Certificates;
 using BellaCli.Commands.Certs;
 
 namespace BellaBaxter.Cli.Tests.Commands.Certs;
@@ -12,7 +13,7 @@ public class ImportProviderGateTests
     [Fact]
     public void A_certificate_source_with_a_prefix_is_accepted()
     {
-        var refusal = ImportPlanner.RefuseSource(
+        var refusal = CertificateImportPlanner.RefuseSource(
             "prosa-certs",
             "BellaBaxterSecretsSource",
             "GIGAMON_CERT_"
@@ -24,7 +25,7 @@ public class ImportProviderGateTests
     [Fact]
     public void The_type_is_matched_case_insensitively()
     {
-        var refusal = ImportPlanner.RefuseSource(
+        var refusal = CertificateImportPlanner.RefuseSource(
             "prosa-certs",
             "bellabaxtersecretssource",
             "GIGAMON_CERT_"
@@ -42,7 +43,7 @@ public class ImportProviderGateTests
     [InlineData("CertStorage")]
     public void Any_other_provider_type_is_refused(string providerType)
     {
-        var refusal = ImportPlanner.RefuseSource("some-provider", providerType, "GIGAMON_CERT_");
+        var refusal = CertificateImportPlanner.RefuseSource("some-provider", providerType, "GIGAMON_CERT_");
 
         Assert.NotNull(refusal);
         Assert.Contains(providerType, refusal);
@@ -52,7 +53,7 @@ public class ImportProviderGateTests
     [Fact]
     public void An_unknown_provider_type_is_refused()
     {
-        var refusal = ImportPlanner.RefuseSource("some-provider", null, "GIGAMON_CERT_");
+        var refusal = CertificateImportPlanner.RefuseSource("some-provider", null, "GIGAMON_CERT_");
 
         Assert.NotNull(refusal);
     }
@@ -63,7 +64,7 @@ public class ImportProviderGateTests
     [InlineData("   ")]
     public void A_source_with_no_prefix_is_refused(string? prefix)
     {
-        var refusal = ImportPlanner.RefuseSource(
+        var refusal = CertificateImportPlanner.RefuseSource(
             "prosa-certs",
             "BellaBaxterSecretsSource",
             prefix
@@ -79,19 +80,19 @@ public class ImportProviderGateTests
     public void A_common_name_with_dots_makes_a_valid_secret_key()
     {
         // The env-var pattern used by `bella secrets set` would reject this. Certificates need it.
-        Assert.True(ImportPlanner.IsValidSecretKey("GIGAMON_CERT_adyen.prosa.com.mx"));
+        Assert.True(CertificateImportPlanner.IsValidSecretKey("GIGAMON_CERT_adyen.prosa.com.mx"));
     }
 
     [Fact]
     public void A_mixed_case_common_name_is_preserved_in_the_key()
     {
-        Assert.True(ImportPlanner.IsValidSecretKey("GIGAMON_CERT_ADkushki.prosa.com.mx"));
+        Assert.True(CertificateImportPlanner.IsValidSecretKey("GIGAMON_CERT_ADkushki.prosa.com.mx"));
     }
 
     [Fact]
     public void A_hyphenated_common_name_makes_a_valid_secret_key()
     {
-        Assert.True(ImportPlanner.IsValidSecretKey("GIGAMON_CERT_B425-HH-E.prosa.com.mx"));
+        Assert.True(CertificateImportPlanner.IsValidSecretKey("GIGAMON_CERT_B425-HH-E.prosa.com.mx"));
     }
 
     [Theory]
@@ -102,6 +103,6 @@ public class ImportProviderGateTests
     [InlineData("")]
     public void A_key_with_disallowed_characters_is_rejected(string key)
     {
-        Assert.False(ImportPlanner.IsValidSecretKey(key));
+        Assert.False(CertificateImportPlanner.IsValidSecretKey(key));
     }
 }

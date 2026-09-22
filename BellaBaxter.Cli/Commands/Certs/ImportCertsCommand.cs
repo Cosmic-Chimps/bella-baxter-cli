@@ -161,9 +161,9 @@ public class ImportCertsCommand(
             }
 
             // ── 3. Validate everything before writing anything ───────────────
-            // The whole drop is judged before a single write (FR-005). ImportPlanner holds the
+            // The whole drop is judged before a single write (FR-005). CertificateImportPlanner (shared) holds the
             // rules; this method only moves bytes.
-            var planned = ImportPlanner.Plan(
+            var planned = CertificateImportPlanner.Plan(
                 drop,
                 secretPrefix,
                 manifest,
@@ -172,7 +172,7 @@ public class ImportCertsCommand(
                 ct
             );
 
-            var warnings = ImportPlanner.CrossCheckManifest(manifest, planned);
+            var warnings = CertificateImportPlanner.CrossCheckManifest(manifest, planned);
             var rejected = planned.Count(p => p.Action == ImportAction.Rejected);
 
             if (settings.Strict && rejected > 0)
@@ -191,7 +191,7 @@ public class ImportCertsCommand(
                 return 1;
             }
 
-            ImportPlanner.Refine(planned, existing);
+            CertificateImportPlanner.Refine(planned, existing);
 
             // ── 5. Write ─────────────────────────────────────────────────────
             string? destinationSlug = null;
@@ -233,7 +233,7 @@ public class ImportCertsCommand(
                 warnings
             );
 
-            return ImportPlanner.ExitCode(planned, writeFailure);
+            return CertificateImportPlanner.ExitCode(planned, writeFailure);
         }
         catch (OperationCanceledException)
         {
@@ -293,7 +293,7 @@ public class ImportCertsCommand(
         }
 
         var prefix = ReadConfigValue(found.Configuration?.AdditionalData, "secret_prefix");
-        var refusal = ImportPlanner.RefuseSource(found.Slug ?? slugOrId, found.Type, prefix);
+        var refusal = CertificateImportPlanner.RefuseSource(found.Slug ?? slugOrId, found.Type, prefix);
         if (refusal is not null)
         {
             output.WriteError(refusal);
