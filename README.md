@@ -70,24 +70,38 @@ Bella CLI is a **self-contained binary** with zero runtime dependencies. No Node
 ### Linux / macOS (one-liner)
 
 ```bash
-curl -sSfL https://raw.githubusercontent.com/cosmic-chimps/bella-baxter-cli/main/scripts/install-bella.sh | bash
+curl -sSfL https://github.com/Cosmic-Chimps/bella-baxter-cli/releases/latest/download/install-bella.sh | bash
 ```
 
-To install a specific version:
+To install a specific version, fetch the installer from that release (it installs the release it came from):
 ```bash
-curl -sSfL https://raw.githubusercontent.com/cosmic-chimps/bella-baxter-cli/main/scripts/install-bella.sh | bash -s -- --version 1.2.3
+curl -sSfL https://github.com/Cosmic-Chimps/bella-baxter-cli/releases/download/v1.2.3/install-bella.sh | bash
 ```
 
 To install to a custom directory:
 ```bash
-BELLA_INSTALL_DIR="$HOME/.local/bin" curl -sSfL .../install-bella.sh | bash
+curl -sSfL https://github.com/Cosmic-Chimps/bella-baxter-cli/releases/latest/download/install-bella.sh | BELLA_INSTALL_DIR="$HOME/.local/bin" bash
 ```
 
 ### Windows (PowerShell)
 
 ```powershell
-irm https://raw.githubusercontent.com/cosmic-chimps/bella-baxter-cli/main/scripts/install-bella.ps1 | iex
+irm https://github.com/Cosmic-Chimps/bella-baxter-cli/releases/latest/download/install-bella.ps1 | iex
 ```
+
+### What the installer verifies
+
+The installer is a release asset, never a branch file. Before it installs anything it verifies the
+GPG signature on the release's `checksums.txt` against the Cosmic Chimps release key embedded in the
+script (fingerprint `65BB 8D3C EEE3 DD9E 4FFD  22B4 119F 114C A309 C2FA`), then the binary's SHA-256
+against that file. It **aborts** when the signature is missing or does not verify, when `gpg` is not
+installed, or when the key cannot be imported. Releases older than `v0.1.1-preview.26` were never
+signed, so they are refused.
+
+`gpg` is therefore required (`apt-get install gnupg`, `apk add gnupg`, `brew install gnupg`; on
+Windows it ships with Git for Windows or Gpg4win). For an air-gapped mirror that cannot carry the
+signature, `BELLA_INSECURE_SKIP_SIGNATURE=1` installs on the checksum alone and says so loudly — that
+proves the download is intact, not that we published it. `BELLA_SKIP_GPG` is no longer honoured.
 
 ### Manual download
 

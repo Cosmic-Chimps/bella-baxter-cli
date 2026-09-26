@@ -39,8 +39,8 @@ brew untap cosmic-chimps/bella-baxter-cli
 
 | Platform | Command |
 |---|---|
-| **Linux / macOS** (curl) | `curl -sSfL https://raw.githubusercontent.com/cosmic-chimps/bella-baxter-cli/main/scripts/install-bella.sh \| bash` |
-| **Windows** (PowerShell) | `irm https://raw.githubusercontent.com/cosmic-chimps/bella-baxter-cli/main/scripts/install-bella.ps1 \| iex` |
+| **Linux / macOS** (curl) | `curl -sSfL https://github.com/Cosmic-Chimps/bella-baxter-cli/releases/latest/download/install-bella.sh \| bash` |
+| **Windows** (PowerShell) | `irm https://github.com/Cosmic-Chimps/bella-baxter-cli/releases/latest/download/install-bella.ps1 \| iex` |
 | **WinGet** | `winget install CosmicChimps.BellaBaxterCli` |
 | **Docker** | `docker run ghcr.io/cosmic-chimps/bella-baxter-cli:latest` |
 

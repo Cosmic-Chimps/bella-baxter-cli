@@ -37,6 +37,7 @@ public class CredentialStore
     private static readonly string KeysDir = Path.Combine(ConfigDir, "keys");
     private static readonly string TokensFile = Path.Combine(ConfigDir, "tokens.json");
     private static readonly string ApiKeyFile = Path.Combine(ConfigDir, "apikey.json");
+    private static readonly string RefreshLockFile = Path.Combine(ConfigDir, "tokens.lock");
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -86,6 +87,31 @@ public class CredentialStore
         catch
         {
             return null;
+        }
+    }
+
+    /// <summary>
+    /// #824 — an exclusive lock on the credential directory that every <c>bella</c> process honours,
+    /// held around a token refresh (see <see cref="RefreshCoordinator"/>). .NET enforces
+    /// <see cref="FileShare.None"/> between processes with an OS lock on Unix and Windows alike, so a
+    /// second process's open fails until the first disposes the stream.
+    /// </summary>
+    public Task<IDisposable> AcquireRefreshLockAsync(CancellationToken ct) =>
+        AcquireExclusiveLockAsync(RefreshLockFile, TimeSpan.FromSeconds(30), ct);
+
+    internal static async Task<IDisposable> AcquireExclusiveLockAsync(string path, TimeSpan timeout, CancellationToken ct)
+    {
+        var deadline = DateTimeOffset.UtcNow + timeout;
+        while (true)
+        {
+            try
+            {
+                return new FileStream(path, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
+            }
+            catch (IOException) when (DateTimeOffset.UtcNow < deadline)
+            {
+                await Task.Delay(100, ct);
+            }
         }
     }
 

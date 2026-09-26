@@ -257,6 +257,13 @@ jobs:
       id-token: write # required for artifact attestations (Sigstore OIDC)
       attestations: write # required for artifact attestations
     steps:
+      # The installers are published as release assets (#828), so the tagged tree is needed here.
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.ref }}
+          sparse-checkout: scripts
+          persist-credentials: false
+
       - name: Download all binary artifacts
         uses: actions/download-artifact@v8
         with:
@@ -269,37 +276,114 @@ jobs:
           name: cli-nuget-package
           path: binaries
 
+      # #828 — the installers used to be piped from this repo's `main` branch, which the monorepo
+      # mirror force-rewrites on every push, so no documented install and no pinned Action ever ran a
+      # pinned script. They are now assets of the release they install: listed in the signed
+      # checksums.txt, and stamped with this release's version so `releases/download/vX/install-bella.sh`
+      # installs vX (and `releases/latest/download/…` installs the release it came from).
+      - name: Stage installer scripts
+        env:
+          VERSION: ${{ needs.resolve_version.outputs.version }}
+        run: |
+          set -euo pipefail
+          for f in install-bella.sh install-bella.ps1; do
+            n=$(grep -c '@BELLA_RELEASE_VERSION@' "scripts/$f" || true)
+            if [ "$n" != "1" ]; then
+              echo "::error::scripts/$f must carry the @BELLA_RELEASE_VERSION@ placeholder exactly once (found $n)"
+              exit 1
+            fi
+            sed "s/@BELLA_RELEASE_VERSION@/${VERSION}/" "scripts/$f" > "binaries/$f"
+            grep -q "${VERSION}" "binaries/$f"
+          done
+          chmod +x binaries/install-bella.sh
+
+          # The public key exists in three places (the committed file and embedded in each
+          # installer). They must be the same key, or the two installers disagree about what a
+          # genuine release is.
+          key_block() { sed -n '/^-----BEGIN PGP PUBLIC KEY BLOCK-----/,/^-----END PGP PUBLIC KEY BLOCK-----/p' "$1" | tr -d '\r'; }
+          if ! diff <(key_block scripts/bella-signing-key.asc) <(key_block scripts/install-bella.sh) >/dev/null \
+             || ! diff <(key_block scripts/bella-signing-key.asc) <(key_block scripts/install-bella.ps1) >/dev/null; then
+            echo "::error::The public key embedded in install-bella.sh / install-bella.ps1 differs from scripts/bella-signing-key.asc"
+            exit 1
+          fi
+
       - name: Attest build provenance
         uses: actions/attest-build-provenance@v2
         with:
-          subject-path: binaries/cli-*
+          subject-path: |
+            binaries/cli-*
+            binaries/install-bella.sh
+            binaries/install-bella.ps1
 
       - name: Generate SHA256 checksums
         working-directory: binaries
         run: |
-          sha256sum cli-* > checksums.txt
+          sha256sum cli-* install-bella.sh install-bella.ps1 > checksums.txt
           echo "=== checksums.txt ==="
           cat checksums.txt
 
+      # FAILS CLOSED (#828): the installers refuse a release whose checksums.txt is not signed by the
+      # key they pin, so publishing an unsigned release would publish one nobody can install. This
+      # step therefore refuses to continue without the key, signs ONLY with the pinned key, and proves
+      # the result verifies with the key embedded in the installers being shipped — the same check a
+      # user's install will make.
       - name: Sign checksums with GPG
         working-directory: binaries
         env:
           GPG_PRIVATE_KEY: ${{ secrets.BELLA_BAXTER_GPG_PRIVATE_KEY }}
           GPG_PASSPHRASE: ${{ secrets.BELLA_BAXTER_GPG_PASSPHRASE }}
         run: |
-          if [ -n "${GPG_PRIVATE_KEY}" ]; then
-            echo "${GPG_PRIVATE_KEY}" | gpg --batch --import 2>/dev/null
-            printf '%s' "${GPG_PASSPHRASE}" | gpg --batch --yes \
-              --pinentry-mode loopback \
-              --passphrase-fd 0 \
-              --armor --detach-sign \
-              checksums.txt
-            echo "checksums.txt.asc created"
-            gpg --verify checksums.txt.asc checksums.txt
-          else
-            echo "BELLA_BAXTER_GPG_PRIVATE_KEY not configured — skipping GPG signature"
-            echo "(add BELLA_BAXTER_GPG_PRIVATE_KEY + BELLA_BAXTER_GPG_PASSPHRASE repo secrets to enable; see scripts/SIGNING.md)"
+          set -euo pipefail
+          if [ -z "${GPG_PRIVATE_KEY}" ]; then
+            echo "::error::BELLA_BAXTER_GPG_PRIVATE_KEY is not configured. Releases must be signed: the installers refuse unsigned releases (#828). See scripts/SIGNING.md."
+            exit 1
           fi
+
+          # The fingerprint both installers pin is the one key allowed to sign.
+          PINNED=$(sed -n 's/^SIGNING_FINGERPRINT="\([0-9A-F]\{40\}\)"$/\1/p' install-bella.sh)
+          # shellcheck disable=SC2016 # the $ is literal: it matches the PowerShell variable name
+          PINNED_PS=$(sed -n 's/^\$SigningFingerprint = "\([0-9A-F]\{40\}\)"\r\{0,1\}$/\1/p' install-bella.ps1)
+          if [ -z "$PINNED" ] || [ "$PINNED" != "$PINNED_PS" ]; then
+            echo "::error::install-bella.sh and install-bella.ps1 must pin the same signing fingerprint (sh='$PINNED', ps1='$PINNED_PS')"
+            exit 1
+          fi
+
+          GNUPGHOME="$(mktemp -d)"
+          export GNUPGHOME
+          chmod 700 "$GNUPGHOME"
+          trap 'gpgconf --kill all >/dev/null 2>&1 || true; rm -rf "$GNUPGHOME"' EXIT
+
+          printf '%s\n' "${GPG_PRIVATE_KEY}" | gpg --batch --import 2>/dev/null
+          if ! gpg --batch --with-colons --list-secret-keys "$PINNED" >/dev/null 2>&1; then
+            echo "::error::BELLA_BAXTER_GPG_PRIVATE_KEY does not hold the secret key for $PINNED, the fingerprint the installers pin. Rotating the key means updating the installers and scripts/bella-signing-key.asc first (scripts/SIGNING.md)."
+            exit 1
+          fi
+
+          printf '%s' "${GPG_PASSPHRASE}" | gpg --batch --yes \
+            --pinentry-mode loopback \
+            --passphrase-fd 0 \
+            --local-user "$PINNED" \
+            --armor --detach-sign \
+            checksums.txt
+          echo "checksums.txt.asc created"
+
+          # Publish the public half as an asset, exported from the signing key itself.
+          gpg --batch --armor --export "$PINNED" > bella-signing-key.asc
+
+          # Prove the shipped installers accept it: verify with ONLY the key embedded in
+          # install-bella.sh, in a keyring that holds nothing else, and require the pinned fingerprint.
+          VERIFY_HOME="$(mktemp -d)"
+          chmod 700 "$VERIFY_HOME"
+          sed -n '/^-----BEGIN PGP PUBLIC KEY BLOCK-----$/,/^-----END PGP PUBLIC KEY BLOCK-----$/p' install-bella.sh \
+            | gpg --homedir "$VERIFY_HOME" --batch --import 2>/dev/null
+          STATUS=$(gpg --homedir "$VERIFY_HOME" --batch --status-fd 1 --verify checksums.txt.asc checksums.txt 2>/dev/null)
+          gpgconf --homedir "$VERIFY_HOME" --kill all >/dev/null 2>&1 || true
+          rm -rf "$VERIFY_HOME"
+          if ! printf '%s\n' "$STATUS" | awk -v fpr="$PINNED" '$2 == "VALIDSIG" && $NF == fpr { f = 1 } END { exit f ? 0 : 1 }'; then
+            echo "::error::checksums.txt.asc does not verify against the key embedded in install-bella.sh — the installers would refuse this release."
+            exit 1
+          fi
+          echo "Signature verifies against the installers' embedded key ($PINNED)"
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
@@ -332,13 +416,16 @@ jobs:
 
             ### Linux / macOS (curl)
             ```bash
-            curl -sSfL https://raw.githubusercontent.com/cosmic-chimps/bella-baxter-cli/main/scripts/install-bella.sh | bash
+            curl -sSfL https://github.com/Cosmic-Chimps/bella-baxter-cli/releases/download/v${{ needs.resolve_version.outputs.version }}/install-bella.sh | bash
             ```
 
             ### Windows (PowerShell)
             ```powershell
-            irm https://raw.githubusercontent.com/cosmic-chimps/bella-baxter-cli/main/scripts/install-bella.ps1 | iex
+            irm https://github.com/Cosmic-Chimps/bella-baxter-cli/releases/download/v${{ needs.resolve_version.outputs.version }}/install-bella.ps1 | iex
             ```
+
+            The installers verify the GPG signature on `checksums.txt` against the Cosmic Chimps release key
+            (`65BB 8D3C EEE3 DD9E 4FFD  22B4 119F 114C A309 C2FA`) and refuse to install when it does not verify.
 
             ### Docker (zero runtime dependencies)
             ```dockerfile
@@ -365,16 +452,17 @@ jobs:
             | NuGet dotnet tool | `BellaBaxter.Cli.${{ needs.resolve_version.outputs.version }}.nupkg` |
 
             ### Verify your download
-            Every release ships a `checksums.txt` (SHA256) and, when the signing key is configured, a `checksums.txt.asc` (GPG detached signature).
+            Every release ships `checksums.txt` (SHA256 of every binary and both installers), its GPG detached
+            signature `checksums.txt.asc`, and the public key `bella-signing-key.asc`
+            (fingerprint `65BB 8D3C EEE3 DD9E 4FFD  22B4 119F 114C A309 C2FA` — check it before trusting the key).
             Build provenance is attested via Sigstore and verifiable in your browser.
 
             ```bash
-            # Verify SHA256
-            sha256sum --check --ignore-missing checksums.txt
-
-            # Verify GPG signature (requires gpg and the Cosmic Chimps public key)
-            gpg --import bella-signing-key.asc          # one-time import
+            # Verify GPG signature (requires gpg), then SHA256
+            gpg --import bella-signing-key.asc
+            gpg --fingerprint 65BB8D3CEEE3DD9E4FFD22B4119F114CA309C2FA
             gpg --verify checksums.txt.asc checksums.txt
+            sha256sum --check --ignore-missing checksums.txt
 
             # Verify build provenance (requires GitHub CLI)
             gh attestation verify cli-linux-x64 --repo cosmic-chimps/bella-baxter-cli

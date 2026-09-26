@@ -65,11 +65,20 @@ public class AuthService(ConfigService config, CredentialStore credentials, Http
 
     // ── Token refresh ────────────────────────────────────────────────────────
 
-    public async Task<StoredTokens> RefreshAsync(CancellationToken ct = default)
-    {
-        var existing = credentials.LoadTokens()
-            ?? throw new InvalidOperationException("No stored tokens to refresh.");
+    /// <summary>
+    /// Exchanges the stored refresh token for a new token set. Serialised across this process and
+    /// every other <c>bella</c> process (#824): with refresh-token rotation a second, concurrent
+    /// refresh of the same token ends the login — see <see cref="RefreshCoordinator"/>.
+    /// </summary>
+    public Task<StoredTokens> RefreshAsync(CancellationToken ct = default) =>
+        RefreshCoordinator.Shared.RefreshAsync(
+            credentials.LoadTokens,
+            ExchangeRefreshTokenAsync,
+            credentials.AcquireRefreshLockAsync,
+            ct);
 
+    private async Task<StoredTokens> ExchangeRefreshTokenAsync(StoredTokens existing, CancellationToken ct)
+    {
         var authConfig = await DiscoverConfigAsync(ct);
 
         var body = new FormUrlEncodedContent(new Dictionary<string, string>
