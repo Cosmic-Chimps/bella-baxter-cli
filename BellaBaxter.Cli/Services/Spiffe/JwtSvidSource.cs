@@ -116,11 +116,14 @@ public sealed class HttpJwtSvidSource(
                 + $"Cause: {ex.Message}", ex);
         }
 
+        // Bella answers an environment with no signing key yet with 200 and `{"keys":[]}` (#709), so a
+        // 503 now means its key store could not be read. Servers released before #709 also used 503 for
+        // "no key yet", which is why both are named.
         if (response.StatusCode == HttpStatusCode.ServiceUnavailable)
         {
             throw new SvidAttestationException(
-                "This environment has no JWT-SVID signing key yet, so there is no JWT bundle to serve. "
-                + "It is created on the first JWT-SVID issuance.");
+                "Bella could not serve the JWT bundle (503): its JWT-SVID signing keys could not be read. "
+                + "(Bella versions before #709 also answered 503 when no JWT-SVID had been issued yet.)");
         }
 
         if (!response.IsSuccessStatusCode)
