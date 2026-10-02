@@ -24,15 +24,93 @@ public class SpiffeWhoAmISettings : CommandSettings
         + "/var/run/secrets/bella/token, kubelet default).")]
     public string? NodeTokenPath { get; init; }
 
+    [CommandOption("--node-type <TYPE>")]
+    [System.ComponentModel.Description(
+        "k8s (default) or aws-iid. aws-iid reads this EC2 instance's identity document over IMDSv2.")]
+    public string? NodeType { get; init; }
+
+    [CommandOption("--state-dir <DIR>")]
+    [System.ComponentModel.Description("The agent's state directory (aws-iid), as the agent resolves it.")]
+    public string? StateDir { get; init; }
+
+    [CommandOption("-e|--environment-id <GUID>")]
+    [System.ComponentModel.Description(
+        "With --name: report whether the agent holds this instance's re-attestation credential (aws-iid). "
+        + "Also BELLA_ENVIRONMENT_ID.")]
+    public string? EnvironmentId { get; init; }
+
+    [CommandOption("-n|--name <NAME>")]
+    [System.ComponentModel.Description("The workload name (aws-iid credential check). Also BELLA_WORKLOAD_NAME.")]
+    public string? WorkloadName { get; init; }
+
     [CommandOption("--json")]
     public bool Json { get; init; }
 }
 
-public class SpiffeWhoAmICommand(IOutputWriter output, GlobalSettings global)
-    : Command<SpiffeWhoAmISettings>
+public class SpiffeWhoAmICommand(IOutputWriter output, GlobalSettings global, IHttpClientFactory httpClientFactory)
+    : AsyncCommand<SpiffeWhoAmISettings>
 {
-    protected override int Execute(
-        CommandContext context, SpiffeWhoAmISettings settings, CancellationToken ct)
+    protected override async Task<int> ExecuteAsync(
+        CommandContext context, SpiffeWhoAmISettings settings, CancellationToken ct) =>
+        string.Equals(settings.NodeType, SpiffeAgentCommand.AwsNodeType, StringComparison.OrdinalIgnoreCase)
+            ? await AwsAsync(settings, ct)
+            : Kubernetes(settings);
+
+    /// <summary>
+    /// Spec 065 — what this EC2 instance would present: its identity document's claims (read locally and NOT verified)
+    /// and whether the agent holds the re-attestation credential. Neither the signature nor the credential is printed.
+    /// </summary>
+    internal async Task<int> AwsAsync(SpiffeWhoAmISettings settings, CancellationToken ct)
+    {
+        AwsInstanceFactsView facts;
+        try
+        {
+            facts = await new AwsInstanceEvidence(httpClientFactory.CreateClient(AwsInstanceEvidence.HttpClientName))
+                .ReadFactsAsync(ct);
+        }
+        catch (AwsInstanceEvidenceException ex)
+        {
+            if (settings.Json || global.IsJsonMode)
+                output.WriteObject(new { nodeType = SpiffeAgentCommand.AwsNodeType, problem = ex.Message });
+            else
+                output.WriteError(ex.Message);
+            return 1;
+        }
+
+        var envRaw = settings.EnvironmentId ?? System.Environment.GetEnvironmentVariable("BELLA_ENVIRONMENT_ID");
+        var name = settings.WorkloadName ?? System.Environment.GetEnvironmentVariable("BELLA_WORKLOAD_NAME");
+        string credential = "unknown (pass --environment-id and --name)";
+        if (Guid.TryParse(envRaw, out var envId) && !string.IsNullOrWhiteSpace(name))
+        {
+            var store = new NodeReattestationCredentialStore(AgentStateDirectory.Resolve(settings.StateDir), envId, name);
+            credential = store.Current is null ? "absent" : "held";
+        }
+
+        if (settings.Json || global.IsJsonMode)
+        {
+            output.WriteObject(new
+            {
+                nodeType = SpiffeAgentCommand.AwsNodeType,
+                account = facts.Account,
+                region = facts.Region,
+                instanceId = facts.InstanceId,
+                pendingTime = facts.PendingTime,
+                credential,
+                unverified = true,
+            });
+            return 0;
+        }
+
+        output.WriteInfo($"Node attestor: {SpiffeAgentCommand.AwsNodeType}");
+        output.WriteInfo($"Instance: {facts.InstanceId} (unverified)");
+        output.WriteInfo($"Account / Region: {facts.Account} / {facts.Region} (unverified)");
+        output.WriteInfo($"Launched (pendingTime): {facts.PendingTime} (unverified)");
+        output.WriteInfo($"Re-attestation credential: {credential}");
+        output.WriteSuccess("The instance identity document is readable over IMDSv2.");
+        return 0;
+    }
+
+    private int Kubernetes(SpiffeWhoAmISettings settings)
     {
         var report = NodeEvidence.Inspect(BellaCli.Services.Spiffe.NodeTokenPath.Resolve(settings.NodeTokenPath));
 

@@ -31,7 +31,8 @@ public class SpiffeAgentSettings : CommandSettings
     public string? WorkloadName { get; init; }
 
     [CommandOption("--node-type <TYPE>")]
-    [System.ComponentModel.Description("Node attestor: k8s (default) or aws-iid.")]
+    [System.ComponentModel.Description(
+        "Node attestor: k8s (default) or aws-iid. aws-iid reads this EC2 instance's identity document over IMDSv2.")]
     public string? NodeType { get; init; }
 
     [CommandOption("--node-token-path <PATH>")]
@@ -39,6 +40,12 @@ public class SpiffeAgentSettings : CommandSettings
         "Kubernetes token to present as node evidence. Also BELLA_NODE_TOKEN_PATH or node_token_path in .bella; "
         + "defaults to /var/run/secrets/bella/token when mounted, else the kubelet's default token.")]
     public string? NodeTokenPath { get; init; }
+
+    [CommandOption("--state-dir <DIR>")]
+    [System.ComponentModel.Description(
+        "Where the agent keeps its AWS re-attestation credential (owner-only). Also BELLA_AGENT_STATE_DIR; "
+        + "defaults to $XDG_STATE_HOME/bella/spiffe-agent, else ~/.local/state/bella/spiffe-agent.")]
+    public string? StateDir { get; init; }
 
     [CommandOption("--socket <PATH>")]
     [System.ComponentModel.Description(
@@ -64,6 +71,9 @@ public class SpiffeAgentCommand(
     /// and every CI system already feed, and it does not appear in a process listing.
     /// </remarks>
     public const string BootstrapTokenVariable = "BELLA_BOOTSTRAP_TOKEN";
+
+    /// <summary>Spec 065 — the node type that attests with this EC2 instance's identity document.</summary>
+    public const string AwsNodeType = "aws-iid";
 
     /// <summary>
     /// Spec 064 (FR-013) — why the agent refuses to start, if the node token was configured explicitly and is
@@ -139,8 +149,11 @@ public class SpiffeAgentCommand(
         // Spec 064 — resolved ONCE, from the flag/environment/.bella, so the startup line, the check below and every
         // later attestation agree about which file is the token.
         var nodeToken = NodeTokenPath.Resolve(settings.NodeTokenPath);
-        var evidence = NodeEvidence.Inspect(nodeToken);
-        if (NodeTokenStartupRefusal(nodeToken, evidence) is { } nodeTokenRefusal)
+        var aws = string.Equals(settings.NodeType, AwsNodeType, StringComparison.OrdinalIgnoreCase);
+        var evidence = aws
+            ? new NodeEvidenceReport(WorkloadPlatform.None, AwsNodeType, null, false, null, null)
+            : NodeEvidence.Inspect(nodeToken);
+        if (!aws && NodeTokenStartupRefusal(nodeToken, evidence) is { } nodeTokenRefusal)
         {
             output.WriteError(nodeTokenRefusal);
             return 1;
@@ -150,6 +163,42 @@ public class SpiffeAgentCommand(
         var httpClient = httpClientFactory.CreateClient(nameof(SpiffeAgentCommand));
         httpClient.BaseAddress = new Uri(config.ApiUrl);
 
+        // Spec 065 — AWS evidence: read once now, so an instance that cannot supply it refuses to start (nothing is
+        // sent), and then re-read on EVERY attestation, so a restart's new document is what the next one presents.
+        // The credential store is shared by both sources (research R8).
+        AwsInstanceEvidence? imds = null;
+        NodeReattestationCredentialStore? credentials = null;
+        if (aws)
+        {
+            imds = new AwsInstanceEvidence(httpClientFactory.CreateClient(AwsInstanceEvidence.HttpClientName));
+            AwsInstanceFactsView facts;
+            try
+            {
+                facts = await imds.ReadFactsAsync(ct);
+            }
+            catch (AwsInstanceEvidenceException ex)
+            {
+                output.WriteError(ex.Message);
+                return 1;
+            }
+
+            try
+            {
+                credentials = new NodeReattestationCredentialStore(
+                    AgentStateDirectory.Resolve(settings.StateDir), environmentId, workloadName!);
+                PrivateFiles.EnsurePrivateDirectory(credentials.StateDirectory);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                output.WriteError($"The agent's state directory cannot be created as owner-only: {ex.Message}");
+                return 1;
+            }
+
+            output.WriteInfo(
+                $"Node evidence: aws-iid instance {facts.InstanceId} ({facts.Region}, account {facts.Account}); "
+                + $"re-attestation credential: {(credentials.Current is null ? "not yet issued" : "held")}.");
+        }
+
         var attestation = new SvidAttestationRequest(
             environmentId,
             workloadName!,
@@ -157,9 +206,11 @@ public class SpiffeAgentCommand(
             nodeType,
             // Re-read on every attestation: a Kubernetes projected token is rotated underneath us,
             // so a value captured here would be stale by the first renewal.
-            ReadNodeToken: () => NodeEvidence.Inspect(nodeToken).TokenPresent
+            ReadNodeToken: () => !aws && NodeEvidence.Inspect(nodeToken).TokenPresent
                 ? File.ReadAllText(nodeToken.Path).Trim()
-                : null);
+                : null,
+            ReadNodeTokenAsync: imds is null ? null : async token => await imds.ReadEnvelopeAsync(token),
+            Credentials: credentials);
 
         var source = new HttpSvidSource(httpClient, attestation);
 

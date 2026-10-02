@@ -44,6 +44,9 @@ services.AddSingleton<DekLeaseCache>();
 services.AddHttpClient<AuthService>();
 services.AddHttpClient<WorkloadIdentityService>();
 services.AddHttpClient(nameof(BellaCli.Commands.Spiffe.SpiffeAgentCommand));
+// Spec 065 — instance metadata for `--node-type aws-iid`: link-local, so never through HTTP(S)_PROXY.
+services.AddHttpClient(BellaCli.Services.Spiffe.AwsInstanceEvidence.HttpClientName)
+    .ConfigurePrimaryHttpMessageHandler(BellaCli.Services.Spiffe.AwsInstanceEvidence.CreateHandler);
 services.AddHttpClient<AuthSetupCommand>();
 
 // OutputMode is resolved at runtime based on auth type / --json flag / TTY
@@ -880,6 +883,17 @@ app.Configure(config =>
                     + "for node evidence and every trust domain. Exit 0 ready, 1 would refuse, 2 unproven, 3 unknown.")
                 .WithExample("spiffe", "audience-readiness")
                 .WithExample("spiffe", "audience-readiness", "--json");
+            // Spec 065 — EC2 instances bound to workloads by AWS-evidence attestation, and their release.
+            spiffe.AddBranch<SpiffeNodeBindingsSettings>("node-bindings", bindings =>
+            {
+                bindings.SetDescription(
+                    "EC2 instances bound to workloads by their first AWS-evidence attestation. Release one to let "
+                    + "the next valid document bind afresh.");
+                bindings.SetDefaultCommand<SpiffeNodeBindingsCommand>();
+                bindings.AddCommand<SpiffeNodeBindingsReleaseCommand>("release")
+                    .WithDescription("Release a binding: the next valid identity document for that instance binds afresh.")
+                    .WithExample("spiffe", "node-bindings", "release", "8c1e2d3a-5b6f-4a7c-9d8e-0f1a2b3c4d5e", "--force");
+            });
         });
 
     config

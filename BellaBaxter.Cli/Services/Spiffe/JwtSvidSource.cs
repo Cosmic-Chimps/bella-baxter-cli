@@ -70,15 +70,25 @@ public sealed class HttpJwtSvidSource(
         // Node evidence is re-read per call for the same reason as attestation: a projected
         // service-account token is rotated by the kubelet, and a value captured at startup fails later
         // as a signature error that points at cluster trust rather than at a stale read.
-        var nodeToken = request.ReadNodeToken();
+        var nodeToken = await request.ReadEvidenceAsync(ct).ConfigureAwait(false);
 
+        // Spec 065 — the same credential store as the X.509 source, so neither can race the other into a lockout.
+        if (request.Credentials is { } credentials && nodeToken is not null)
+            return await credentials.AttestAsync(c => IssueOnceAsync(audience, nodeToken, c, ct), ct).ConfigureAwait(false);
+        return (await IssueOnceAsync(audience, nodeToken, null, ct).ConfigureAwait(false)).Result;
+    }
+
+    private async Task<(JwtSvid Result, string? Issued)> IssueOnceAsync(
+        string audience, string? nodeToken, string? credential, CancellationToken ct)
+    {
         var body = new JwtSvidBody(
             request.WorkloadName,
             request.BootstrapToken,
             AttestationClaims: null,
             NodeAttestationToken: nodeToken,
             NodeType: nodeToken is null ? null : request.NodeType,
-            Audience: audience);
+            Audience: audience,
+            NodeReattestationCredential: credential);
 
         var url = $"/api/v1/environments/{request.EnvironmentId:D}/workload-identities/jwt-svid";
 
@@ -96,7 +106,8 @@ public sealed class HttpJwtSvidSource(
 
         if (!response.IsSuccessStatusCode)
         {
-            throw new SvidAttestationException(await DescribeAsync(response, audience, ct).ConfigureAwait(false));
+            throw new SvidAttestationException(await DescribeAsync(response, audience, ct).ConfigureAwait(false)
+                + HttpSvidSource.NodeBindingHint(request, credential));
         }
 
         var issued = await response.Content
@@ -104,7 +115,7 @@ public sealed class HttpJwtSvidSource(
             .ConfigureAwait(false)
             ?? throw new SvidAttestationException("Bella accepted the request but returned no JWT-SVID.");
 
-        return new JwtSvid(issued.JwtSvid, issued.SpiffeId, issued.ExpiresAt);
+        return (new JwtSvid(issued.JwtSvid, issued.SpiffeId, issued.ExpiresAt), issued.NodeReattestationCredential);
     }
 
     /// <inheritdoc />
@@ -191,9 +202,11 @@ public sealed class HttpJwtSvidSource(
         Dictionary<string, string>? AttestationClaims,
         string? NodeAttestationToken,
         string? NodeType,
-        string Audience);
+        string Audience,
+        string? NodeReattestationCredential = null);
 
-    private sealed record JwtSvidResponseBody(string JwtSvid, string SpiffeId, DateTimeOffset ExpiresAt);
+    private sealed record JwtSvidResponseBody(
+        string JwtSvid, string SpiffeId, DateTimeOffset ExpiresAt, string? NodeReattestationCredential = null);
 
     private sealed record JwtBundleBody(string? Jwks, string? TenantSlug, string? TrustDomain);
 }

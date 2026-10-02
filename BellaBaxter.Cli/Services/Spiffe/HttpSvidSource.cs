@@ -48,14 +48,25 @@ public sealed class HttpSvidSource(
         // service-account token is refreshed by the kubelet on its own schedule, so a token captured
         // at startup is stale by the time the first renewal comes round — and the resulting failure
         // reads as "signature invalid", pointing at cluster trust rather than at a stale read.
-        var nodeToken = request.ReadNodeToken();
+        var nodeToken = await request.ReadEvidenceAsync(ct).ConfigureAwait(false);
 
+        // Spec 065 — an AWS-evidence attestation goes through the instance's credential store: the held credential is
+        // presented, a newly issued one is kept, and with none held only one attestation runs at a time.
+        if (request.Credentials is { } credentials && nodeToken is not null)
+            return await credentials.AttestAsync(c => AttestOnceAsync(nodeToken, c, ct), ct).ConfigureAwait(false);
+        return (await AttestOnceAsync(nodeToken, null, ct).ConfigureAwait(false)).Result;
+    }
+
+    private async Task<(AttestedSvid Result, string? Issued)> AttestOnceAsync(
+        string? nodeToken, string? credential, CancellationToken ct)
+    {
         var body = new AttestBody(
             request.WorkloadName,
             request.BootstrapToken,
             AttestationClaims: null,
             NodeAttestationToken: nodeToken,
-            NodeType: nodeToken is null ? null : request.NodeType);
+            NodeType: nodeToken is null ? null : request.NodeType,
+            NodeReattestationCredential: credential);
 
         var url = $"/api/v1/environments/{request.EnvironmentId:D}/workload-identities/attest";
 
@@ -99,16 +110,17 @@ public sealed class HttpSvidSource(
             // renewal window is measured against the same clock that later asks "is it time yet". A CA
             // that backdates notBefore by a few minutes (most do, for skew tolerance) would otherwise
             // make every SVID look older than it is and trigger early renewals for its whole life.
-            return new AttestedSvid(
+            return (new AttestedSvid(
                 issued.Certificate,
                 key,
                 issued.TrustBundle,
                 issued.SpiffeId,
                 IssuedAt: _now(),
-                ExpiresAt: issued.ExpiresAt);
+                ExpiresAt: issued.ExpiresAt), issued.NodeReattestationCredential);
         }
 
-        throw new SvidAttestationException(await DescribeFailureAsync(response, ct).ConfigureAwait(false));
+        throw new SvidAttestationException(await DescribeFailureAsync(response, ct).ConfigureAwait(false)
+            + NodeBindingHint(request, credential));
     }
 
     /// <summary>Turns a refusal into something an operator can act on.</summary>
@@ -158,12 +170,25 @@ public sealed class HttpSvidSource(
         };
     }
 
+    /// <summary>
+    /// Spec 065 — the one case the agent can name: AWS evidence presented with NO credential, so a bound instance would
+    /// refuse it. The agent cannot tell a lost credential from a forged one (the refusal body is generic on purpose),
+    /// so this describes the operator's options rather than claiming which happened.
+    /// </summary>
+    internal static string NodeBindingHint(SvidAttestationRequest request, string? credential) =>
+        request.Credentials is not null && credential is null
+            ? $" If this instance is already bound to workload '{request.WorkloadName}', the agent no longer holds its "
+              + $"re-attestation credential (looked in {request.Credentials.StateDirectory}). An operator can release the "
+              + "binding with `bella spiffe node-bindings release <id>`."
+            : string.Empty;
+
     private sealed record AttestBody(
         string WorkloadName,
         string BootstrapToken,
         object? AttestationClaims,
         string? NodeAttestationToken,
-        string? NodeType);
+        string? NodeType,
+        string? NodeReattestationCredential = null);
 
     // PrivateKey is a `string` here because that is what the JSON body holds and what the serializer
     // produces — it is never kept: AttestAsync converts it to a clearable SvidPrivateKey immediately.
@@ -172,7 +197,8 @@ public sealed class HttpSvidSource(
         string PrivateKey,
         string TrustBundle,
         string SpiffeId,
-        DateTimeOffset ExpiresAt);
+        DateTimeOffset ExpiresAt,
+        string? NodeReattestationCredential = null);
 }
 
 /// <summary>Everything the agent needs to prove what it is.</summary>
@@ -184,12 +210,26 @@ public sealed class HttpSvidSource(
 /// Reads the node evidence fresh on each call. A function rather than a value because a Kubernetes
 /// projected token is rotated by the kubelet underneath us.
 /// </param>
+/// <param name="ReadNodeTokenAsync">
+/// Spec 065 — an asynchronous reader, used instead of <paramref name="ReadNodeToken"/> when set (the AWS identity
+/// document comes from the instance metadata service, over the network).
+/// </param>
+/// <param name="Credentials">
+/// Spec 065 — the instance's re-attestation credential store, for AWS evidence. Null for every other node type.
+/// </param>
 public sealed record SvidAttestationRequest(
     Guid EnvironmentId,
     string WorkloadName,
     string BootstrapToken,
     string NodeType,
-    Func<string?> ReadNodeToken);
+    Func<string?> ReadNodeToken,
+    Func<CancellationToken, Task<string?>>? ReadNodeTokenAsync = null,
+    NodeReattestationCredentialStore? Credentials = null)
+{
+    /// <summary>Reads the node evidence fresh: the async reader when set, else the synchronous one.</summary>
+    public Task<string?> ReadEvidenceAsync(CancellationToken ct) =>
+        ReadNodeTokenAsync is { } read ? read(ct) : Task.FromResult(ReadNodeToken());
+}
 
 /// <summary>Attestation was refused or could not be attempted. The message is operator-facing.</summary>
 public sealed class SvidAttestationException(string message, Exception? inner = null)
