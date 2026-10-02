@@ -109,6 +109,21 @@ public class UpgradeCommand(IOutputWriter output) : AsyncCommand<UpgradeCommand.
             return 1;
         }
 
+        // #1051 — provenance: the manifest must carry a signature by the pinned release key, as the installers
+        // require. Located before anything is downloaded, for the same reason as the manifest.
+        var signatureAsset = release.Assets?.FirstOrDefault(a =>
+            string.Equals(a.Name, ReleaseSignature.SignatureAssetName, StringComparison.OrdinalIgnoreCase));
+        var skipSignature = ReleaseSignature.InsecureSkipRequested;
+
+        if (signatureAsset?.BrowserDownloadUrl == null && !skipSignature)
+        {
+            output.WriteError(
+                $"Release {latestVersion} publishes no {ReleaseSignature.SignatureAssetName}, so it cannot be verified as published by Cosmic Chimps.");
+            output.WriteInfo("Refusing to replace the current binary.");
+            WriteSignatureRefusalHint();
+            return 1;
+        }
+
         // Download and replace current binary
         var currentExe = Environment.ProcessPath ?? Process.GetCurrentProcess().MainModule?.FileName
             ?? throw new InvalidOperationException("Cannot determine current executable path.");
@@ -123,6 +138,34 @@ public class UpgradeCommand(IOutputWriter output) : AsyncCommand<UpgradeCommand.
             http.DefaultRequestHeaders.Add("User-Agent", "bella-cli");
 
             var manifest = await http.GetStringAsync(checksumsAsset.BrowserDownloadUrl, ct);
+
+            // Verify the manifest's signature BEFORE spending 60 MB on the binary: a refusal here leaves nothing to
+            // undo. The manifest is checked as the exact bytes downloaded, written beside its signature.
+            if (skipSignature)
+            {
+                output.WriteWarning(
+                    $"{ReleaseSignature.InsecureSkipVariable}=1 — the GPG signature is NOT checked. Only the SHA-256 checksum is " +
+                    "verified: that proves the download is intact, NOT that Cosmic Chimps published it. Do not use this outside air-gapped setups.");
+            }
+            else
+            {
+                var verdict = await VerifyManifestSignatureAsync(http, manifest, signatureAsset!.BrowserDownloadUrl!, ct);
+                if (verdict != SignatureVerdict.Verified)
+                {
+                    output.WriteError(verdict switch
+                    {
+                        SignatureVerdict.NoSignature => $"{ReleaseSignature.SignatureAssetName} for {latestVersion} could not be downloaded.",
+                        SignatureVerdict.GpgMissing => "gpg is required to verify the release signature and was not found. Install GnuPG and retry.",
+                        SignatureVerdict.KeyImportFailed => "gpg could not import the embedded Cosmic Chimps signing key; it may be too old or broken.",
+                        _ => $"GPG signature verification FAILED for {latestVersion}: checksums.txt is not signed by the Cosmic Chimps " +
+                             $"release key ({ReleaseSignature.PinnedFingerprint}). This may indicate tampering.",
+                    });
+                    output.WriteInfo("The current binary has not been modified.");
+                    WriteSignatureRefusalHint();
+                    return 1;
+                }
+                output.WriteInfo($"GPG signature verified (key {ReleaseSignature.PinnedFingerprint}).");
+            }
 
             await AnsiConsole.Progress()
                 .StartAsync(async ctx =>
@@ -200,6 +243,41 @@ public class UpgradeCommand(IOutputWriter output) : AsyncCommand<UpgradeCommand.
             return 1;
         }
     }
+
+    /// <summary>
+    /// Downloads the detached signature and checks it over the manifest bytes already downloaded. Both go to a
+    /// private temp directory that is removed afterwards.
+    /// </summary>
+    private static async Task<SignatureVerdict> VerifyManifestSignatureAsync(
+        HttpClient http, string manifest, string signatureUrl, CancellationToken ct)
+    {
+        var dir = Directory.CreateTempSubdirectory("bella-upgrade-");
+        try
+        {
+            var manifestPath = Path.Combine(dir.FullName, ReleaseSource.ChecksumsAssetName);
+            var signaturePath = Path.Combine(dir.FullName, ReleaseSignature.SignatureAssetName);
+            await File.WriteAllTextAsync(manifestPath, manifest, ct);
+            try
+            {
+                await File.WriteAllBytesAsync(signaturePath, await http.GetByteArrayAsync(signatureUrl, ct), ct);
+            }
+            catch (HttpRequestException)
+            {
+                return SignatureVerdict.NoSignature;
+            }
+            return await ReleaseSignature.VerifyAsync(manifestPath, signaturePath, ct);
+        }
+        finally
+        {
+            try { dir.Delete(recursive: true); } catch { /* best effort */ }
+        }
+    }
+
+    private void WriteSignatureRefusalHint() =>
+        output.WriteInfo(
+            $"If you cannot verify signatures (an air-gapped mirror without the .asc, say), you may set " +
+            $"{ReleaseSignature.InsecureSkipVariable}=1 to upgrade on the SHA-256 checksum alone. That proves the download " +
+            "is intact, NOT that Cosmic Chimps published it.");
 
     /// <summary>A leftover <c>.new</c> would be picked up by nothing, but it is 60 MB of confusion.</summary>
     private static void TryDelete(string path)

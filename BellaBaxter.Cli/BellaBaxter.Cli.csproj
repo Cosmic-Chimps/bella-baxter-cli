@@ -58,6 +58,13 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- #1051: `bella upgrade` verifies checksums.txt.asc against THIS file — the committed release-signing key
+         the installers embed — rather than a fifth hand-copied block. scripts/ sits beside the project both in
+         the monorepo (apps/cli-dotnet/scripts) and in the public bella-baxter-cli repository (its root). -->
+    <EmbeddedResource Include="../scripts/bella-signing-key.asc" LogicalName="bella-signing-key.asc" />
+  </ItemGroup>
+
+  <ItemGroup>
     <!-- Both: the agent SERVES this API, and the conformance test plus the SDK auto-detection path
          (T044) need a client for the same schema. Generating the client from the identical vendored
          proto is the point — two hand-kept copies would be free to drift, and a drifted conformance

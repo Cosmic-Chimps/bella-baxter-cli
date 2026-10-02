@@ -39,10 +39,10 @@ public readonly record struct ChecksumVerification(ChecksumVerdict Verdict, stri
 ///
 /// <para><b>What this does and does not prove.</b> The manifest travels the same channel as the binary,
 /// so this establishes INTEGRITY — the bytes are the bytes that release published, not a truncated or
-/// corrupted download — and not PROVENANCE. Provenance is the sibling <c>checksums.txt.asc</c>, and
-/// verifying it needs a signing key shipped with and rotatable by the CLI; <c>publish.yml</c> also only
-/// signs when a key is configured, so a hard requirement would break unsigned releases. That is a
-/// separate piece of work, deliberately not implied by this one.</para>
+/// corrupted download — and not PROVENANCE. Provenance is the sibling <c>checksums.txt.asc</c>, verified by
+/// <see cref="ReleaseSignature"/> against the pinned release key before this check runs (#1051). The earlier
+/// reason for leaving it out — "a hard requirement would break unsigned releases" — stopped holding with #828:
+/// <c>publish.yml</c> refuses to publish an unsigned release.</para>
 /// </remarks>
 public sealed class ReleaseChecksums
 {

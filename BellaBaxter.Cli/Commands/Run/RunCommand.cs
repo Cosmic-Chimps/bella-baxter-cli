@@ -70,6 +70,13 @@ public class RunCommand(
         )]
         public string? PrivateKey { get; set; }
 
+        [CommandOption("--allow-reserved-env")]
+        [Description(
+            "Inject secrets named for variables that control how a process loads code (PATH, LD_PRELOAD, NODE_OPTIONS, …). "
+                + "By default they are withheld with a warning."
+        )]
+        public bool AllowReservedEnv { get; set; }
+
         [CommandArgument(0, "[cmd...]")]
         [Description("Command and arguments to run (after --)")]
         public string[] Cmd { get; set; } = [];
@@ -198,7 +205,7 @@ public class RunCommand(
             );
         }
 
-        return SpawnProcess(args, secrets);
+        return SpawnProcess(args, secrets, settings.AllowReservedEnv);
     }
 
     /// <summary>
@@ -345,7 +352,7 @@ public class RunCommand(
             ct
         );
 
-        Process? child = SpawnChild(args, currentSecrets);
+        Process? child = SpawnChild(args, currentSecrets, settings.AllowReservedEnv);
         Debug($"watch: initial child spawned PID={child?.Id}");
 
         // Main loop: wait for the child to exit OR for a restart signal.
@@ -381,7 +388,7 @@ public class RunCommand(
                 Debug($"watch: restart signal received, killing PID={child?.Id}");
                 // Restart the child with the new secrets.
                 var old = child;
-                child = SpawnChild(args, newSecrets);
+                child = SpawnChild(args, newSecrets, settings.AllowReservedEnv);
                 Debug($"watch: new child spawned PID={child?.Id}");
                 if (old is not null)
                     await KillAndWaitAsync(old, useSighup);
@@ -397,7 +404,7 @@ public class RunCommand(
                 if (restartCh.Reader.TryRead(out var pendingSecrets))
                 {
                     Debug("watch: pending restart found, spawning new child");
-                    child = SpawnChild(args, pendingSecrets);
+                    child = SpawnChild(args, pendingSecrets, settings.AllowReservedEnv);
                     // Loop — wait for the freshly spawned child.
                 }
                 else
@@ -411,23 +418,13 @@ public class RunCommand(
         return child?.ExitCode ?? 0;
     }
 
-    private static Process? SpawnChild(string[] args, Dictionary<string, string> secrets)
+    private Process? SpawnChild(string[] args, Dictionary<string, string> secrets, bool allowReserved)
     {
-        var env = new Dictionary<string, string?>(StringComparer.Ordinal);
-        // Inherit current environment
-        foreach (
-            System.Collections.DictionaryEntry entry in System.Environment.GetEnvironmentVariables()
-        )
-            env[entry.Key?.ToString() ?? ""] = entry.Value?.ToString();
-        // Overlay secrets
-        foreach (var (k, v) in secrets)
-            env[k] = v;
-
-        var psi = new ProcessStartInfo { FileName = args[0], UseShellExecute = false };
-        for (int i = 1; i < args.Length; i++)
-            psi.ArgumentList.Add(args[i]);
-        foreach (var (k, v) in env)
-            psi.Environment[k] = v;
+        // #1049 — the one author of the child's environment, shared with SpawnProcess.
+        var (psi, withheld) = RunEnvironment.BuildStartInfo(
+            args, secrets, System.Environment.GetEnvironmentVariables(), allowReserved);
+        foreach (var warning in RunEnvironment.Warnings(withheld))
+            output.WriteWarning(warning);
 
         var p = Process.Start(psi);
         if (p is not null)
@@ -502,21 +499,13 @@ public class RunCommand(
         }
     }
 
-    private static int SpawnProcess(string[] args, Dictionary<string, string> secrets)
+    private int SpawnProcess(string[] args, Dictionary<string, string> secrets, bool allowReserved)
     {
-        var env = new Dictionary<string, string?>(StringComparer.Ordinal);
-        foreach (
-            System.Collections.DictionaryEntry entry in System.Environment.GetEnvironmentVariables()
-        )
-            env[entry.Key?.ToString() ?? ""] = entry.Value?.ToString();
-        foreach (var (k, v) in secrets)
-            env[k] = v;
-
-        var psi = new ProcessStartInfo { FileName = args[0], UseShellExecute = false };
-        for (int i = 1; i < args.Length; i++)
-            psi.ArgumentList.Add(args[i]);
-        foreach (var (k, v) in env)
-            psi.Environment[k] = v;
+        // #1049 — the one author of the child's environment, shared with SpawnChild.
+        var (psi, withheld) = RunEnvironment.BuildStartInfo(
+            args, secrets, System.Environment.GetEnvironmentVariables(), allowReserved);
+        foreach (var warning in RunEnvironment.Warnings(withheld))
+            output.WriteWarning(warning);
 
         var p = Process.Start(psi);
         p?.WaitForExit();

@@ -11,7 +11,8 @@ namespace BellaBaxter.Cli.Tests.Infrastructure;
 /// <para>The installers fail closed: a release is installed only when its <c>checksums.txt</c> carries a
 /// signature made by ONE pinned key. That key is written down in several places — the committed
 /// <c>scripts/bella-signing-key.asc</c>, embedded in <c>install-bella.sh</c> and <c>install-bella.ps1</c>,
-/// and (by fingerprint) in the setup Action's <c>fetch-installer.sh</c>. If any copy drifts, one
+/// (by fingerprint) in the setup Action's <c>fetch-installer.sh</c>, and (#1051) in <c>bella upgrade</c>
+/// (<c>ReleaseSignature</c>, which embeds the committed file itself). If any copy drifts, one
 /// installer refuses every genuine release while the others accept it, and nothing at build time
 /// notices: the release workflow checks the embedded key against the signing secret only when a
 /// release is cut.</para>
@@ -46,6 +47,16 @@ public class InstallerTrustAnchorTests
             Single(Script("install-bella.sh"), "^SIGNING_FINGERPRINT=\"([0-9A-F]{40})\"$"));
         Assert.Equal(PinnedFingerprint,
             Single(Script("install-bella.ps1"), "^\\$SigningFingerprint = \"([0-9A-F]{40})\"$"));
+    }
+
+    [Fact]
+    public void Bella_upgrade_pins_the_same_fingerprint_and_carries_the_committed_key()
+    {
+        // #1051 — the fifth consumer. `bella upgrade` replaces the running binary, so it verifies the same
+        // signature against the same anchor; it embeds scripts/bella-signing-key.asc itself rather than a copy.
+        Assert.Equal(PinnedFingerprint, BellaCli.Commands.Upgrade.ReleaseSignature.PinnedFingerprint);
+        Assert.Equal(KeyBlock(Script("bella-signing-key.asc")),
+            KeyBlock(BellaCli.Commands.Upgrade.ReleaseSignature.EmbeddedPublicKey));
     }
 
     [Fact]
