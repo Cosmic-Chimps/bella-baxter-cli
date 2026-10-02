@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using BellaBaxter.Client;
 
 namespace BellaCli.Services.Spiffe;
 
@@ -26,6 +27,13 @@ public sealed class HttpSvidSource(
     Func<DateTimeOffset>? now = null) : ISvidSource
 {
     private readonly Func<DateTimeOffset> _now = now ?? (() => DateTimeOffset.UtcNow);
+
+    // Backlog §2.31 — the bootstrap token goes out and the SVID private key comes back over this client,
+    // so an http address off this machine is refused at CONSTRUCTION, before anything can be sent. The
+    // rule is BellaApiAddress's (shared with the .NET SPIFFE SDK); the command reports it first, with
+    // the configuration source named, so an operator never meets this exception.
+    private readonly Uri _bella = BellaApiAddress.RequireAcceptable(
+        httpClient.BaseAddress?.ToString(), "The Bella API address the SVID agent attests to");
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -59,7 +67,7 @@ public sealed class HttpSvidSource(
         catch (HttpRequestException ex)
         {
             throw new SvidAttestationException(
-                $"Could not reach Bella at {httpClient.BaseAddress} to attest. The agent will retry. "
+                $"Could not reach Bella at {_bella} to attest. The agent will retry. "
                 + $"Cause: {ex.Message}", ex);
         }
 
@@ -71,13 +79,29 @@ public sealed class HttpSvidSource(
                 ?? throw new SvidAttestationException(
                     "Bella accepted the attestation but returned no SVID.");
 
+            // Backlog §2.31 — the key is converted to the PKCS#8 DER the Workload API serves HERE, once,
+            // into a buffer the agent can clear. The PEM `string` it came from cannot be cleared (JSON
+            // materialises it as an immutable .NET string); this is the earliest point at which the key
+            // exists in a form that can be. A key that cannot be read is an attestation failure now,
+            // rather than a malformed push to every workload later.
+            SvidPrivateKey key;
+            try
+            {
+                key = SvidPrivateKey.FromPem(issued.PrivateKey);
+            }
+            catch (InvalidOperationException ex)
+            {
+                throw new SvidAttestationException(
+                    "Bella issued an SVID whose private key the agent cannot serve. " + ex.Message, ex);
+            }
+
             // IssuedAt is OUR clock, not the certificate's notBefore, and that is on purpose: the
             // renewal window is measured against the same clock that later asks "is it time yet". A CA
             // that backdates notBefore by a few minutes (most do, for skew tolerance) would otherwise
             // make every SVID look older than it is and trigger early renewals for its whole life.
             return new AttestedSvid(
                 issued.Certificate,
-                issued.PrivateKey,
+                key,
                 issued.TrustBundle,
                 issued.SpiffeId,
                 IssuedAt: _now(),
@@ -141,6 +165,8 @@ public sealed class HttpSvidSource(
         string? NodeAttestationToken,
         string? NodeType);
 
+    // PrivateKey is a `string` here because that is what the JSON body holds and what the serializer
+    // produces — it is never kept: AttestAsync converts it to a clearable SvidPrivateKey immediately.
     private sealed record AttestResponseBody(
         string Certificate,
         string PrivateKey,

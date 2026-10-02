@@ -20,7 +20,10 @@ public class ConfigShowCommand(ConfigService configService, IOutputWriter output
 
         var obj = new Dictionary<string, object?>
         {
-            ["apiUrl"] = configService.ApiUrl,
+            // Display only: the value as configured, even when the https rule refuses it — this is where
+            // an operator comes to find out what is wrong (backlog §2.31 follow-up).
+            ["apiUrl"] = configService.ApiUrlAsConfigured,
+            ["apiUrlProblem"] = configService.ApiUrlProblem,
             ["configFile"] = configFile,
         };
 
@@ -28,7 +31,9 @@ public class ConfigShowCommand(ConfigService configService, IOutputWriter output
         {
             AnsiConsole.MarkupLine("[bold blue]⚙️  Bella CLI Configuration[/]");
             AnsiConsole.MarkupLine("[dim]" + new string('─', 60) + "[/]");
-            AnsiConsole.MarkupLine($"[white]Server URL:[/] [green]{Markup.Escape(configService.ApiUrl)}[/]");
+            AnsiConsole.MarkupLine($"[white]Server URL:[/] [green]{Markup.Escape(configService.ApiUrlAsConfigured)}[/]");
+            if (configService.ApiUrlProblem is { } problem)
+                AnsiConsole.MarkupLine($"[red]{Markup.Escape(problem)}[/]");
             AnsiConsole.MarkupLine("[dim]" + new string('─', 60) + "[/]");
             AnsiConsole.MarkupLine($"[dim]Config file: {configFile}[/]");
         }
@@ -60,6 +65,12 @@ public class ConfigSetServerCommand(ConfigService configService, IOutputWriter o
         if (!Uri.TryCreate(url, UriKind.Absolute, out _))
         {
             output.WriteError($"Invalid URL: {url}");
+            return Task.FromResult(1);
+        }
+
+        if (ConfigService.ProblemFor(url, "bella config set-server") is { } problem)
+        {
+            output.WriteError(problem);
             return Task.FromResult(1);
         }
 

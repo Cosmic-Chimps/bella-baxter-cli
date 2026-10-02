@@ -1,3 +1,4 @@
+using BellaBaxter.Client;
 using BellaCli.Infrastructure;
 using BellaCli.Services;
 using BellaCli.Services.Spiffe;
@@ -33,6 +34,12 @@ public class SpiffeAgentSettings : CommandSettings
     [System.ComponentModel.Description("Node attestor: k8s (default) or aws-iid.")]
     public string? NodeType { get; init; }
 
+    [CommandOption("--node-token-path <PATH>")]
+    [System.ComponentModel.Description(
+        "Kubernetes token to present as node evidence. Also BELLA_NODE_TOKEN_PATH or node_token_path in .bella; "
+        + "defaults to /var/run/secrets/bella/token when mounted, else the kubelet's default token.")]
+    public string? NodeTokenPath { get; init; }
+
     [CommandOption("--socket <PATH>")]
     [System.ComponentModel.Description(
         "Local endpoint path. Defaults to SPIFFE_ENDPOINT_SOCKET, else a per-user runtime path.")]
@@ -57,6 +64,25 @@ public class SpiffeAgentCommand(
     /// and every CI system already feed, and it does not appear in a process listing.
     /// </remarks>
     public const string BootstrapTokenVariable = "BELLA_BOOTSTRAP_TOKEN";
+
+    /// <summary>
+    /// Spec 064 (FR-013) — why the agent refuses to start, if the node token was configured explicitly and is
+    /// unusable. Starting anyway and falling back to another token would pass every check until an environment
+    /// enforces token audience, and then fail everywhere at once.
+    /// </summary>
+    public static string? NodeTokenStartupRefusal(NodeTokenLocation location, NodeEvidenceReport evidence) =>
+        location.IsExplicit && evidence.Problem is not null ? evidence.Problem : null;
+
+    /// <summary>
+    /// Spec 064 — the one warning a pod on the kubelet's default token gets: an environment enforcing token
+    /// audience refuses it, because its audience is the cluster's own API server.
+    /// </summary>
+    public static string? KubeletDefaultTokenWarning(NodeTokenLocation location, NodeEvidenceReport evidence) =>
+        evidence.Platform == WorkloadPlatform.Kubernetes && evidence.TokenPresent
+            && location.Source == NodeTokenPathSource.KubeletDefault
+            ? "Presenting the kubelet's default service-account token. An environment enforcing token audience "
+                + "will refuse it; mount a projected token requested for Bella (see `bella spiffe whoami`)."
+            : null;
 
     protected override async Task<int> ExecuteAsync(
         CommandContext context, SpiffeAgentSettings settings, CancellationToken ct)
@@ -86,6 +112,15 @@ public class SpiffeAgentCommand(
             return 1;
         }
 
+        // Backlog §2.31 — refused BEFORE anything is prepared or sent. The bootstrap token and the SVID
+        // private key travel over this address, so plain http is accepted only to this machine. The
+        // message names where the address came from, because the fix is to change THAT source.
+        if (config.ApiUrlProblem is { } refusal)
+        {
+            output.WriteError(refusal);
+            return 1;
+        }
+
         var location = SvidSocketPath.Resolve(settings.Socket);
 
         // Prepared and checked BEFORE the first attestation, so a permission problem is reported while
@@ -101,7 +136,15 @@ public class SpiffeAgentCommand(
             return 1;
         }
 
-        var evidence = NodeEvidence.Inspect();
+        // Spec 064 — resolved ONCE, from the flag/environment/.bella, so the startup line, the check below and every
+        // later attestation agree about which file is the token.
+        var nodeToken = NodeTokenPath.Resolve(settings.NodeTokenPath);
+        var evidence = NodeEvidence.Inspect(nodeToken);
+        if (NodeTokenStartupRefusal(nodeToken, evidence) is { } nodeTokenRefusal)
+        {
+            output.WriteError(nodeTokenRefusal);
+            return 1;
+        }
         var nodeType = settings.NodeType ?? evidence.NodeType ?? "k8s";
 
         var httpClient = httpClientFactory.CreateClient(nameof(SpiffeAgentCommand));
@@ -114,8 +157,8 @@ public class SpiffeAgentCommand(
             nodeType,
             // Re-read on every attestation: a Kubernetes projected token is rotated underneath us,
             // so a value captured here would be stale by the first renewal.
-            ReadNodeToken: () => NodeEvidence.Inspect().TokenPresent
-                ? File.ReadAllText(NodeEvidencePaths.KubernetesServiceAccountToken).Trim()
+            ReadNodeToken: () => NodeEvidence.Inspect(nodeToken).TokenPresent
+                ? File.ReadAllText(nodeToken.Path).Trim()
                 : null);
 
         var source = new HttpSvidSource(httpClient, attestation);
@@ -124,7 +167,9 @@ public class SpiffeAgentCommand(
         // which workload in which environment is attesting.
         var jwtSource = new HttpJwtSvidSource(httpClient, attestation);
 
-        var agent = new SvidAgent(source);
+        // Disposed on the way out (backlog §2.31): clears the held SVID's private key once both tasks
+        // below have stopped, so the last identity does not outlive the agent's decision to stop.
+        using var agent = new SvidAgent(source);
         var reporter = new ConsoleSvidReporter(output);
         var loop = new SvidAgentLoop(
             agent,
@@ -134,6 +179,10 @@ public class SpiffeAgentCommand(
 
         output.WriteInfo($"Attesting workload '{workloadName}' in environment {environmentId:D}.");
         output.WriteInfo($"Local endpoint: {location.Path} (from {location.Source}).");
+        if (evidence.Platform == WorkloadPlatform.Kubernetes)
+            output.WriteInfo($"Node token: {nodeToken.Path} (source: {nodeToken.SourceName}).");
+        if (KubeletDefaultTokenWarning(nodeToken, evidence) is { } kubeletWarning)
+            output.WriteWarning(kubeletWarning);
         if (evidence.Problem is not null)
         {
             // A warning rather than a refusal: node evidence is only required when the environment's
@@ -197,6 +246,13 @@ public class SpiffeAgentCommand(
         output.WriteInfo("Agent stopped.");
         return 0;
     }
+
+    /// <summary>
+    /// Why the agent will not attest to <paramref name="apiUrl"/>, or null when it may. The rule is
+    /// <see cref="BellaApiAddress"/>'s — https, or plain http to loopback only, with no opt-out.
+    /// </summary>
+    internal static string? ApiAddressRefusal(string apiUrl, string source) =>
+        ConfigService.ProblemFor(apiUrl, source);
 
     /// <summary>Prints what the loop reports. The whole of the agent's operator-facing output.</summary>
     private sealed class ConsoleSvidReporter(IOutputWriter output) : ISvidAgentReporter

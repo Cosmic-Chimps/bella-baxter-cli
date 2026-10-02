@@ -374,7 +374,7 @@ public class SvidAgentRotationTests
     private static AttestedSvid Svid(DateTimeOffset issued, DateTimeOffset expires, string spiffeId) =>
         new(
             Certificate: $"-----BEGIN CERTIFICATE-----cert-{issued:O}-----END CERTIFICATE-----",
-            PrivateKey: "-----BEGIN PRIVATE KEY-----k-----END PRIVATE KEY-----",
+            PrivateKey: SvidPrivateKey.TakeOwnership("-----BEGIN PRIVATE KEY-----k-----END PRIVATE KEY-----"u8.ToArray()),
             TrustBundle: "-----BEGIN CERTIFICATE-----ca-----END CERTIFICATE-----",
             SpiffeId: spiffeId,
             IssuedAt: issued,

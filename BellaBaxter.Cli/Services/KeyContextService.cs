@@ -157,6 +157,32 @@ public class KeyContextService(BellaClientProvider provider, CredentialStore cre
     }
 
     /// <summary>
+    /// Reads <c>key = "value"</c> from the nearest <c>.bella</c> (walking up from <paramref name="startDirectory"/>, the
+    /// working directory by default), or null. The one public reader for settings beyond the context slugs
+    /// (spec 064: <c>node_token_path</c>, read by the agent and <c>whoami</c> only), so a new key does not grow a sixth private parser.
+    /// An unreadable or malformed file yields null, like <c>ConfigService</c>'s <c>url</c> reader.
+    /// </summary>
+    public static string? ReadBellaSetting(string key, string? startDirectory = null)
+    {
+        try
+        {
+            var path = FindBellaFile(startDirectory ?? Directory.GetCurrentDirectory());
+            if (path is null)
+                return null;
+            var lines = new List<string>(File.ReadAllLines(path));
+            if (FindLine(lines, key) is not { } index)
+                return null;
+            var line = lines[index];
+            var value = line[(line.IndexOf('=') + 1)..].Trim().Trim('"').Trim();
+            return value.Length == 0 ? null : value;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
     /// Walks up the directory tree from <paramref name="startDirectory"/> to find the nearest
     /// <c>.bella</c> file. Returns its full path, or <c>null</c> if none is found.
     /// </summary>

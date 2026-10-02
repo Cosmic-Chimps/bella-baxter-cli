@@ -205,8 +205,11 @@ public class ContextShowCommand(ConfigService config, CredentialStore credential
         // self-hosted box — which is exactly the confusion that made the URL feel like something you
         // had to re-export every session.
         AnsiConsole.MarkupLine(
-            $"[white]Server:[/]      [cyan]{Markup.Escape(config.ApiUrl)}[/] [dim](from {Markup.Escape(config.ApiUrlSource)})[/]"
+            $"[white]Server:[/]      [cyan]{Markup.Escape(config.ApiUrlAsConfigured)}[/] [dim](from {Markup.Escape(config.ApiUrlSource)})[/]"
         );
+        // Display only — the refusal every server-bound command would give (backlog §2.31 follow-up).
+        if (config.ApiUrlProblem is { } apiUrlProblem)
+            AnsiConsole.MarkupLine($"[red]{Markup.Escape(apiUrlProblem)}[/]");
 
         // Org context
         var currentOrgSlug = credentials.LoadTokens()?.OrgSlug;

@@ -96,10 +96,10 @@ public class SdkRunCommand(
         }
 
         // ── 1. Resolve API URL ────────────────────────────────────────────────
-        var apiUrl =
-            config.ApiUrl
-            ?? System.Environment.GetEnvironmentVariable("BELLA_BAXTER_URL")
-            ?? System.Environment.GetEnvironmentVariable("BELLA_API_URL"); // deprecated
+        // ConfigService is the ONE reader of the address and applies the https-or-loopback rule
+        // (backlog §2.31 follow-up). The env fallbacks that stood here never ran — ApiUrl is never
+        // null — but they were a second, unguarded reader of BELLA_BAXTER_URL.
+        var apiUrl = config.ApiUrl;
 
         // ── 2. Resolve app client name ────────────────────────────────────────
         var appClient =

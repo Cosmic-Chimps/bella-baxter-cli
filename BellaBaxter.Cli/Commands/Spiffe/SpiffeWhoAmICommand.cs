@@ -18,6 +18,12 @@ namespace BellaCli.Commands.Spiffe;
 
 public class SpiffeWhoAmISettings : CommandSettings
 {
+    [CommandOption("--node-token-path <PATH>")]
+    [System.ComponentModel.Description(
+        "Kubernetes token to inspect, resolved as the agent resolves it (flag, BELLA_NODE_TOKEN_PATH, .bella, "
+        + "/var/run/secrets/bella/token, kubelet default).")]
+    public string? NodeTokenPath { get; init; }
+
     [CommandOption("--json")]
     public bool Json { get; init; }
 }
@@ -28,7 +34,7 @@ public class SpiffeWhoAmICommand(IOutputWriter output, GlobalSettings global)
     protected override int Execute(
         CommandContext context, SpiffeWhoAmISettings settings, CancellationToken ct)
     {
-        var report = NodeEvidence.Inspect();
+        var report = NodeEvidence.Inspect(BellaCli.Services.Spiffe.NodeTokenPath.Resolve(settings.NodeTokenPath));
 
         // `--json` OR an auto-selected JSON mode (API-key auth, or stdout redirected). Checking only
         // the flag meant a piped invocation printed NOTHING at all: the human writer's info lines are
@@ -53,7 +59,22 @@ public class SpiffeWhoAmICommand(IOutputWriter output, GlobalSettings global)
         }
 
         output.WriteInfo($"Node attestor: {report.NodeType}");
-        output.WriteInfo($"Evidence path: {report.TokenPath}");
+        output.WriteInfo($"Node token: {report.TokenPath} (source: {report.TokenPathSource})");
+
+        // Spec 064 (FR-015) — what the token says about itself, decoded here and NOT verified; the token itself is
+        // never printed. The audience is the line that matters before enforcing: the kubelet default names the
+        // cluster's own API server, which an enforcing environment refuses.
+        if (report.Audiences is not null && report.TokenPresent)
+        {
+            output.WriteInfo($"Audience: {(report.Audiences.Count == 0 ? "(none)" : string.Join(", ", report.Audiences))} (unverified)");
+            if (report.Issuer is not null)
+                output.WriteInfo($"Issuer: {report.Issuer} (unverified)");
+            if (report.ExpiresAt is { } expires)
+            {
+                var left = expires - DateTimeOffset.UtcNow;
+                output.WriteInfo($"Expires: {expires:yyyy-MM-ddTHH:mm:ssZ} ({(left > TimeSpan.Zero ? $"in {(int)left.TotalMinutes}m" : "EXPIRED")})");
+            }
+        }
 
         if (report.Namespace is not null)
         {

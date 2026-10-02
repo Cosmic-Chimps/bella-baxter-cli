@@ -872,7 +872,14 @@ app.Configure(config =>
                     "Set this environment's attestation policy: mode, SVID TTL, k8s OIDC issuer, "
                     + "AWS account allow-list.")
                 .WithExample("spiffe", "set-mode", "--strict", "--k8s-oidc", "https://oidc.example/id/c1")
-                .WithExample("spiffe", "set-mode", "--strict", "--aws-account", "123456789012");
+                .WithExample("spiffe", "set-mode", "--strict", "--aws-account", "123456789012")
+                .WithExample("spiffe", "set-mode", "--strict", "--enforce-audience");
+            spiffe.AddCommand<SpiffeAudienceReadinessCommand>("audience-readiness")
+                .WithDescription(
+                    "Before enforcing token audience: how many recent admissions presented the expected audience, "
+                    + "for node evidence and every trust domain. Exit 0 ready, 1 would refuse, 2 unproven, 3 unknown.")
+                .WithExample("spiffe", "audience-readiness")
+                .WithExample("spiffe", "audience-readiness", "--json");
         });
 
     config

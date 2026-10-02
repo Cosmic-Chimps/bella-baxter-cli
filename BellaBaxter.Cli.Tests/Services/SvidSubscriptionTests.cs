@@ -197,7 +197,7 @@ public class SvidSubscriptionTests
     // ===== helpers =====
 
     private static AttestedSvid Svid(DateTimeOffset issued, DateTimeOffset expires, string tag) =>
-        new(tag, "key", "ca", "spiffe://t/p/e/billing", issued, expires);
+        new(tag, SvidPrivateKey.TakeOwnership("key"u8.ToArray()), "ca", "spiffe://t/p/e/billing", issued, expires);
 
     private sealed class QueueSource(params AttestedSvid[] queued) : ISvidSource
     {

@@ -197,4 +197,23 @@ public class SpiffeSetModeSettingsTests
         Assert.Contains("token signing keys", why, StringComparison.Ordinal);
         Assert.Contains("could not be used", why, StringComparison.Ordinal);
     }
+
+    // ── Spec 064 ─────────────────────────────────────────────────────────────
+
+    [Fact]
+    public void Only_one_way_of_naming_the_audience_at_a_time()
+    {
+        Assert.False(Ok(new SpiffeSetModeSettings { Strict = true, K8sAudience = "x", ClearK8sAudience = true }));
+        Assert.False(Ok(new SpiffeSetModeSettings { Strict = true, K8sAudience = "x", K8sAudienceRecommended = true }));
+        Assert.False(Ok(new SpiffeSetModeSettings { Strict = true, K8sAudienceRecommended = true, ClearK8sAudience = true }));
+        Assert.True(Ok(new SpiffeSetModeSettings { Strict = true, K8sAudienceRecommended = true }));
+    }
+
+    [Fact]
+    public void Enforce_and_observe_are_exclusive()
+    {
+        Assert.False(Ok(new SpiffeSetModeSettings { Strict = true, EnforceAudience = true, ObserveAudience = true }));
+        Assert.True(Ok(new SpiffeSetModeSettings { Strict = true, EnforceAudience = true }));
+        Assert.True(Ok(new SpiffeSetModeSettings { Strict = true, ObserveAudience = true }));
+    }
 }

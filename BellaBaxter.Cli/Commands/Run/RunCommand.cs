@@ -21,6 +21,14 @@ public class RunCommand(
     IOutputWriter output
 ) : AsyncCommand<RunCommand.Settings>
 {
+    /// <summary>
+    /// The context the keyless exchange resolves. Spec 064 found this call passing project and environment
+    /// POSITIONALLY into the tenant and project parameters, so every keyless <c>bella run</c> resolved the wrong
+    /// context; it is named now, and pinned by a test.
+    /// </summary>
+    public static (string? Tenant, string? Project, string? Environment) WorkloadExchangeContext(Settings settings) =>
+        (null, settings.Project, settings.Environment);
+
     public class Settings : CommandSettings
     {
         [CommandOption("-p|--project <slug>")]
@@ -85,9 +93,11 @@ public class RunCommand(
 
         // ── Try workload identity first (GitHub Actions / Kubernetes) ─────────
         BellaClient client;
+        var exchange = WorkloadExchangeContext(settings);
         var workloadResult = await workloadIdentity.TryAutoExchangeAsync(
-            settings.Project,
-            settings.Environment,
+            explicitTenant: exchange.Tenant,
+            explicitProject: exchange.Project,
+            explicitEnvironment: exchange.Environment,
             ct: ct
         );
 

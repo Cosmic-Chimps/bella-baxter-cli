@@ -74,11 +74,54 @@ public class SpiffeSetModeSettings : CommandSettings
         "Remove the AWS account allow-list. Any AWS account's signed instance document may then attest.")]
     public bool ClearAwsAccounts { get; init; }
 
+    // ── Spec 064: the node-evidence token audience ─────────────────────────────
+
+    [CommandOption("--k8s-audience <VALUE>")]
+    [System.ComponentModel.Description(
+        "Audience a Kubernetes service-account token must carry to count as node evidence here.")]
+    public string? K8sAudience { get; init; }
+
+    [CommandOption("--k8s-audience-recommended")]
+    [System.ComponentModel.Description(
+        "Use this environment's own unique audience (bella-spiffe/<environment id>), so no other environment's "
+        + "token can satisfy its check.")]
+    public bool K8sAudienceRecommended { get; init; }
+
+    [CommandOption("--clear-k8s-audience")]
+    [System.ComponentModel.Description("Go back to the platform default audience, bella-spiffe (shared by every environment that keeps it).")]
+    public bool ClearK8sAudience { get; init; }
+
+    [CommandOption("--enforce-audience")]
+    [System.ComponentModel.Description(
+        "Refuse node evidence minted for another audience. Asks first when recent workloads would be refused.")]
+    public bool EnforceAudience { get; init; }
+
+    [CommandOption("--observe-audience")]
+    [System.ComponentModel.Description("Only record the audience workloads present, refusing nothing (the rollback).")]
+    public bool ObserveAudience { get; init; }
+
+    [CommandOption("--acknowledge-audience-refusals")]
+    [System.ComponentModel.Description(
+        "Enforce even though recent admissions presented another audience, or nothing has been measured yet.")]
+    public bool AcknowledgeAudienceRefusals { get; init; }
+
     [CommandOption("--json")]
     public bool Json { get; init; }
 
     public override Spectre.Console.ValidationResult Validate()
     {
+        var audienceChoices = (string.IsNullOrWhiteSpace(K8sAudience) ? 0 : 1) + (K8sAudienceRecommended ? 1 : 0) + (ClearK8sAudience ? 1 : 0);
+        if (audienceChoices > 1)
+        {
+            return Spectre.Console.ValidationResult.Error(
+                "Pass at most one of --k8s-audience, --k8s-audience-recommended and --clear-k8s-audience.");
+        }
+
+        if (EnforceAudience && ObserveAudience)
+        {
+            return Spectre.Console.ValidationResult.Error("Pass either --enforce-audience or --observe-audience, not both.");
+        }
+
         if (Strict && Lax)
         {
             return Spectre.Console.ValidationResult.Error("Pass either --strict or --lax, not both.");
@@ -177,6 +220,23 @@ public class SpiffeSetModeCommand(
             var (projectSlug, _, _) = await context.ResolveProjectAsync(settings.Project, client, ct);
             var (envSlug, _, _) = await context.ResolveEnvironmentAsync(settings.Environment, projectSlug, client, ct);
 
+            // Spec 064 — the recommended value is the server's to compute (it is derived from the environment id),
+            // so it is read, never reconstructed here.
+            string? audience = settings.ClearK8sAudience
+                ? string.Empty
+                : string.IsNullOrWhiteSpace(settings.K8sAudience) ? null : settings.K8sAudience.Trim();
+            if (settings.K8sAudienceRecommended)
+            {
+                var current = await client.Api.V1.Projects[projectSlug].Environments[envSlug]
+                    .SpiffeSettings.GetAsync(cancellationToken: ct);
+                audience = current?.K8sRecommendedAudience;
+                if (string.IsNullOrWhiteSpace(audience))
+                {
+                    output.WriteError("The server did not return a recommended audience for this environment.");
+                    return 1;
+                }
+            }
+
             var command = new BellaBaxter.Client.Models.UpdateSpiffeSettingsCommand
             {
                 AttestationMode = settings.Strict ? "Strict" : "Lax",
@@ -192,6 +252,10 @@ public class SpiffeSetModeCommand(
                         ? settings.AwsAccounts.Select(a => a.Trim()).ToList()
                         : null,
                 AcknowledgeStrictRefusals = settings.AcknowledgeStrictRefusals,
+                // Spec 064 — same three-valued rule: not passed is not sent.
+                K8sExpectedAudience = audience,
+                K8sAudienceEnforced = settings.EnforceAudience ? true : settings.ObserveAudience ? false : null,
+                AcknowledgeAudienceRefusals = settings.AcknowledgeAudienceRefusals,
             };
 
             BellaBaxter.Client.Models.SpiffeSettingsResponse? result;
@@ -200,12 +264,35 @@ public class SpiffeSetModeCommand(
                 result = await client.Api.V1.Projects[projectSlug].Environments[envSlug]
                     .SpiffeSettings.PutAsync(command, cancellationToken: ct);
             }
+            catch (BellaBaxter.Client.Models.ProblemDetails problem)
+                when (problem.ResponseStatusCode == 409 && AudienceProblem.Is(problem, AudienceProblem.WouldRefuse))
+            {
+                // Spec 064 (FR-025): readiness informs the switch and never blocks it. Nothing was changed; the
+                // operator sees who would be refused and decides. Exit 2, not 1: a question, not a failure.
+                output.WriteError(problem.Detail ?? "Enforcing would refuse recent admissions.");
+                foreach (var line in AudienceProblem.Describe(problem))
+                    output.WriteInfo(line);
+                output.WriteInfo("Re-run with --acknowledge-audience-refusals to enforce anyway.");
+                return 2;
+            }
+            catch (BellaBaxter.Client.Models.ProblemDetails problem)
+                when (problem.ResponseStatusCode == 409 && AudienceProblem.Is(problem, AudienceProblem.InUse))
+            {
+                output.WriteError(problem.Detail ?? "This audience is already used by another environment.");
+                output.WriteInfo("Choose a different value, or use --k8s-audience-recommended.");
+                return 1;
+            }
             catch (BellaBaxter.Client.Models.ProblemDetails problem) when (problem.ResponseStatusCode == 409)
             {
                 // Spec 028 (FR-017): Strict would refuse the named workloads. Nothing was changed. The
                 // operator either fixes the registrations or says, explicitly, that they mean it.
                 output.WriteError(problem.Detail ?? "Strict mode would refuse workloads in this environment.");
                 output.WriteInfo("Re-run with --acknowledge-strict-refusals to switch anyway.");
+                return 1;
+            }
+            catch (BellaBaxter.Client.Models.ProblemDetails problem) when (problem.ResponseStatusCode == 503)
+            {
+                output.WriteError(problem.Detail ?? "The audience could not be checked right now. Nothing was changed; try again.");
                 return 1;
             }
 
@@ -233,6 +320,11 @@ public class SpiffeSetModeCommand(
                     {
                         workloadsWithoutVerifiableConstraint = result.StrictReadiness?.WorkloadsWithoutVerifiableConstraint ?? [],
                     },
+                    k8sExpectedAudience = result.K8sExpectedAudience,
+                    k8sAudienceIsDefault = result.K8sAudienceIsDefault,
+                    k8sRecommendedAudience = result.K8sRecommendedAudience,
+                    k8sAudienceEnforced = result.K8sAudienceEnforced,
+                    audienceNotice = result.AudienceNotice,
                 });
                 return 0;
             }
@@ -245,6 +337,9 @@ public class SpiffeSetModeCommand(
             table.AddRow("Default SVID TTL", $"{result.DefaultSvidTtlMinutes} min");
             table.AddRow("k8s OIDC issuer", string.IsNullOrEmpty(result.K8sOidcDiscoveryUrl)
                 ? "[yellow]not configured[/]" : result.K8sOidcDiscoveryUrl);
+            table.AddRow("Node token audience", Markup.Escape(result.K8sExpectedAudience ?? "—")
+                + (result.K8sAudienceIsDefault == true ? " [yellow](shared default)[/]" : string.Empty));
+            table.AddRow("Audience enforcement", result.K8sAudienceEnforced == true ? "enforced" : "[yellow]observed only[/]");
             table.AddRow("AWS accounts",
                 result.AwsIidAllowedAccounts is { Count: > 0 } accts
                     ? string.Join(", ", accts)
@@ -289,5 +384,28 @@ public class SpiffeSetModeCommand(
             output.WriteError($"Failed to update SPIFFE settings: {ex.Message}");
             return 1;
         }
+    }
+}
+
+/// <summary>
+/// Spec 064 — reads the audience problems the API returns (<c>audience-enforcement-would-refuse</c>,
+/// <c>audience-in-use</c>) from a Kiota <see cref="BellaBaxter.Client.Models.ProblemDetails"/>.
+/// </summary>
+internal static class AudienceProblem
+{
+    public const string WouldRefuse = "audience-enforcement-would-refuse";
+    public const string InUse = "audience-in-use";
+
+    public static bool Is(BellaBaxter.Client.Models.ProblemDetails problem, string code) =>
+        problem.Type?.EndsWith("/" + code, StringComparison.Ordinal) == true;
+
+    /// <summary>The readiness numbers carried on the 409, as display lines.</summary>
+    public static IEnumerable<string> Describe(BellaBaxter.Client.Models.ProblemDetails problem)
+    {
+        var data = problem.AdditionalData ?? new Dictionary<string, object>();
+        if (data.TryGetValue("verdict", out var verdict))
+            yield return $"Readiness: {verdict}";
+        if (data.TryGetValue("matched", out var matched) && data.TryGetValue("notMatched", out var notMatched))
+            yield return $"Recent admissions: {matched} presented the expected audience, {notMatched} did not.";
     }
 }

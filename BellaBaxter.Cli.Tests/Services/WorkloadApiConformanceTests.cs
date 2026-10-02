@@ -473,7 +473,7 @@ public class WorkloadApiConformanceTests
             var now = DateTimeOffset.UtcNow;
             return new AttestedSvid(
                 Certificate: leaf.ExportCertificatePem(),
-                PrivateKey: leafKey.ExportPkcs8PrivateKeyPem(),
+                PrivateKey: SvidPrivateKey.FromPem(leafKey.ExportPkcs8PrivateKeyPem()),
                 TrustBundle: ca.ExportCertificatePem(),
                 SpiffeId: spiffeId,
                 IssuedAt: now,

@@ -253,7 +253,7 @@ public class SvidAgentLoopTests
     // ===== helpers =====
 
     private static AttestedSvid Svid(DateTimeOffset issued, DateTimeOffset expires) =>
-        new($"cert-{issued:O}", "key", "ca", "spiffe://t/p/e/billing", issued, expires);
+        new($"cert-{issued:O}", SvidPrivateKey.TakeOwnership("key"u8.ToArray()), "ca", "spiffe://t/p/e/billing", issued, expires);
 
     /// <summary>A clock that advances when the code under test sleeps.</summary>
     private sealed class FakeClock(DateTimeOffset start)

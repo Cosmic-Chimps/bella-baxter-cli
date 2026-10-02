@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using BellaBaxter.Client;
 
 namespace BellaCli.Services.Spiffe;
 
@@ -42,6 +43,13 @@ public sealed class HttpJwtSvidSource(
     HttpClient httpClient,
     SvidAttestationRequest request) : IJwtSvidSource
 {
+    // Backlog §2.31 — the bootstrap token goes out and the SVID private key comes back over this client,
+    // so an http address off this machine is refused at CONSTRUCTION, before anything can be sent. The
+    // rule is BellaApiAddress's (shared with the .NET SPIFFE SDK); the command reports it first, with
+    // the configuration source named, so an operator never meets this exception.
+    private readonly Uri _bella = BellaApiAddress.RequireAcceptable(
+        httpClient.BaseAddress?.ToString(), "The Bella API address the SVID agent attests to");
+
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
@@ -82,7 +90,7 @@ public sealed class HttpJwtSvidSource(
         catch (HttpRequestException ex)
         {
             throw new SvidAttestationException(
-                $"Could not reach Bella at {httpClient.BaseAddress} to mint a JWT-SVID for "
+                $"Could not reach Bella at {_bella} to mint a JWT-SVID for "
                 + $"audience '{audience}'. Cause: {ex.Message}", ex);
         }
 
@@ -112,7 +120,7 @@ public sealed class HttpJwtSvidSource(
         catch (HttpRequestException ex)
         {
             throw new SvidAttestationException(
-                $"Could not reach Bella at {httpClient.BaseAddress} to fetch the JWT bundle. "
+                $"Could not reach Bella at {_bella} to fetch the JWT bundle. "
                 + $"Cause: {ex.Message}", ex);
         }
 

@@ -23,8 +23,10 @@ namespace BellaCli.Commands.Auth;
 public class AuthOidcSettings : CommandSettings
 {
     [CommandOption("--audience <AUDIENCE>")]
-    [System.ComponentModel.Description("OIDC audience claim (default: bella-baxter)")]
-    public string Audience { get; init; } = "bella-baxter";
+    [System.ComponentModel.Description(
+        "OIDC audience to request. Also BELLA_OIDC_AUDIENCE; default bella-baxter. "
+        + "Must be one the trust domain accepts.")]
+    public string? Audience { get; init; }
 
     [CommandOption("--token <TOKEN>")]
     [System.ComponentModel.Description("Use a pre-obtained OIDC token directly (skips platform detection and token fetch — useful for local testing)")]

@@ -42,51 +42,102 @@ public class WorkloadIdentityService(HttpClient httpClient, ConfigService config
         PropertyNameCaseInsensitive = true,
     };
 
+    // ── OIDC audience (spec 064) ──────────────────────────────────────────────
+
+    /// <summary>The audience requested when nothing names one — what the CLI has always requested.</summary>
+    public const string DefaultOidcAudience = "bella-baxter";
+
+    /// <summary>Environment variable naming the audience to request.</summary>
+    public const string OidcAudienceVariable = "BELLA_OIDC_AUDIENCE";
+
+    /// <summary>
+    /// Spec 064 (FR-020) — the audience the keyless flow asks the CI provider for: <c>--audience</c>, then
+    /// <c>BELLA_OIDC_AUDIENCE</c>, then <c>bella-baxter</c>. A trust domain that enforces its audience admits only tokens
+    /// minted for one of its accepted values; the default is the platform's, so CLI-based CI jobs work against a default
+    /// domain with no change at all.
+    /// </summary>
+    /// <remarks>
+    /// <c>.bella</c> is deliberately NOT a source. The token minted for this audience is sent to the server the
+    /// <c>.bella</c> <c>url</c> names, and a <c>.bella</c> arrives with any repository a CI job checks out. Letting it
+    /// also choose the audience would let a committed file request a token minted for ANOTHER service (a cloud STS,
+    /// say) and post it to an address of its choosing. The job's own configuration names the audience.
+    /// </remarks>
+    public static string ResolveOidcAudience(
+        string? explicitAudience,
+        Func<string, string?>? getEnvironmentVariable = null)
+    {
+        var env = getEnvironmentVariable ?? Environment.GetEnvironmentVariable;
+        foreach (var candidate in new[] { explicitAudience, env(OidcAudienceVariable) })
+        {
+            if (!string.IsNullOrWhiteSpace(candidate))
+                return candidate.Trim();
+        }
+        return DefaultOidcAudience;
+    }
+
     // ── Platform detection ────────────────────────────────────────────────────
 
     /// <summary>Detects which workload platform the process is running on.</summary>
-    public static WorkloadPlatform DetectPlatform()
+    public static WorkloadPlatform DetectPlatform() => DetectPlatform(null, null, null);
+
+    /// <summary>
+    /// Detects the platform, with the environment, filesystem and resolved Kubernetes token injectable for testing.
+    /// </summary>
+    /// <remarks>
+    /// Spec 064 (FR-012): Kubernetes is recognised by the token path ACTUALLY IN USE, not only by the kubelet's
+    /// default path. Before, a pod that disabled the default mount and projected a token for Bella was detected as
+    /// "no platform" and presented nothing — silently — which is exactly the pod the documented rollout produces.
+    /// Unless a location is passed in, that path is resolved WITHOUT <c>.bella</c> (<c>ResolveForKeyless</c>): a
+    /// committed <c>node_token_path</c> must not be able to switch a laptop's <c>bella run</c> into the keyless flow.
+    /// </remarks>
+    internal static WorkloadPlatform DetectPlatform(
+        Func<string, string?>? getEnvironmentVariable, Func<string, bool>? fileExists, Spiffe.NodeTokenLocation? nodeToken)
     {
+        var env = getEnvironmentVariable ?? Environment.GetEnvironmentVariable;
+        var exists = fileExists ?? File.Exists;
+
         // GitHub Actions sets both env vars when `id-token: write` permission is granted
         if (
             !string.IsNullOrEmpty(
-                Environment.GetEnvironmentVariable("ACTIONS_ID_TOKEN_REQUEST_URL")
+                env("ACTIONS_ID_TOKEN_REQUEST_URL")
             )
             && !string.IsNullOrEmpty(
-                Environment.GetEnvironmentVariable("ACTIONS_ID_TOKEN_REQUEST_TOKEN")
+                env("ACTIONS_ID_TOKEN_REQUEST_TOKEN")
             )
         )
             return WorkloadPlatform.GitHubActions;
 
         // Azure Pipelines sets TF_BUILD=True and exposes the OIDC token REST endpoint via system vars
         if (
-            !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("TF_BUILD"))
+            !string.IsNullOrEmpty(env("TF_BUILD"))
             && !string.IsNullOrEmpty(
-                Environment.GetEnvironmentVariable("SYSTEM_TEAMFOUNDATIONCOLLECTIONURI")
+                env("SYSTEM_TEAMFOUNDATIONCOLLECTIONURI")
             )
         )
             return WorkloadPlatform.AzurePipelines;
 
         // GitLab CI sets CI_JOB_JWT_V2 (direct token, no extra request needed)
         if (
-            !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("GITLAB_CI"))
-            && !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("CI_JOB_JWT_V2"))
+            !string.IsNullOrEmpty(env("GITLAB_CI"))
+            && !string.IsNullOrEmpty(env("CI_JOB_JWT_V2"))
         )
             return WorkloadPlatform.GitLabCI;
 
         // AWS CodeBuild sets CODEBUILD_BUILD_ID and provides an OIDC token via AWS_CONTAINER_CREDENTIALS_RELATIVE_URI
-        if (!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("CODEBUILD_BUILD_ID")))
+        if (!string.IsNullOrEmpty(env("CODEBUILD_BUILD_ID")))
             return WorkloadPlatform.AwsCodeBuild;
 
         // Google Cloud Build sets GOOGLE_CLOUD_BUILD or the metadata server is reachable
         if (
-            !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("GOOGLE_CLOUD_PROJECT"))
-            && !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("BUILD_ID"))
+            !string.IsNullOrEmpty(env("GOOGLE_CLOUD_PROJECT"))
+            && !string.IsNullOrEmpty(env("BUILD_ID"))
         )
             return WorkloadPlatform.GoogleCloudBuild;
 
-        // Kubernetes injects the ServiceAccount token file into every pod
-        if (File.Exists("/var/run/secrets/kubernetes.io/serviceaccount/token"))
+        // Kubernetes: the token the agent would present exists — the projected one when configured or mounted at the
+        // conventional path, else the kubelet default (FR-012).
+        var token = nodeToken ?? Spiffe.NodeTokenPath.ResolveForKeyless(getEnvironmentVariable: env, fileExists: exists);
+        if (exists(token.Path))
             return WorkloadPlatform.Kubernetes;
 
         return WorkloadPlatform.None;
@@ -101,10 +152,12 @@ public class WorkloadIdentityService(HttpClient httpClient, ConfigService config
     /// Returns null if the platform is not detected or the token cannot be obtained.
     /// </summary>
     public async Task<string?> GetOidcTokenAsync(
-        string audience = "bella-baxter",
+        string? audience = null,
         CancellationToken ct = default
     )
     {
+        // Spec 064 — one resolution for every keyless entry point (flag > BELLA_OIDC_AUDIENCE > .bella > default).
+        audience = ResolveOidcAudience(audience);
         return DetectPlatform() switch
         {
             WorkloadPlatform.GitHubActions => await GetGitHubActionsTokenAsync(audience, ct),
@@ -245,12 +298,22 @@ public class WorkloadIdentityService(HttpClient httpClient, ConfigService config
         }
     }
 
-    private static string? GetKubernetesServiceAccountToken()
+    private static string? GetKubernetesServiceAccountToken() =>
+        ReadKubernetesToken(Spiffe.NodeTokenPath.ResolveForKeyless(), File.Exists, File.ReadAllText);
+
+    /// <summary>
+    /// The token the keyless flow sends, or null. Spec 064 — the same resolution the SPIFFE agent uses (minus
+    /// <c>.bella</c>), and the same acceptance: only a file that decodes as a JWT is sent. Anything else cannot be an
+    /// OIDC token, so posting it could only ever leak a local file's contents.
+    /// </summary>
+    internal static string? ReadKubernetesToken(
+        Spiffe.NodeTokenLocation location, Func<string, bool> fileExists, Func<string, string> readFile)
     {
-        const string tokenPath = "/var/run/secrets/kubernetes.io/serviceaccount/token";
         try
         {
-            return File.Exists(tokenPath) ? File.ReadAllText(tokenPath).Trim() : null;
+            var evidence = Spiffe.NodeEvidence.Inspect(
+                location, fileExists, readFile, WorkloadPlatform.Kubernetes, static _ => null);
+            return evidence.TokenPresent ? readFile(location.Path).Trim() : null;
         }
         catch
         {
@@ -390,7 +453,7 @@ public class WorkloadIdentityService(HttpClient httpClient, ConfigService config
         string? explicitTenant = null,
         string? explicitProject = null,
         string? explicitEnvironment = null,
-        string audience = "bella-baxter",
+        string? audience = null,
         CancellationToken ct = default
     )
     {

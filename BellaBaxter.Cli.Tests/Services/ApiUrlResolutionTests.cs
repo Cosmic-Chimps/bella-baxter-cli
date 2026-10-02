@@ -14,6 +14,7 @@ namespace BellaBaxter.Cli.Tests.Services;
 ///
 /// <para>An explicit environment variable still wins, so CI and one-off retargeting are unaffected.</para>
 /// </summary>
+[Collection(ApiUrlEnvironmentCollection.Name)]
 public class ApiUrlResolutionTests : IDisposable
 {
     private readonly string _dir;

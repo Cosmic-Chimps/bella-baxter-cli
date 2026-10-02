@@ -54,7 +54,12 @@ public sealed class WorkloadApiService(
 
         await StreamAsync(
             context,
-            svid => responseStream.WriteAsync(BuildX509Response(svid), context.CancellationToken))
+            svid => BuildX509Response(svid) is { } response
+                ? responseStream.WriteAsync(response, context.CancellationToken)
+                // Superseded while this stream held it: its key is already cleared, and its
+                // replacement is already on this stream's channel (SvidAgent offers the new SVID
+                // before destroying the old key). Skipping is the whole of the handling.
+                : Task.CompletedTask)
             .ConfigureAwait(false);
     }
 
@@ -202,14 +207,26 @@ public sealed class WorkloadApiService(
         }
     }
 
-    private static X509SVIDResponse BuildX509Response(AttestedSvid svid)
+    /// <summary>The X.509 push for <paramref name="svid"/>, or null when its key was already cleared.</summary>
+    /// <remarks>
+    /// Backlog §2.31. The key is copied straight from the agent's held PKCS#8 buffer into the response;
+    /// there is no per-push DER copy of it any more (the PEM → DER conversion happens once, at
+    /// attestation), so nothing is left behind here to clear. The <see cref="ByteString"/> itself is
+    /// protobuf-owned and immutable and cannot be — see <see cref="SvidPrivateKey"/>.
+    /// </remarks>
+    internal static X509SVIDResponse? BuildX509Response(AttestedSvid svid)
     {
+        if (!svid.PrivateKey.TryCopyToByteString(out var key))
+        {
+            return null;
+        }
+
         var response = new X509SVIDResponse();
         response.Svids.Add(new X509SVID
         {
             SpiffeId = svid.SpiffeId,
             X509Svid = ByteString.CopyFrom(SvidWireFormat.CertificateChainDer(svid.Certificate)),
-            X509SvidKey = ByteString.CopyFrom(SvidWireFormat.PrivateKeyPkcs8Der(svid.PrivateKey)),
+            X509SvidKey = key,
             Bundle = ByteString.CopyFrom(SvidWireFormat.TrustBundleDer(svid.TrustBundle)),
         });
         return response;

@@ -657,6 +657,15 @@ bella mcp --print-config      Print Claude Desktop / VS Code config snippets
 
 ---
 
+### The server address must be https
+
+**Changed (backlog §2.31, issue #710).** Every command that talks to the server refuses a plain
+`http://` address unless it is this machine (`localhost`, `127.0.0.0/8`, `::1`). Tokens, API keys and
+decrypted secrets travel over it. The refusal names where the address came from (`BELLA_BAXTER_URL`,
+`BAXTER_URL`, the nearest `.bella` file's `url`, `config.json`, or `--api-url` for `bella mcp`), and
+`bella config set-server` will not save such an address. `bella config show` and `bella context show`
+still display it, with the reason. There is no opt-out: point the CLI at the server's `https://` address.
+
 ## `bella run` vs `bella sdk run`
 
 Both commands spawn a subprocess with Bella credentials available. They differ in **who fetches the secrets** — the CLI or the app itself.

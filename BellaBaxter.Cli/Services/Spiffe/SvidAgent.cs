@@ -22,14 +22,17 @@ namespace BellaCli.Services.Spiffe;
 
 /// <summary>An SVID as issued by <c>/attest</c>, held in memory.</summary>
 /// <param name="Certificate">Leaf certificate PEM, carrying the SPIFFE ID as a URI SAN.</param>
-/// <param name="PrivateKey">The leaf's private key PEM. Never persisted.</param>
+/// <param name="PrivateKey">
+/// The leaf's private key as PKCS#8 DER in a clearable buffer (backlog §2.31). Never persisted, and
+/// cleared when this SVID is superseded — see <see cref="SvidPrivateKey"/> for what cannot be.
+/// </param>
 /// <param name="TrustBundle">The issuing CA, for verifying peers.</param>
 /// <param name="SpiffeId">The identity this SVID asserts.</param>
 /// <param name="IssuedAt">When the agent obtained it — the renewal window is measured from here.</param>
 /// <param name="ExpiresAt">When it stops being valid.</param>
 public sealed record AttestedSvid(
     string Certificate,
-    string PrivateKey,
+    SvidPrivateKey PrivateKey,
     string TrustBundle,
     string SpiffeId,
     DateTimeOffset IssuedAt,
@@ -50,7 +53,7 @@ public interface ISvidSource
 /// <summary>
 /// Holds the current SVID, renews it before it expires, and notifies listeners on rotation.
 /// </summary>
-public sealed class SvidAgent(ISvidSource source)
+public sealed class SvidAgent(ISvidSource source) : IDisposable
 {
     private readonly object _gate = new();
     private readonly List<SvidSubscription> _subscribers = [];
@@ -141,6 +144,7 @@ public sealed class SvidAgent(ISvidSource source)
         SvidSubscription[] listeners;
         lock (_gate)
         {
+            var superseded = _current;
             _current = issued;
             _lastFailure = null;
             _lastAttemptAt = now;
@@ -152,6 +156,16 @@ public sealed class SvidAgent(ISvidSource source)
             foreach (var listener in listeners)
             {
                 listener.Offer(issued);
+            }
+
+            // Backlog §2.31 — clear the superseded SVID's key, AFTER every subscriber has been offered
+            // its replacement. A stream still holding the old SVID then finds its key destroyed, skips
+            // it, and reads the new one already waiting on its channel (WorkloadApiService). Guarded by
+            // reference, because a source may legitimately hand back the SAME SVID again (a cached
+            // answer, a test stub) and destroying it would clear the identity that is now current.
+            if (superseded is not null && !ReferenceEquals(superseded.PrivateKey, issued.PrivateKey))
+            {
+                superseded.PrivateKey.Destroy();
             }
         }
 
@@ -243,6 +257,18 @@ public sealed class SvidAgent(ISvidSource source)
         lock (_gate)
         {
             _subscribers.Remove(subscription);
+        }
+    }
+
+    /// <summary>
+    /// Clears the held SVID's key. Called when the agent stops, so the last identity it held does not
+    /// outlive the process's decision to stop serving it.
+    /// </summary>
+    public void Dispose()
+    {
+        lock (_gate)
+        {
+            _current?.PrivateKey.Destroy();
         }
     }
 

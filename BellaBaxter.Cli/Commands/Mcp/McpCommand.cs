@@ -103,13 +103,28 @@ public class McpCommand(ConfigService config, CredentialStore credentials)
 
     private static readonly HashSet<string> _cachedTools = ["get_secret", "list_secret_keys"];
 
+    /// <summary>
+    /// The server address: the <c>--api-url</c> flag if given, else the configured one — both held to
+    /// the https-or-loopback rule, the flag naming itself as the source (backlog §2.31 follow-up).
+    /// </summary>
+    internal static string ResolveApiBase(string? flag, ConfigService config)
+    {
+        if (flag is null)
+            return config.ApiUrl.TrimEnd('/');
+
+        var trimmed = flag.TrimEnd('/');
+        return ConfigService.ProblemFor(trimmed, "--api-url") is { } problem
+            ? throw new InsecureApiAddressException(problem)
+            : trimmed;
+    }
+
     protected override async Task<int> ExecuteAsync(
         CommandContext ctx,
         McpSettings settings,
         CancellationToken ct
     )
     {
-        var apiBase = (settings.ApiUrl ?? config.ApiUrl).TrimEnd('/');
+        var apiBase = ResolveApiBase(settings.ApiUrl, config);
 
         if (settings.PrintConfig)
         {

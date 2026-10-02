@@ -252,7 +252,7 @@ public class AgentStatusProbeTests
         var now = DateTimeOffset.UtcNow;
         return new AttestedSvid(
             leaf.ExportCertificatePem(),
-            leafKey.ExportPkcs8PrivateKeyPem(),
+            SvidPrivateKey.FromPem(leafKey.ExportPkcs8PrivateKeyPem()),
             ca.ExportCertificatePem(),
             SpiffeId,
             now,
