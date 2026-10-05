@@ -30,19 +30,35 @@ public class RefreshCoordinatorTests
         var store = new Store("rt-0");
         var presented = new List<string>();
         var sequence = 0;
+        const int callers = 8;
+
+        // #1183: this waited a fixed 50 ms inside the exchange, assuming every other caller had decided to refresh
+        // — read the token it meant to present — by then. Under a loaded full run the callers were not all started
+        // within 50 ms; a late one first read rt-1, the token the exchange had just stored, and refreshed THAT. No
+        // token was presented twice (the coordinator was right), but the test's premise — all callers holding rt-0
+        // — had silently stopped being true. So the exchange now waits on that premise itself: every caller's
+        // pre-gate read (the winner reads twice — once to decide, once under the gate — before it exchanges).
+        var reads = 0;
+        var everyCallerHasDecided = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        StoredTokens? Load()
+        {
+            if (Interlocked.Increment(ref reads) >= callers + 1)
+                everyCallerHasDecided.TrySetResult();
+            return store.Load();
+        }
 
         async Task<StoredTokens> Exchange(StoredTokens current, CancellationToken ct)
         {
             lock (presented) presented.Add(current.RefreshToken);
-            await Task.Delay(50, ct); // long enough for every other caller to be waiting
+            await everyCallerHasDecided.Task.WaitAsync(TimeSpan.FromSeconds(30), ct);
             var next = Tokens($"rt-{Interlocked.Increment(ref sequence)}");
             store.Save(next);
             return next;
         }
 
         // What `bella agent` does when several watches hit an expired token at once.
-        var results = await Task.WhenAll(Enumerable.Range(0, 8).Select(_ =>
-            coordinator.RefreshAsync(store.Load, Exchange, NoLock, TestContext.Current.CancellationToken)));
+        var results = await Task.WhenAll(Enumerable.Range(0, callers).Select(_ =>
+            coordinator.RefreshAsync(Load, Exchange, NoLock, TestContext.Current.CancellationToken)));
 
         Assert.Equal(["rt-0"], presented);
         Assert.All(results, r => Assert.Equal("rt-1", r.RefreshToken));

@@ -207,7 +207,7 @@ public class OrgSwitchCommand(
 $"Switching to org '{target.TenantName}'...",
 async () =>
             {
-                switchResponse = await client.Api.Tenants[target.TenantId!.Value.ToString()].Switch.PostAsync(cancellationToken: ct);
+                switchResponse = await client.Api.Tenants[target.TenantId!.Value].Switch.PostAsync(cancellationToken: ct);
             });
         }
         catch (Exception ex) when (PersonOnlyRefusal.Is(ex, provider.UsesApiKey()))

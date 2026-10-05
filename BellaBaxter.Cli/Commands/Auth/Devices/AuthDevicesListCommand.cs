@@ -42,9 +42,11 @@ public class AuthDevicesListCommand(
                 r => r.QueryParameters.Scope = settings.All ? "tenant" : "mine",
                 cancellationToken: ct);
         }
-        catch (Exception ex) when (!settings.All && PersonOnlyRefusal.Is(ex, provider.UsesApiKey()))
+        catch (Exception ex) when (PersonOnlyRefusal.Is(ex, provider.UsesApiKey()))
         {
             // #1141 — your OWN device list is a person's; the API refuses a key with 403 person-only.
+            // #1169 — so is the tenant-wide list (--all): tenant administration is person-only, and a
+            // key, an ADMIN key included, gets the same refusal there.
             output.WriteError(PersonOnlyRefusal.Message, PersonOnlyRefusal.Code);
             return 1;
         }
