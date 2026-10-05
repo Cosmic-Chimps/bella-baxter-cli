@@ -126,7 +126,7 @@ public class AuthSetupCommand(
                 output.WriteWarning("The newly generated key was discarded — nothing was left half-configured.");
             }
 
-            output.WriteError($"Registration was refused: {Describe(ex)}");
+            output.WriteError($"Registration was refused: {Describe(ex, provider.UsesApiKey())}");
             return 1;
         }
     }
@@ -167,8 +167,12 @@ public class AuthSetupCommand(
             + "Register it in another tenant by switching tenants and running this again.");
     }
 
-    private static string Describe(Exception ex) => ex switch
+    internal static string Describe(Exception ex, bool callerIsApiKey) => ex switch
     {
+        // #1141 — the API refuses an API key here with 403 person-only (it used to be this slice's 400).
+        _ when PersonOnlyRefusal.Is(ex, callerIsApiKey) =>
+            "machine credentials register their public key when the API key is created. "
+            + PersonOnlyRefusal.Message,
         ApiException { ResponseStatusCode: 409 } =>
             "that public key is already registered in this tenant by someone else.",
         ApiException { ResponseStatusCode: 400 } =>

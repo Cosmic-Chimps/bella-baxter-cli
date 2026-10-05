@@ -42,6 +42,12 @@ public class AuthDevicesListCommand(
                 r => r.QueryParameters.Scope = settings.All ? "tenant" : "mine",
                 cancellationToken: ct);
         }
+        catch (Exception ex) when (!settings.All && PersonOnlyRefusal.Is(ex, provider.UsesApiKey()))
+        {
+            // #1141 — your OWN device list is a person's; the API refuses a key with 403 person-only.
+            output.WriteError(PersonOnlyRefusal.Message, PersonOnlyRefusal.Code);
+            return 1;
+        }
         catch (Microsoft.Kiota.Abstractions.ApiException ex) when (ex.ResponseStatusCode == 403)
         {
             output.WriteError("Listing every device in the tenant requires the Owner or Admin role.", "forbidden");

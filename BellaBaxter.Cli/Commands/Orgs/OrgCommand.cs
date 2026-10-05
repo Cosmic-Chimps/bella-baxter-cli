@@ -75,13 +75,9 @@ public class OrgListCommand(
             return 1;
         }
 
-        List<BellaBaxter.Client.Models.TenantAccess>? orgs = null;
-        await output.StatusAsync(
-"Fetching orgs...",
-async () =>
-        {
-            orgs = await client.Api.Tenants.MyTenants.GetAsync(cancellationToken: ct);
-        });
+        var orgs = await OrgQueries.FetchOrgsAsync(client, provider.UsesApiKey(), output, ct);
+        if (orgs is null)
+            return 1;
 
         var currentOrgId = credentials.LoadTokens()?.OrgId;
 
@@ -157,15 +153,11 @@ public class OrgSwitchCommand(
         }
 
         // Resolve slug/id to tenant ID
-        List<BellaBaxter.Client.Models.TenantAccess>? orgs = null;
-        await output.StatusAsync(
-"Fetching orgs...",
-async () =>
-        {
-            orgs = await client.Api.Tenants.MyTenants.GetAsync(cancellationToken: ct);
-        });
+        var orgs = await OrgQueries.FetchOrgsAsync(client, provider.UsesApiKey(), output, ct);
+        if (orgs is null)
+            return 1;
 
-        if (orgs is null || orgs.Count == 0)
+        if (orgs.Count == 0)
         {
             output.WriteError("No orgs found for your account.");
             return 1;
@@ -209,12 +201,20 @@ async () =>
 
         // Call switch endpoint
         BellaBaxter.Client.Models.SwitchTenantResponse? switchResponse = null;
-        await output.StatusAsync(
+        try
+        {
+            await output.StatusAsync(
 $"Switching to org '{target.TenantName}'...",
 async () =>
+            {
+                switchResponse = await client.Api.Tenants[target.TenantId!.Value.ToString()].Switch.PostAsync(cancellationToken: ct);
+            });
+        }
+        catch (Exception ex) when (PersonOnlyRefusal.Is(ex, provider.UsesApiKey()))
         {
-            switchResponse = await client.Api.Tenants[target.TenantId!.Value.ToString()].Switch.PostAsync(cancellationToken: ct);
-        });
+            output.WriteError(PersonOnlyRefusal.Message, PersonOnlyRefusal.Code);
+            return 1;
+        }
 
         // Refresh token to get new JWT with updated tenant claims
         await output.StatusAsync(
@@ -258,5 +258,34 @@ async () =>
         }
 
         return 0;
+    }
+}
+
+// ─── shared ──────────────────────────────────────────────────────────────────
+
+internal static class OrgQueries
+{
+    /// <summary>
+    /// The caller's organizations, or <c>null</c> after reporting why there are none to show. #1141: the
+    /// API refuses an API key here with 403 <c>person-only</c> (a key belongs to one organization and
+    /// does not list its owner's others); that becomes an instruction, not an HTTP status.
+    /// </summary>
+    internal static async Task<List<BellaBaxter.Client.Models.TenantAccess>?> FetchOrgsAsync(
+        BellaClient client, bool callerIsApiKey, IOutputWriter output, CancellationToken ct)
+    {
+        List<BellaBaxter.Client.Models.TenantAccess>? orgs = null;
+        try
+        {
+            await output.StatusAsync(
+                "Fetching orgs...",
+                async () => orgs = await client.Api.Tenants.MyTenants.GetAsync(cancellationToken: ct));
+        }
+        catch (Exception ex) when (PersonOnlyRefusal.Is(ex, callerIsApiKey))
+        {
+            output.WriteError(PersonOnlyRefusal.Message, PersonOnlyRefusal.Code);
+            return null;
+        }
+
+        return orgs ?? [];
     }
 }

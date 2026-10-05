@@ -158,6 +158,7 @@ services.AddTransient<ConnectSshCommand>();
 
 services.AddTransient<ConfigurePkiCaCommand>();
 services.AddTransient<GetPkiCaCommand>();
+services.AddTransient<AdoptPkiAuthorityCommand>();
 services.AddTransient<IssuePkiCertCommand>();
 services.AddTransient<RevokePkiCertCommand>();
 services.AddTransient<ListPkiRolesCommand>();
@@ -763,6 +764,15 @@ app.Configure(config =>
                 )
                 .WithExample("pki", "ca")
                 .WithExample("pki", "ca", "--output", "ca.pem");
+
+            // #1147 — spec 049 adoption: move issuance onto the environment's own authority.
+            pki.AddCommand<AdoptPkiAuthorityCommand>("adopt")
+                .WithDescription(
+                    "Declare this environment's CA certificate installed and issue from its own certificate authority. "
+                        + "Exit 0 adopted, 1 refused, 2 configure it first, 3 transient (retry)."
+                )
+                .WithExample("pki", "adopt")
+                .WithExample("pki", "adopt", "-p", "my-app", "-e", "production", "--force");
 
             pki.AddBranch(
                 "roles",

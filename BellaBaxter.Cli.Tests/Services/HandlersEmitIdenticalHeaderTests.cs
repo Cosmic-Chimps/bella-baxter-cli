@@ -109,7 +109,15 @@ public class HandlersEmitIdenticalHeaderTests
         handler.InnerHandler = recorder;
 
         using var client = new HttpClient(handler);
-        using var response = await client.GetAsync(url ?? SecretsUrl, TestContext.Current.CancellationToken);
+        try
+        {
+            using var response = await client.GetAsync(url ?? SecretsUrl, TestContext.Current.CancellationToken);
+        }
+        catch (E2EEResponseException ex) when (ex.Code == E2EEResponseException.PlaintextResponse)
+        {
+            // #1050 (b): the recorder answers a plain `{}`, which a handler that presented its key on a secrets
+            // read now refuses. This file is about what went OUT; the headers were recorded before the refusal.
+        }
 
         return recorder.Headers;
     }

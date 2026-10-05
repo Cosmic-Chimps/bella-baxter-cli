@@ -52,6 +52,15 @@ public class BellaClientProvider(
         );
     }
 
+    /// <summary>
+    /// Whether <see cref="CreateClient"/> authenticates with an API key — the same precedence it uses
+    /// (a key in the environment, then a bearer token in the environment, then a stored key). #1141: a
+    /// command uses this to read a bodyless 403 as the API's person-only refusal.
+    /// </summary>
+    public bool UsesApiKey() =>
+        Environment.GetEnvironmentVariable("BELLA_BAXTER_API_KEY") is not null
+        || (Environment.GetEnvironmentVariable("BELLA_BAXTER_ACCESS_TOKEN") is null && credentials.LoadApiKey() is not null);
+
     public BellaClient CreateClient(string? appClientOverride = null)
     {
         var apiUrl = config.ApiUrl;
