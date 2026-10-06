@@ -26,9 +26,11 @@ public class SpiffeAudienceReadinessExitCodeTests
     public void Anything_not_ready_is_1() =>
         Assert.Equal(1, SpiffeAudienceReadinessCommand.ExitCodeFor(Response("ready", ("not-ready", null))));
 
-    [Fact]
-    public void A_critical_trust_domain_is_1_even_when_its_audience_is_ready() =>
-        Assert.Equal(1, SpiffeAudienceReadinessCommand.ExitCodeFor(Response("ready", ("ready", "no-claim-rules"))));
+    [Theory]
+    [InlineData("no-claim-rules")]
+    [InlineData("claim-rule-not-accepted")] // advisory machine-3: a Contains or unanchored StartsWith rule
+    public void A_critical_trust_domain_is_1_even_when_its_audience_is_ready(string critical) =>
+        Assert.Equal(1, SpiffeAudienceReadinessCommand.ExitCodeFor(Response("ready", ("ready", critical))));
 
     [Theory]
     [InlineData("no-evidence")]

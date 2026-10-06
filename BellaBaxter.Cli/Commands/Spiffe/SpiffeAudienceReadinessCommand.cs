@@ -158,8 +158,14 @@ public class SpiffeAudienceReadinessCommand(
             table.AddRow("Presented", Markup.Escape(string.Join(", ", presented.Select(p => $"{p.Audience} ({p.Count})"))));
         if (section.NotReadyCallers is { Count: > 0 } callers)
             table.AddRow("Not ready", Markup.Escape(string.Join(", ", callers.Select(c => $"{c.Name} ({c.Count})"))));
+        // Advisory machine-3 — the server now REFUSES both kinds of domain at the exchange; the old wording said a
+        // rule-less domain admitted everyone, which stopped being true. Any other non-empty value still exits 1.
         if (critical == "no-claim-rules")
-            table.AddRow("[red]Critical[/]", "No claim rules: any workflow on this issuer can obtain a credential. Add a claim rule.");
+            table.AddRow("[red]Critical[/]", "No claim rules: exchanges through this trust domain are refused. Add a claim rule.");
+        else if (critical == "claim-rule-not-accepted")
+            table.AddRow("[red]Critical[/]", "A claim rule is Contains, or a StartsWith not ending in '/', ':' or '@': exchanges are refused. Fix the rule.");
+        else if (!string.IsNullOrEmpty(critical))
+            table.AddRow("[red]Critical[/]", Markup.Escape(critical));
         AnsiConsole.Write(table);
     }
 
