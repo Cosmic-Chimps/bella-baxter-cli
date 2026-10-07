@@ -44,11 +44,12 @@ public class CreatePkiRoleSettings : CommandSettings
     public string? DefaultTtl { get; init; }
 
     [CommandOption("--key-type <TYPE>")]
-    [System.ComponentModel.Description("Key type: rsa or ec (default: rsa)")]
+    [System.ComponentModel.Description("Key type: rsa, ec, ed25519 or any (default: rsa)")]
     public string? KeyType { get; init; }
 
+    // #1235 — omitted, nothing is sent and the server applies the default for the key type.
     [CommandOption("--key-bits <BITS>")]
-    [System.ComponentModel.Description("Key size in bits")]
+    [System.ComponentModel.Description("Key size in bits (default: 2048 for RSA, 256 for EC; omit for ed25519 and any)")]
     public int? KeyBits { get; init; }
 
     [CommandOption("--json")]

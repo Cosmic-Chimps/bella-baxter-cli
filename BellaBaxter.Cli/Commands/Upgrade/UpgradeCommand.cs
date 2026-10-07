@@ -224,17 +224,6 @@ public class UpgradeCommand(IOutputWriter output) : AsyncCommand<UpgradeCommand.
                 var chmod = Process.Start("chmod", $"+x {tempFile}");
                 chmod?.WaitForExit();
             }
-
-            // Atomic replace: rename old -> .bak, new -> current
-            var bakFile = currentExe + ".bak";
-            if (File.Exists(bakFile)) File.Delete(bakFile);
-            File.Move(currentExe, bakFile, overwrite: true);
-            File.Move(tempFile, currentExe, overwrite: true);
-            if (File.Exists(bakFile)) File.Delete(bakFile);
-
-            output.WriteSuccess($"bella upgraded to v{latestVersion}!");
-            output.WriteInfo("Restart your shell or run 'bella --version' to confirm.");
-            return 0;
         }
         catch (Exception ex)
         {
@@ -242,6 +231,40 @@ public class UpgradeCommand(IOutputWriter output) : AsyncCommand<UpgradeCommand.
             output.WriteError($"Upgrade failed: {ex.Message}");
             return 1;
         }
+
+        // #1238 — from the swap on, this process's executable path holds ANOTHER binary, and a single-file
+        // bundle reads every not-yet-loaded assembly from that path (see RunningBinary). So everything that
+        // could load one happens first: the HttpClient and streams above are already disposed, and the rest
+        // of the reference closure is loaded here. A failed swap restores the old binary, so it is reported
+        // like any other failure.
+        RunningBinary.PreloadReferencedAssemblies();
+
+        try
+        {
+            RunningBinary.Replace(currentExe, tempFile);
+        }
+        catch (Exception ex)
+        {
+            TryDelete(tempFile);
+            output.WriteError($"Upgrade failed: {ex.Message}");
+            return 1;
+        }
+
+        // The upgrade HAS happened. Say so, then end the process here rather than return into the command
+        // framework and host shutdown, which could still reach for an assembly. A line that cannot be printed
+        // does not undo the upgrade, so it never turns the exit code into a failure.
+        try
+        {
+            output.WriteSuccess($"bella upgraded to v{latestVersion}!");
+            output.WriteInfo("Restart your shell or run 'bella --version' to confirm.");
+            Console.Out.Flush();
+        }
+        catch
+        {
+            // See above.
+        }
+        Environment.Exit(0);
+        return 0;
     }
 
     /// <summary>

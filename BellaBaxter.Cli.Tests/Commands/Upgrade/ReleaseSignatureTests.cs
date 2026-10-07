@@ -65,7 +65,8 @@ public class ReleaseSignatureTests
         var call = source.IndexOf("await VerifyManifestSignatureAsync(", StringComparison.Ordinal);
         var refusal = source.IndexOf("if (verdict != SignatureVerdict.Verified)", StringComparison.Ordinal);
         var download = source.IndexOf("AnsiConsole.Progress()", StringComparison.Ordinal);
-        var replace = source.IndexOf("File.Move(currentExe", StringComparison.Ordinal);
+        // #1238 moved the renames into RunningBinary.Replace; this is the one call that performs them.
+        var replace = source.IndexOf("RunningBinary.Replace(currentExe", StringComparison.Ordinal);
         Assert.True(call >= 0 && refusal > call, "the signature verdict must be checked where it is obtained");
         Assert.True(download > refusal, "the signature must be verified BEFORE the binary is downloaded");
         Assert.True(replace > download, "…and therefore before the running binary is replaced");

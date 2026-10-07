@@ -27,11 +27,13 @@ public class ConfigurePkiCaSettings : CommandSettings
     public string? Country { get; init; }
 
     [CommandOption("--key-type <TYPE>")]
-    [System.ComponentModel.Description("Key type: rsa or ec (default: rsa)")]
+    [System.ComponentModel.Description("Key type: rsa, ec or ed25519 (default: rsa)")]
     public string? KeyType { get; init; }
 
+    // #1235 — omitted, nothing is sent and the server applies the default for the key type. This help
+    // used to say 2048 for RSA; the server's RSA default is 4096, and stays that way.
     [CommandOption("--key-bits <BITS>")]
-    [System.ComponentModel.Description("Key size in bits (default: 2048 for RSA, 256 for EC)")]
+    [System.ComponentModel.Description("Key size in bits (default: 4096 for RSA, 256 for EC; rsa 2048/3072/4096/8192, ec 224/256/384/521; omit for ed25519)")]
     public int? KeyBits { get; init; }
 
     [CommandOption("--ttl <TTL>")]

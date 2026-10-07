@@ -32,9 +32,14 @@ The release key is **`65BB 8D3C EEE3 DD9E 4FFD  22B4 119F 114C A309 C2FA`**
   (`fetch-installer.sh`), which fetches the installer from the release it installs and verifies it
   before running it.
 
-What this does NOT cover: `bella upgrade` verifies SHA-256 against `checksums.txt` but not yet the
-signature (see `ReleaseChecksums.cs`). And a `curl … | bash` of `releases/latest/download/install-bella.sh`
-necessarily trusts that one script as fetched over TLS; everything it downloads after that is verified.
+`bella upgrade` follows the same model (#1051): before it downloads the binary it verifies
+`checksums.txt.asc` over `checksums.txt` against the pinned fingerprint, in a throwaway `GNUPGHOME`, with
+the key embedded in the CLI at build time from `scripts/bella-signing-key.asc`; then it checks the binary's
+SHA-256 against that manifest before replacing anything (`ReleaseSignature.cs`, `ReleaseChecksums.cs`). It
+fails closed the same way and honours the same `BELLA_INSECURE_SKIP_SIGNATURE=1` opt-out.
+
+What this does NOT cover: a `curl … | bash` of `releases/latest/download/install-bella.sh` necessarily
+trusts that one script as fetched over TLS; everything it downloads after that is verified.
 
 ## How CI signs (`.github/workflows/publish.yml`, job `create_release`)
 
