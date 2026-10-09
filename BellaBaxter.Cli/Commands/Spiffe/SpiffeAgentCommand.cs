@@ -161,7 +161,8 @@ public class SpiffeAgentCommand(
         var nodeType = settings.NodeType ?? evidence.NodeType ?? "k8s";
 
         var httpClient = httpClientFactory.CreateClient(nameof(SpiffeAgentCommand));
-        httpClient.BaseAddress = new Uri(config.ApiUrl);
+        // Advisory clients-1 — the node credential is not sent to a server a .bella chose.
+        httpClient.BaseAddress = new Uri(config.ApiUrlForSuppliedCredential());
 
         // Spec 065 — AWS evidence: read once now, so an instance that cannot supply it refuses to start (nothing is
         // sent), and then re-read on EVERY attestation, so a restart's new document is what the next one presents.

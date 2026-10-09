@@ -104,6 +104,9 @@ public class ExecCommand(
         if (credentials.LoadApiKey() is { } storedKey)
         {
             apiKey = storedKey.Raw;
+            // Advisory clients-1 — a stored key goes only to the server it was stored for; one from the
+            // environment never to a server a repository's .bella chose.
+            apiUrl = config.ApiUrlFor(storedKey);
         }
         else
         {
@@ -118,6 +121,7 @@ public class ExecCommand(
                 var platform = WorkloadIdentityService.DetectPlatform();
                 AnsiConsole.MarkupLine($"[dim]🔑 Using workload identity ({platform})[/]");
                 apiKey = workloadResult.Token;
+                apiUrl = config.ApiUrlForSuppliedCredential();
             }
         }
 
@@ -128,6 +132,7 @@ public class ExecCommand(
             {
                 var tokens = await authService.EnsureValidTokenAsync(ct);
                 accessToken = tokens.AccessToken;
+                apiUrl = config.ApiUrlFor(tokens);
             }
             catch (Exception ex)
             {

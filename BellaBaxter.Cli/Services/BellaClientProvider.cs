@@ -44,7 +44,7 @@ public class BellaClientProvider(
         settings.OutputMode = OutputMode.Json;
         var appClient = Environment.GetEnvironmentVariable("BELLA_BAXTER_APP_CLIENT");
         return BellaClientFactory.CreateWithHmacApiKey(
-            config.ApiUrl,
+            config.ApiUrlForSuppliedCredential(),
             rawApiKey,
             DebugLoggingHandler.IsEnabled ? new DebugLoggingHandler() : null,
             bellaClient: CliClientName,
@@ -63,7 +63,6 @@ public class BellaClientProvider(
 
     public BellaClient CreateClient(string? appClientOverride = null)
     {
-        var apiUrl = config.ApiUrl;
         var appClient =
             appClientOverride ?? Environment.GetEnvironmentVariable("BELLA_BAXTER_APP_CLIENT");
 
@@ -73,7 +72,7 @@ public class BellaClientProvider(
         {
             settings.OutputMode = OutputMode.Json;
             return BellaClientFactory.CreateWithHmacApiKey(
-                apiUrl,
+                config.ApiUrlForSuppliedCredential(),
                 envApiKey,
                 DebugLoggingHandler.IsEnabled ? new DebugLoggingHandler() : null,
                 bellaClient: CliClientName,
@@ -88,7 +87,7 @@ public class BellaClientProvider(
             if (WorkloadIdentityService.IsWorkloadEnvironment())
                 throw new InvalidOperationException(CiJwtError);
             return BellaClientFactory.CreateWithBearerToken(
-                apiUrl,
+                config.ApiUrlForSuppliedCredential(),
                 envToken,
                 additionalHandler: DebugHandler(),
                 bellaClient: CliClientName,
@@ -101,7 +100,7 @@ public class BellaClientProvider(
         {
             settings.OutputMode = OutputMode.Json;
             return BellaClientFactory.CreateWithHmacApiKey(
-                apiUrl,
+                config.ApiUrlFor(apiKey),
                 apiKey.Raw,
                 DebugLoggingHandler.IsEnabled ? new DebugLoggingHandler() : null,
                 bellaClient: CliClientName,
@@ -115,7 +114,7 @@ public class BellaClientProvider(
             if (WorkloadIdentityService.IsWorkloadEnvironment())
                 throw new InvalidOperationException(CiJwtError);
             return BellaClientFactory.CreateWithBearerToken(
-                apiUrl,
+                config.ApiUrlFor(tokens),
                 tokens.AccessToken,
                 BuildOAuthOuterHandler(),
                 DebugHandler(),
@@ -133,7 +132,6 @@ public class BellaClientProvider(
     /// </summary>
     public BellaClientWrapper CreateClientWrapper()
     {
-        var apiUrl = config.ApiUrl;
 
         var appClient = Environment.GetEnvironmentVariable("BELLA_BAXTER_APP_CLIENT");
 
@@ -144,7 +142,7 @@ public class BellaClientProvider(
             settings.OutputMode = OutputMode.Json;
             return new BellaClientWrapper(
                 BellaClientFactory.CreateWithHmacApiKey(
-                    apiUrl,
+                    config.ApiUrlForSuppliedCredential(),
                     envApiKey,
                     DebugLoggingHandler.IsEnabled ? new DebugLoggingHandler() : null,
                     bellaClient: CliClientName,
@@ -162,7 +160,7 @@ public class BellaClientProvider(
                 throw new InvalidOperationException(CiJwtError);
             return new BellaClientWrapper(
                 BellaClientFactory.CreateWithBearerToken(
-                    apiUrl,
+                    config.ApiUrlForSuppliedCredential(),
                     envToken,
                     additionalHandler: DebugHandler(),
                     bellaClient: CliClientName,
@@ -177,7 +175,7 @@ public class BellaClientProvider(
             settings.OutputMode = OutputMode.Json;
             return new BellaClientWrapper(
                 BellaClientFactory.CreateWithHmacApiKey(
-                    apiUrl,
+                    config.ApiUrlFor(apiKey),
                     apiKey.Raw,
                     DebugLoggingHandler.IsEnabled ? new DebugLoggingHandler() : null,
                     bellaClient: CliClientName,
@@ -194,7 +192,7 @@ public class BellaClientProvider(
                 throw new InvalidOperationException(CiJwtError);
             return new BellaClientWrapper(
                 BellaClientFactory.CreateWithBearerToken(
-                    apiUrl,
+                    config.ApiUrlFor(tokens),
                     tokens.AccessToken,
                     BuildOAuthOuterHandler(),
                     DebugHandler(),
@@ -214,7 +212,6 @@ public class BellaClientProvider(
     /// </summary>
     public BellaClient CreateClientWithZke(ZkeDekHandler zkeHandler, string? appClientOverride = null)
     {
-        var apiUrl = config.ApiUrl;
         var appClient = appClientOverride ?? Environment.GetEnvironmentVariable("BELLA_BAXTER_APP_CLIENT");
 
         var envApiKey = Environment.GetEnvironmentVariable("BELLA_BAXTER_API_KEY");
@@ -222,7 +219,7 @@ public class BellaClientProvider(
         {
             settings.OutputMode = OutputMode.Json;
             return BellaClientFactory.CreateWithHmacApiKeyAndZke(
-                apiUrl, envApiKey, zkeHandler,
+                config.ApiUrlForSuppliedCredential(), envApiKey, zkeHandler,
                 DebugLoggingHandler.IsEnabled ? new DebugLoggingHandler() : null,
                 bellaClient: CliClientName, appClient: appClient);
         }
@@ -233,7 +230,7 @@ public class BellaClientProvider(
             if (WorkloadIdentityService.IsWorkloadEnvironment())
                 throw new InvalidOperationException(CiJwtError);
             return BellaClientFactory.CreateWithBearerTokenAndZke(
-                apiUrl,
+                config.ApiUrlForSuppliedCredential(),
                 envToken,
                 zkeHandler,
                 additionalHandler: DebugHandler(),
@@ -246,7 +243,7 @@ public class BellaClientProvider(
         {
             settings.OutputMode = OutputMode.Json;
             return BellaClientFactory.CreateWithHmacApiKeyAndZke(
-                apiUrl, apiKey.Raw, zkeHandler,
+                config.ApiUrlFor(apiKey), apiKey.Raw, zkeHandler,
                 DebugLoggingHandler.IsEnabled ? new DebugLoggingHandler() : null,
                 bellaClient: CliClientName, appClient: appClient);
         }
@@ -257,7 +254,7 @@ public class BellaClientProvider(
             if (WorkloadIdentityService.IsWorkloadEnvironment())
                 throw new InvalidOperationException(CiJwtError);
             return BellaClientFactory.CreateWithBearerTokenAndZke(
-                apiUrl,
+                config.ApiUrlFor(tokens),
                 tokens.AccessToken,
                 zkeHandler,
                 BuildOAuthOuterHandler(),

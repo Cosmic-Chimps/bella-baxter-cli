@@ -374,7 +374,8 @@ public class WorkloadIdentityService(HttpClient httpClient, ConfigService config
         try
         {
             var client = BellaClientFactory.CreateAnonymous(
-                config.ApiUrl,
+                // Advisory clients-1 — the workload's OIDC token is not sent to a server a .bella chose.
+                config.ApiUrlForSuppliedCredential(),
                 DebugLoggingHandler.IsEnabled ? new DebugLoggingHandler() : null);
             var resp = await client.Api.V1.Token.PostAsync(
                 new ExchangeOidcTokenBySlugCommand
@@ -412,7 +413,8 @@ public class WorkloadIdentityService(HttpClient httpClient, ConfigService config
         try
         {
             var client = BellaClientFactory.CreateAnonymous(
-                config.ApiUrl,
+                // Advisory clients-1 — the workload's OIDC token is not sent to a server a .bella chose.
+                config.ApiUrlForSuppliedCredential(),
                 DebugLoggingHandler.IsEnabled ? new DebugLoggingHandler() : null);
             var resp = await client.Api.V1.Token.PostAsync(
                 new ExchangeOidcTokenBySlugCommand

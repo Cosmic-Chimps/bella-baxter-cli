@@ -16,9 +16,12 @@ public class AuthService(ConfigService config, CredentialStore credentials, Http
 
     // ── Discover auth config ─────────────────────────────────────────────────
 
-    public async Task<AuthConfig> DiscoverConfigAsync(CancellationToken ct = default)
+    public Task<AuthConfig> DiscoverConfigAsync(CancellationToken ct = default) =>
+        DiscoverConfigAsync(config.ApiUrl, ct);
+
+    private async Task<AuthConfig> DiscoverConfigAsync(string apiUrl, CancellationToken ct)
     {
-        var url = $"{config.ApiUrl}/api/v1/auth/config";
+        var url = $"{apiUrl}/api/v1/auth/config";
         var response = await http.GetFromJsonAsync<AuthConfigResponse>(url, JsonOptions, ct)
             ?? throw new InvalidOperationException("Could not fetch auth config from server.");
 
@@ -29,7 +32,10 @@ public class AuthService(ConfigService config, CredentialStore credentials, Http
 
     public async Task<StoredTokens> LoginWithBrowserAsync(CancellationToken ct = default)
     {
-        var authConfig = await DiscoverConfigAsync(ct);
+        // Advisory clients-1 — the tokens belong to the server they are obtained from; recorded so they
+        // are never presented anywhere else.
+        var apiUrl = config.ApiUrl;
+        var authConfig = await DiscoverConfigAsync(apiUrl, ct);
         var pkce = OAuth2PkceFlow.GenerateChallenge();
         var (listener, callbackUrl, _) = OAuth2PkceFlow.StartCallbackListener();
 
@@ -38,7 +44,8 @@ public class AuthService(ConfigService config, CredentialStore credentials, Http
         OAuth2PkceFlow.OpenBrowser(authUrl);
 
         var code = await OAuth2PkceFlow.WaitForCallbackAsync(listener, ct);
-        var tokens = await ExchangeCodeAsync(authConfig, code, pkce.CodeVerifier, callbackUrl, ct);
+        var tokens = await ExchangeCodeAsync(authConfig, code, pkce.CodeVerifier, callbackUrl, ct)
+            with { Origin = ConfigService.OriginOf(apiUrl) };
 
         credentials.SaveTokens(tokens);
         return tokens;
@@ -56,7 +63,9 @@ public class AuthService(ConfigService config, CredentialStore credentials, Http
         var stored = new StoredApiKey(
             KeyId: parts[1],
             SigningSecret: parts[2],
-            Raw: rawKey
+            Raw: rawKey,
+            // Advisory clients-1 — stored for the server it is being logged in to, and only ever sent there.
+            Origin: ConfigService.OriginOf(config.ApiUrl)
         );
 
         credentials.ClearTokens(); // API key replaces OAuth session
@@ -77,9 +86,14 @@ public class AuthService(ConfigService config, CredentialStore credentials, Http
             credentials.AcquireRefreshLockAsync,
             ct);
 
-    private async Task<StoredTokens> ExchangeRefreshTokenAsync(StoredTokens existing, CancellationToken ct)
+    internal async Task<StoredTokens> ExchangeRefreshTokenAsync(StoredTokens existing, CancellationToken ct)
     {
-        var authConfig = await DiscoverConfigAsync(ct);
+        // Advisory clients-1 — the refresh token goes to the token endpoint the API names, so the API must
+        // be the server the login belongs to. A legacy login (no recorded origin) is bound to the machine
+        // default here and from now on.
+        var apiUrl = config.ApiUrlForStoredCredential(existing.Origin);
+        var origin = existing.Origin ?? ConfigService.OriginOf(apiUrl);
+        var authConfig = await DiscoverConfigAsync(apiUrl, ct);
 
         var body = new FormUrlEncodedContent(new Dictionary<string, string>
         {
@@ -94,7 +108,7 @@ public class AuthService(ConfigService config, CredentialStore credentials, Http
         var tokenResponse = await response.Content.ReadFromJsonAsync<TokenResponse>(JsonOptions, ct)
             ?? throw new InvalidOperationException("Empty token response.");
 
-        var tokens = ToStoredTokens(tokenResponse);
+        var tokens = ToStoredTokens(tokenResponse) with { Origin = origin };
         credentials.SaveTokens(tokens);
         return tokens;
     }

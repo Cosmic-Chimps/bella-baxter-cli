@@ -42,6 +42,12 @@ public class ConfigService
         _cache = Load();
     }
 
+    /// <summary>
+    /// Tests only: a service whose machine default is <paramref name="machineDefault"/> instead of the
+    /// real <c>config.json</c>. Never saves.
+    /// </summary>
+    internal ConfigService(BellaConfig machineDefault) => _cache = machineDefault;
+
     public BellaConfig Config => _cache;
 
     /// <summary>
@@ -146,6 +152,108 @@ public class ConfigService
 
         return null;
     }
+
+    // ── Credential origin binding (advisory clients-1) ──────────────────────────────────────────
+
+    /// <summary>
+    /// The machine-wide default server, from <c>config.json</c>: the address the operator chose on
+    /// THIS machine, as opposed to one a repository's <c>.bella</c> names.
+    /// </summary>
+    public string MachineDefaultApiUrl => _cache.ApiUrl;
+
+    /// <summary>
+    /// The origin (<c>scheme://host[:port]</c>, lower-case, default port omitted) of
+    /// <paramref name="url"/>, or null when it is not an absolute http(s) address. Two addresses name
+    /// the same server exactly when their origins are equal: the path, a trailing slash and the case of
+    /// the host do not change where a credential goes.
+    /// </summary>
+    public static string? OriginOf(string? url)
+    {
+        if (string.IsNullOrWhiteSpace(url)
+            || !Uri.TryCreate(url.Trim(), UriKind.Absolute, out var uri)
+            || (uri.Scheme != Uri.UriSchemeHttps && uri.Scheme != Uri.UriSchemeHttp))
+            return null;
+
+        var host = uri.HostNameType == UriHostNameType.IPv6
+            ? uri.Host.ToLowerInvariant()
+            : uri.IdnHost.ToLowerInvariant();
+        return uri.IsDefaultPort ? $"{uri.Scheme}://{host}" : $"{uri.Scheme}://{host}:{uri.Port}";
+    }
+
+    /// <summary>
+    /// The address to present a STORED credential to (the tokens of <c>bella login</c>, or an API key
+    /// it stored): <see cref="ApiUrl"/>, but only when that is the server the credential was obtained
+    /// from. Otherwise <see cref="CredentialOriginException"/>, before anything is sent.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>Why.</b> The CLI keeps one login, and the server it talks to can come from the nearest
+    /// <c>.bella</c>, a file that arrives with every repository you clone. Without this, a repository
+    /// naming another server received your bearer and refresh tokens on the first command run in it.
+    /// The rule holds whatever supplied the address, an environment variable included: a stored
+    /// credential is of no use to a server that did not issue it, so sending it there only exposes it.</para>
+    /// <para><b>A credential stored before origins were recorded</b> (<paramref name="recordedOrigin"/>
+    /// null) is bound to <see cref="MachineDefaultApiUrl"/>, the server <c>bella login</c> uses when
+    /// nothing overrides it. Failing closed costs one <c>bella login</c> for someone who logged in
+    /// through an override; guessing the other way would keep sending legacy tokens to whatever a
+    /// <c>.bella</c> names.</para>
+    /// </remarks>
+    public string ApiUrlForStoredCredential(string? recordedOrigin) =>
+        StoredCredentialMayGoTo(ApiUrl, ApiUrlSource, recordedOrigin);
+
+    /// <summary>
+    /// The same rule for an address a command took from somewhere other than <see cref="ApiUrl"/> (a
+    /// <c>--api-url</c> flag): returns <paramref name="url"/> when it is the stored credential's server.
+    /// </summary>
+    public string StoredCredentialMayGoTo(string url, string source, string? recordedOrigin)
+    {
+        var credentialOrigin = recordedOrigin ?? OriginOf(MachineDefaultApiUrl);
+        var target = OriginOf(url);
+
+        if (target is not null && string.Equals(target, credentialOrigin, StringComparison.Ordinal))
+            return url;
+
+        throw new CredentialOriginException(
+            $"Your stored Bella login belongs to {credentialOrigin ?? "an unknown server"}, but this command would "
+            + $"send it to {target ?? url} (from {source}). It was not sent. "
+            + "If you meant to use that server, run `bella login` here to log in to it; otherwise point the CLI "
+            + "back with `bella config set-server` or BELLA_BAXTER_URL.");
+    }
+
+    /// <summary>
+    /// The address to present a credential the ENVIRONMENT supplied (<c>BELLA_BAXTER_API_KEY</c>,
+    /// <c>BELLA_BAXTER_ACCESS_TOKEN</c>, a workload's OIDC token) to.
+    /// </summary>
+    /// <remarks>
+    /// Such a credential records no origin, so the rule is about who chose the address: an environment
+    /// variable or <c>config.json</c> is the operator's own choice and is used as is; a <c>.bella</c> is
+    /// the repository's, and is used only when it names the machine's own default server. A pipeline
+    /// that targets another server says so with <c>BELLA_BAXTER_URL</c> (the setup action exports it),
+    /// which also wins over <c>.bella</c>.
+    /// </remarks>
+    public string ApiUrlForSuppliedCredential()
+    {
+        var url = ApiUrl;
+        if (ApiUrlSource != ".bella")
+            return url;
+
+        var target = OriginOf(url);
+        var machine = OriginOf(MachineDefaultApiUrl);
+        if (target is not null && string.Equals(target, machine, StringComparison.Ordinal))
+            return url;
+
+        throw new CredentialOriginException(
+            $"The .bella in this directory names {target ?? url}, which is not this machine's configured server "
+            + $"({machine ?? MachineDefaultApiUrl}). A credential from the environment is not sent to a server a "
+            + "repository chose. It was not sent. If you meant that server, set BELLA_BAXTER_URL to it "
+            + "(an explicit override) or run `bella config set-server`.");
+    }
+
+    /// <summary>The address to present <paramref name="key"/> to (see the two rules above).</summary>
+    public string ApiUrlFor(StoredApiKey key) =>
+        key.FromEnvironment ? ApiUrlForSuppliedCredential() : ApiUrlForStoredCredential(key.Origin);
+
+    /// <summary>The address to present <paramref name="tokens"/> to.</summary>
+    public string ApiUrlFor(StoredTokens tokens) => ApiUrlForStoredCredential(tokens.Origin);
 
     public void SetApiUrl(string url)
     {

@@ -97,7 +97,7 @@ public class ShellOpenCommand(ConfigService config, CredentialStore credentials)
         // ── Check for command to run (args after --) ─────────────────────────
         var remainingArgs = context.Remaining.Raw.ToArray();
         if (remainingArgs.Length > 0)
-            return RunCommand(remainingArgs, project, env, storedKey.Raw, config.ApiUrl);
+            return RunCommand(remainingArgs, project, env, storedKey.Raw, config.ApiUrlFor(storedKey));
 
         // ── Interactive mode: determine shell executable ─────────────────────
         string shellExe;
@@ -115,7 +115,7 @@ public class ShellOpenCommand(ConfigService config, CredentialStore credentials)
         AnsiConsole.MarkupLine($"[dim]  Type 'exit' or press Ctrl-D to return to the parent shell.[/]");
         AnsiConsole.WriteLine();
 
-        var psi = BuildProcessInfo(shellExe, project, env, storedKey.Raw, config.ApiUrl);
+        var psi = BuildProcessInfo(shellExe, project, env, storedKey.Raw, config.ApiUrlFor(storedKey));
 
         try
         {

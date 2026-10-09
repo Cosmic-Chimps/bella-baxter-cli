@@ -111,7 +111,9 @@ public class EnvCommand(ConfigService config, CredentialStore credentials) : Com
         }
 
         var apiKey = storedKey.Raw;
-        var apiUrl = config.ApiUrl;
+        // Advisory clients-1 — the key is printed for a shell to use against this address, so the address
+        // must be one the key may be sent to.
+        var apiUrl = config.ApiUrlFor(storedKey);
 
         // ── JSON mode ────────────────────────────────────────────────────────
         if (settings.Json)

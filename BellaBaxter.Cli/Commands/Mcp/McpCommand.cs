@@ -164,6 +164,17 @@ public class McpCommand(ConfigService config, CredentialStore credentials)
             return 1;
         }
 
+        // Advisory clients-1 — a stored key goes only to the server it was stored for (the --api-url flag
+        // included); one from the environment never to a server a repository's .bella chose. The flag is the
+        // operator's own choice, so an environment key may follow it.
+        if (storedApiKey is { FromEnvironment: false })
+            apiBase = settings.ApiUrl is null
+                ? config.ApiUrlFor(storedApiKey).TrimEnd('/')
+                : config.StoredCredentialMayGoTo(apiBase, "--api-url", storedApiKey.Origin);
+        else if (settings.ApiUrl is null)
+            apiBase = config.ApiUrlForSuppliedCredential().TrimEnd('/');
+        mcpUrl = $"{apiBase}/mcp";
+
         await Console.Error.WriteLineAsync("[bella-mcp] Auth: API key (HMAC)");
         var hmacHandler = new HmacSigningHandler(rawApiKey, bellaClient: "bella-mcp");
         hmacHandler.InnerHandler = new HttpClientHandler();

@@ -12,15 +12,28 @@ public record StoredTokens(
     string TokenType = "Bearer",
     string? OrgId = null,
     string? OrgName = null,
-    string? OrgSlug = null
+    string? OrgSlug = null,
+    // Advisory clients-1 — the origin of the server these tokens were obtained from. Null for a login
+    // stored before origins were recorded (see ConfigService.ApiUrlForStoredCredential).
+    string? Origin = null
 );
 
 public record StoredApiKey(
     string KeyId,
     string SigningSecret,
-    string Raw  // full "bax-{keyId}-{signingSecret}" string
+    string Raw,  // full "bax-{keyId}-{signingSecret}" string
+    // Advisory clients-1 — the origin of the server the key was stored for (null: stored before origins
+    // were recorded, or supplied by the environment).
+    string? Origin = null
 )
 {
+    /// <summary>
+    /// Advisory clients-1 — supplied by <c>BELLA_BAXTER_API_KEY</c>/<c>BELLA_API_KEY</c> rather than read
+    /// from the credential file. Never persisted.
+    /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public bool FromEnvironment { get; init; }
+
     /// <summary>
     /// The identifier the console's API Keys listing shows: <c>bax-</c> + the first 8 hex chars of
     /// the key id (the server's <c>KeyPrefix</c>). <c>KeyId</c> alone is the full 32-hex id, which
@@ -142,7 +155,7 @@ public class CredentialStore
             var parts = envKey.Split('-', 3);
             var keyId = parts.Length == 3 ? $"{parts[0]}-{parts[1]}" : envKey;
             var signingSecret = parts.Length == 3 ? parts[2] : string.Empty;
-            return new StoredApiKey(KeyId: keyId, SigningSecret: signingSecret, Raw: envKey);
+            return new StoredApiKey(KeyId: keyId, SigningSecret: signingSecret, Raw: envKey) { FromEnvironment = true };
         }
 
         if (!File.Exists(ApiKeyFile)) return null;
