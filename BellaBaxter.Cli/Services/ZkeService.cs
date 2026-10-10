@@ -25,9 +25,9 @@ namespace BellaCli.Services;
 /// here — "there is no device registration step today" — was the defect stated as documentation: any
 /// machine that generated a key satisfied the setting.</para>
 ///
-/// <para>On reads, if the server returns <c>X-Bella-Wrapped-Dek</c>, the CLI decrypts it
-/// with the private key to obtain the DEK, then decrypts any <c>bellabaxter:v1:</c>
-/// prefixed values locally.</para>
+/// <para>On reads, the server serves every value decrypted. <c>X-Bella-Wrapped-Dek</c> (since spec 077 the
+/// ENVIRONMENT's key, never the project's) is handled by the SDK's <c>ZkeDekHandler</c>, which refuses a
+/// value still sealed rather than handing it back. This service only unwraps the header.</para>
 /// </summary>
 public class ZkeService
 {
@@ -242,39 +242,6 @@ public class ZkeService
         {
             return null;
         }
-    }
-
-    /// <summary>
-    /// Decrypts a single <c>bellabaxter:v1:</c> prefixed value using the given DEK.
-    /// Returns the original value unchanged if it's not encrypted or decryption fails.
-    /// </summary>
-    public static string DecryptWithDek(string value, byte[] dek)
-    {
-        if (!DekAlgorithm.IsEncrypted(value))
-            return value;
-
-        try
-        {
-            return DekAlgorithm.DecryptToString(value, dek);
-        }
-        catch
-        {
-            return value;
-        }
-    }
-
-    /// <summary>
-    /// Decrypts all <c>bellabaxter:v1:</c> prefixed values in a secrets dictionary.
-    /// Returns the same dictionary with values replaced by plaintext.
-    /// </summary>
-    public static Dictionary<string, string> DecryptAllWithDek(
-        Dictionary<string, string> secrets,
-        byte[] dek)
-    {
-        var result = new Dictionary<string, string>(StringComparer.Ordinal);
-        foreach (var (k, v) in secrets)
-            result[k] = DecryptWithDek(v, dek);
-        return result;
     }
 
     // ── Private key URL resolver ──────────────────────────────────────────────
