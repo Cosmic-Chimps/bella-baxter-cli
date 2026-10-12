@@ -88,7 +88,7 @@ public class CredentialStore
         PrivateFiles.WritePrivate(TokensFile, encrypted);
     }
 
-    public StoredTokens? LoadTokens()
+    public virtual StoredTokens? LoadTokens()
     {
         if (!File.Exists(TokensFile)) return null;
         try
@@ -143,7 +143,7 @@ public class CredentialStore
         PrivateFiles.WritePrivate(ApiKeyFile, encrypted);
     }
 
-    public StoredApiKey? LoadApiKey()
+    public virtual StoredApiKey? LoadApiKey()
     {
         // Env var takes priority — allows CI/CD to inject the key without touching the credential file.
         // BELLA_BAXTER_API_KEY is canonical; BELLA_API_KEY is the legacy alias.

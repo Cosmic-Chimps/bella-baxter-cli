@@ -55,6 +55,9 @@ public class ContextService(ConfigService config, IOutputWriter output, Credenti
 
         var (bellaProject, bellaEnv, _) = ContextCommand.ResolveContext(config);
         var projectCandidate = !string.IsNullOrWhiteSpace(projectArg) ? projectArg : bellaProject;
+        // The project is about to be taken from the directory: it only exists in the org .bella names.
+        if (!explicitProject)
+            RefuseWhenContextOrgDiffers();
         var envCandidate = !string.IsNullOrWhiteSpace(envArg) ? envArg : bellaEnv;
 
         if (string.IsNullOrWhiteSpace(projectCandidate) || string.IsNullOrWhiteSpace(envCandidate))
@@ -105,6 +108,27 @@ public class ContextService(ConfigService config, IOutputWriter output, Credenti
             ? $"org = \"{orgSlug}\"{Environment.NewLine}project = \"{projectSlug}\"{Environment.NewLine}environment = \"{envSlug}\"{Environment.NewLine}url = \"{url}\"{Environment.NewLine}"
             : $"project = \"{projectSlug}\"{Environment.NewLine}environment = \"{envSlug}\"{Environment.NewLine}url = \"{url}\"{Environment.NewLine}";
         File.WriteAllText(bellaFile, content);
+    }
+
+    /// <summary>Tests only: stands in for the machine-dependent workload-environment probe.</summary>
+    internal Func<bool> InWorkloadEnvironment { get; init; } = WorkloadIdentityService.IsWorkloadEnvironment;
+
+    /// <summary>
+    /// A project taken from the directory's <c>.bella</c> (or the session context) lives in the org that
+    /// context names, but a person's OAuth login carries ONE active org and the API takes its tenant from
+    /// that token alone. When they differ the lookup runs in the wrong tenant and reports a misleading
+    /// "Project not found" — so refuse first, naming the fix. See <see cref="OrgContext"/>. Never called
+    /// for an explicit <c>--project</c>, and a no-op unless the stored login is what is being sent.
+    /// </summary>
+    private void RefuseWhenContextOrgDiffers()
+    {
+        if (!BellaClientProvider.UsesStoredLogin(credentials, InWorkloadEnvironment))
+            return;
+
+        var (_, _, contextOrg, _) = ContextCommand.ResolveContextWithOrg(config);
+        var refusal = OrgContext.Check(contextOrg, credentials.LoadTokens()?.OrgSlug);
+        if (refusal is not null)
+            throw new InvalidOperationException(refusal);
     }
 
     public async Task<(string slug, string name, string id)> ResolveProjectAsync(
@@ -172,6 +196,7 @@ public class ContextService(ConfigService config, IOutputWriter output, Credenti
         var (bellaProject, _, _) = ContextCommand.ResolveContext(config);
         if (bellaProject is not null)
         {
+            RefuseWhenContextOrgDiffers();
             try
             {
                 var p = await client.Api.V1.Projects[bellaProject].GetAsync(cancellationToken: ct);

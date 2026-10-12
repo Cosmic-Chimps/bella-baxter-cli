@@ -220,7 +220,7 @@ public class ContextShowCommand(ConfigService config, CredentialStore credential
             if (currentOrgSlug != null && !string.Equals(org, currentOrgSlug, StringComparison.OrdinalIgnoreCase))
             {
                 AnsiConsole.MarkupLine(
-                    $"[yellow]⚠ Warning:[/] [dim].bella org '{Markup.Escape(org)}' differs from active org '{Markup.Escape(currentOrgSlug)}'. Run [cyan]bella context init[/] to update.[/]"
+                    $"[yellow]⚠ Warning:[/] [dim].bella org '{Markup.Escape(org)}' differs from active org '{Markup.Escape(currentOrgSlug)}'. Run [cyan]bella org switch {Markup.Escape(org)}[/] to work in this directory's org, or [cyan]bella context init[/] to re-point this directory at '{Markup.Escape(currentOrgSlug)}'.[/]"
                 );
             }
         }

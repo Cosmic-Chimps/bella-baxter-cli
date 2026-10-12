@@ -61,6 +61,19 @@ public class BellaClientProvider(
         Environment.GetEnvironmentVariable("BELLA_BAXTER_API_KEY") is not null
         || (Environment.GetEnvironmentVariable("BELLA_BAXTER_ACCESS_TOKEN") is null && credentials.LoadApiKey() is not null);
 
+    /// <summary>
+    /// Whether the credential <see cref="CreateClient"/> would send is the person's stored OAuth login —
+    /// i.e. nothing outranks it: no API key (environment or stored), no bearer token in the environment,
+    /// and not a workload-identity environment (where the stored login is refused outright). Only then
+    /// does <c>credentials.LoadTokens()?.OrgSlug</c> describe the tenant the API will see, which is what
+    /// <see cref="OrgContext"/> compares a directory's <c>.bella</c> org against.
+    /// </summary>
+    public static bool UsesStoredLogin(CredentialStore credentials, Func<bool>? inWorkloadEnvironment = null) =>
+        credentials.LoadApiKey() is null
+        && Environment.GetEnvironmentVariable("BELLA_BAXTER_ACCESS_TOKEN") is null
+        && !(inWorkloadEnvironment ?? WorkloadIdentityService.IsWorkloadEnvironment)()
+        && credentials.LoadTokens() is not null;
+
     public BellaClient CreateClient(string? appClientOverride = null)
     {
         var appClient =
