@@ -626,6 +626,7 @@ bella env                     Output eval-able export statements (eval $(bella e
 
 bella config show             Show CLI configuration
 bella config set-server <url> Set API server URL
+bella config trust <url>      Trust a server a .bella names (--list, --remove <url>)
 
 bella generate                Generate a secure random password
 bella generate --memorable    Generate a memorable passphrase
@@ -665,6 +666,16 @@ decrypted secrets travel over it. The refusal names where the address came from 
 `BAXTER_URL`, the nearest `.bella` file's `url`, `config.json`, or `--api-url` for `bella mcp`), and
 `bella config set-server` will not save such an address. `bella config show` and `bella context show`
 still display it, with the reason. There is no opt-out: point the CLI at the server's `https://` address.
+
+### A server named only by a `.bella` must be trusted once
+
+A `.bella` comes with every repository you clone, so its `url` could point `bella login` at a look-alike
+server. The CLI therefore follows a `.bella` `url` only when that server is one you already use (your
+`config.json` server, or a server you have logged in to) or one you have trusted. Otherwise, at a terminal,
+it shows the address and the file it came from and asks (default **No**) before sending anything or opening a
+browser; in CI or a pipe it refuses with exit code 1. Trust a server ahead of time with
+`bella config trust https://bella.example.com` (`--list` / `--remove <url>` manage the list), or choose the
+server yourself with `BELLA_BAXTER_URL`, which needs no confirmation.
 
 ## `bella run` vs `bella sdk run`
 

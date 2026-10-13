@@ -33,8 +33,18 @@ using Spectre.Console.Cli;
 var services = new ServiceCollection();
 
 services.AddSingleton<GlobalSettings>();
-services.AddSingleton<ConfigService>();
 services.AddSingleton<CredentialStore>();
+// Advisory clients-1 follow-up (cli-bella-url) — a server that only a working-directory .bella names is
+// used once the user has confirmed it. The confirmer is lazy so the output mode (a TTY, --json, an API key)
+// is decided when a question is actually needed, not at startup.
+services.AddSingleton<ConfigService>(sp => new ConfigService
+{
+    StoredCredentialOrigins = () => sp.GetRequiredService<CredentialStore>().StoredOrigins(),
+    OriginConfirmer = server =>
+        Interactivity.IsInteractive(sp.GetRequiredService<IOutputWriter>())
+            ? OriginTrustPrompt.Ask(server)
+            : null,
+});
 services.AddSingleton<BellaClientProvider>();
 services.AddSingleton<ContextService>();
 services.AddSingleton<ZkeService>();
@@ -117,6 +127,7 @@ services.AddTransient<ImportCertsCommand>();
 // Config commands
 services.AddTransient<ConfigShowCommand>();
 services.AddTransient<ConfigSetServerCommand>();
+services.AddTransient<ConfigTrustCommand>();
 
 // Generate + Run + Exec (deprecated) + SDK + Issue + Upgrade
 services.AddTransient<GenerateCommand>();
@@ -506,6 +517,12 @@ app.Configure(config =>
                 .WithAlias("view");
             cfg.AddCommand<ConfigSetServerCommand>("set-server")
                 .WithDescription("Set the Bella Baxter API server URL.");
+            cfg.AddCommand<ConfigTrustCommand>("trust")
+                .WithDescription(
+                    "Trust a server a .bella names (a .bella arrives with every clone). --list / --remove manage the list.")
+                .WithExample("config", "trust", "https://bella.example.com")
+                .WithExample("config", "trust", "--list")
+                .WithExample("config", "trust", "--remove", "https://bella.example.com");
         }
     );
 
@@ -924,4 +941,13 @@ if (separatorIdx >= 0)
     args = args[..(separatorIdx + 1)]; // keep '--' so Spectre.Console still sees the separator
 }
 
-return await app.RunAsync(args);
+try
+{
+    return await app.RunAsync(args);
+}
+catch (Exception ex) when (OriginTrustPrompt.Find(ex) is { } untrusted)
+{
+    // Advisory clients-1 follow-up — an untrusted .bella server is a refusal with a fix, not a crash.
+    Console.Error.WriteLine(untrusted.Message);
+    return 1;
+}

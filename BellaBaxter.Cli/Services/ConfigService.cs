@@ -4,7 +4,12 @@ using BellaBaxter.Client;
 namespace BellaCli.Services;
 
 public record BellaConfig(
-    string ApiUrl = BellaConfig.DefaultApiUrl
+    string ApiUrl = BellaConfig.DefaultApiUrl,
+    // Advisory clients-1 follow-up (cli-bella-url), security team 2026-10-10 — origins the user has
+    // confirmed once, so a server named only by a working-directory .bella is used without asking again.
+    // Normalized (ConfigService.OriginOf). Absent from config.json until the first one is trusted.
+    [property: System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    string[]? TrustedOrigins = null
 )
 {
     /// <summary>
@@ -27,6 +32,9 @@ public class ConfigService
 
     private static readonly string ConfigFile = Path.Combine(ConfigDir, "config.json");
 
+    /// <summary>Where this instance saves; null (tests) means it never does.</summary>
+    private readonly string? _configFile = ConfigFile;
+
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         WriteIndented = true,
@@ -44,9 +52,30 @@ public class ConfigService
 
     /// <summary>
     /// Tests only: a service whose machine default is <paramref name="machineDefault"/> instead of the
-    /// real <c>config.json</c>. Never saves.
+    /// real <c>config.json</c>. It saves only to <paramref name="configFile"/>, and never to the real one.
     /// </summary>
-    internal ConfigService(BellaConfig machineDefault) => _cache = machineDefault;
+    internal ConfigService(BellaConfig machineDefault, string? configFile = null)
+    {
+        _cache = machineDefault;
+        _configFile = configFile;
+    }
+
+    /// <summary>
+    /// Advisory clients-1 follow-up — asks the operator whether to trust a server that only a
+    /// working-directory <c>.bella</c> names. Returns true (trust it, remembered), false (no), or null when
+    /// there is nobody to ask (stdin is not a terminal, or the output is machine-readable). Unset means
+    /// the same as null: a non-interactive process never waits for an answer.
+    /// </summary>
+    public Func<UntrustedBellaServer, bool?>? OriginConfirmer { get; set; }
+
+    /// <summary>
+    /// Origins that already have a stored credential bound to them (advisory clients-1's origin binding).
+    /// Such an origin was reached on the user's own choice, so a <c>.bella</c> naming it asks nothing new.
+    /// </summary>
+    public Func<IEnumerable<string>>? StoredCredentialOrigins { get; set; }
+
+    /// <summary>What was decided this run, per origin, so a command reading the address twice asks once.</summary>
+    private readonly Dictionary<string, bool> _decided = new(StringComparer.Ordinal);
 
     public BellaConfig Config => _cache;
 
@@ -74,14 +103,30 @@ public class ConfigService
     /// loopback (<c>localhost</c>, 127.0.0.0/8, <c>::1</c>). Credentials, API keys, tokens and decrypted
     /// secrets travel over it. The rule is <see cref="BellaApiAddress"/>'s — the same one
     /// <c>bella spiffe agent</c> and the .NET SPIFFE SDK apply — and there is no opt-out.</para>
+    /// <para><b>Advisory clients-1 follow-up (cli-bella-url), security team 2026-10-10 — a server named only
+    /// by a working-directory <c>.bella</c> is not used until the user has trusted it.</b> A <c>.bella</c>
+    /// arrives with every clone, so it could point <c>bella login</c> (and every other command) at a lookalike
+    /// whose login page phishes the user. An address from <c>BELLA_BAXTER_URL</c> or <c>config.json</c> is the
+    /// user's own choice; one from a <c>.bella</c> is used only when its origin is known (see
+    /// <see cref="EnsureBellaServerIsKnown"/>). This getter is the ONE place that rule runs, so every command
+    /// gets it; <c>BellaFileUrlIsReadOnlyInConfigServiceTests</c> fails on any other reader of the file's <c>url</c>.</para>
     /// <para>Commands that only DISPLAY the address (<c>config show</c>, <c>context show</c>) read
     /// <see cref="ApiUrlAsConfigured"/> instead, so an operator can still see the value that is being
     /// refused and where it came from.</para>
     /// </remarks>
-    public string ApiUrl =>
-        ApiUrlProblem is { } problem
-            ? throw new InsecureApiAddressException(problem)
-            : ApiUrlAsConfigured;
+    public string ApiUrl
+    {
+        get
+        {
+            if (ApiUrlProblem is { } problem)
+                throw new InsecureApiAddressException(problem);
+
+            var url = ApiUrlAsConfigured;
+            if (ApiUrlSource == ".bella")
+                EnsureBellaServerIsKnown(url);
+            return url;
+        }
+    }
 
     /// <summary>
     /// The configured address WITHOUT the https rule. For display only; anything that sends a request
@@ -122,13 +167,17 @@ public class ConfigService
     /// Any read or parse problem yields null so a malformed file degrades to the machine default
     /// rather than breaking every command.
     /// </summary>
-    private static string? ReadUrlFromNearestBellaFile()
+    private static string? ReadUrlFromNearestBellaFile() => ReadUrlFromNearestBellaFile(out _);
+
+    private static string? ReadUrlFromNearestBellaFile(out string? bellaPath)
     {
+        bellaPath = null;
         try
         {
             var path = KeyContextService.FindBellaFile(Directory.GetCurrentDirectory());
             if (path is null)
                 return null;
+            bellaPath = path;
 
             foreach (var line in File.ReadAllLines(path))
             {
@@ -151,6 +200,101 @@ public class ConfigService
         }
 
         return null;
+    }
+
+    // ── Trust in a server a .bella names (advisory clients-1 follow-up, cli-bella-url) ──────────
+
+    /// <summary>The origins the user has confirmed, normalized.</summary>
+    public IReadOnlyList<string> TrustedOrigins => _cache.TrustedOrigins ?? [];
+
+    /// <summary>
+    /// True when <paramref name="origin"/> is one the user already chose: <c>config.json</c>'s server, an
+    /// origin a stored credential is bound to, or one confirmed before.
+    /// </summary>
+    public bool IsKnownOrigin(string origin) =>
+        string.Equals(origin, OriginOf(MachineDefaultApiUrl), StringComparison.Ordinal)
+        || TrustedOrigins.Contains(origin, StringComparer.Ordinal)
+        || (StoredCredentialOrigins?.Invoke() ?? []).Contains(origin, StringComparer.Ordinal);
+
+    /// <summary>
+    /// Refuses, before anything is sent or a browser is opened, an address that came from a <c>.bella</c>
+    /// whose origin is not known. With a terminal to ask, asks once (default No) and remembers a yes; with
+    /// none, refuses and names the ways out. Throws <see cref="UntrustedBellaServerException"/>.
+    /// </summary>
+    private void EnsureBellaServerIsKnown(string url)
+    {
+        var origin = OriginOf(url);
+        if (origin is not null && IsKnownOrigin(origin))
+            return;
+
+        var key = origin ?? url;
+        if (_decided.TryGetValue(key, out var accepted))
+        {
+            if (accepted)
+                return;
+            throw new UntrustedBellaServerException(Declined(key));
+        }
+
+        ReadUrlFromNearestBellaFile(out var bellaPath);
+        var server = new UntrustedBellaServer(key, bellaPath ?? ".bella", OriginOf(MachineDefaultApiUrl) ?? MachineDefaultApiUrl);
+
+        var answer = origin is null ? null : OriginConfirmer?.Invoke(server);
+        if (answer is true)
+        {
+            TrustOrigin(origin!);
+            _decided[key] = true;
+            return;
+        }
+
+        if (answer is false)
+        {
+            _decided[key] = false;
+            throw new UntrustedBellaServerException(Declined(key));
+        }
+
+        throw new UntrustedBellaServerException(
+            $"The .bella at {server.BellaFile} names {server.Origin} as the Bella server, but you have not trusted "
+            + $"that server on this machine (your configured server is {server.ConfiguredServer}). A .bella arrives "
+            + "with any repository you clone, so its server is used only after you confirm it, and nothing was sent. "
+            + $"If it is yours, run `bella config trust {server.Origin}` once; otherwise set BELLA_BAXTER_URL (or pass "
+            + "--url/--api-url where a command takes one) to the server you mean.");
+    }
+
+    private static string Declined(string origin) =>
+        $"You did not trust {origin}, so the .bella that names it was not followed and nothing was sent. "
+        + "Set BELLA_BAXTER_URL (or run `bella config trust` for it) if you meant it, or edit the .bella.";
+
+    /// <summary>
+    /// Remembers <paramref name="url"/>'s origin as trusted and returns it normalized. The same https rule
+    /// as the address itself applies: an origin no command would use is not worth trusting.
+    /// </summary>
+    public string TrustOrigin(string url)
+    {
+        var origin = OriginOf(url) ?? throw new ArgumentException($"'{url}' is not an http(s) address.", nameof(url));
+        if (ProblemFor(origin, "bella config trust") is { } problem)
+            throw new InsecureApiAddressException(problem);
+
+        if (!TrustedOrigins.Contains(origin, StringComparer.Ordinal))
+        {
+            _cache = _cache with { TrustedOrigins = [.. TrustedOrigins, origin] };
+            Save();
+        }
+        return origin;
+    }
+
+    /// <summary>Forgets a trusted origin; returns the normalized origin and whether it was in the list.</summary>
+    public (string Origin, bool Removed) UntrustOrigin(string url)
+    {
+        var origin = OriginOf(url) ?? throw new ArgumentException($"'{url}' is not an http(s) address.", nameof(url));
+        var kept = TrustedOrigins.Where(o => !string.Equals(o, origin, StringComparison.Ordinal)).ToArray();
+        var removed = kept.Length != TrustedOrigins.Count;
+        if (removed)
+        {
+            _cache = _cache with { TrustedOrigins = kept.Length == 0 ? null : kept };
+            Save();
+            _decided.Remove(origin);
+        }
+        return (origin, removed);
     }
 
     // ── Credential origin binding (advisory clients-1) ──────────────────────────────────────────
@@ -283,7 +427,15 @@ public class ConfigService
 
     private void Save()
     {
+        if (_configFile is null)
+            return;
+
+        // Written beside the file and moved over it, so a crash or a second `bella` never leaves a
+        // half-written config.json (which Load() would read as "nothing configured" and so forget the
+        // trusted origins along with the server).
         var json = JsonSerializer.Serialize(_cache, JsonOptions);
-        File.WriteAllText(ConfigFile, json);
+        var temp = $"{_configFile}.{Guid.NewGuid():N}.tmp";
+        File.WriteAllText(temp, json);
+        File.Move(temp, _configFile, overwrite: true);
     }
 }

@@ -53,7 +53,11 @@ public class CredentialOriginBindingTests : IDisposable
     private void WriteBella(string url) =>
         File.WriteAllText(Path.Combine(_dir, ".bella"), $"project = \"p\"\nenvironment = \"e\"\nurl = \"{url}\"\n");
 
-    private static ConfigService Machine(string defaultUrl = Saas) => new(new BellaConfig(defaultUrl));
+    // The user has confirmed whatever the .bella names (advisory clients-1 follow-up; see
+    // BellaFileServerTrustTests for the confirmation itself), so these tests keep exercising the CREDENTIAL
+    // layer: a trusted server still does not receive a login that belongs to another one.
+    private static ConfigService Machine(string defaultUrl = Saas) =>
+        new(new BellaConfig(defaultUrl)) { OriginConfirmer = _ => true };
 
     private static StoredTokens Tokens(string? origin) =>
         new("access", "refresh", DateTimeOffset.UtcNow.AddMinutes(5), Origin: origin);

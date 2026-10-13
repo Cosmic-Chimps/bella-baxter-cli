@@ -44,6 +44,10 @@ public class ApiUrlResolutionTests : IDisposable
         try { Directory.Delete(_dir, recursive: true); } catch { /* best effort */ }
     }
 
+    // Hermetic (never the developer's config.json) and the user has confirmed whatever the .bella names —
+    // this file is about WHERE the address comes from; BellaFileServerTrustTests is about trusting it.
+    private static ConfigService Trusting() => new(new BellaConfig()) { OriginConfirmer = _ => true };
+
     private static void WriteBella(string dir, string? url)
     {
         var body = "project = \"nginx-rotation\"\nenvironment = \"dev\"\n";
@@ -57,7 +61,7 @@ public class ApiUrlResolutionTests : IDisposable
     {
         WriteBella(_dir, "https://bb-lab-gw.cosmic-chimps.com");
 
-        var config = new ConfigService();
+        var config = Trusting();
 
         Assert.Equal("https://bb-lab-gw.cosmic-chimps.com", config.ApiUrl);
         Assert.Equal(".bella", config.ApiUrlSource);
@@ -70,7 +74,7 @@ public class ApiUrlResolutionTests : IDisposable
         WriteBella(_dir, "https://bb-lab-gw.cosmic-chimps.com");
         Environment.SetEnvironmentVariable("BELLA_BAXTER_URL", "https://other.example.com");
 
-        var config = new ConfigService();
+        var config = Trusting();
 
         Assert.Equal("https://other.example.com", config.ApiUrl);
         Assert.Equal("BELLA_BAXTER_URL", config.ApiUrlSource);
@@ -82,7 +86,7 @@ public class ApiUrlResolutionTests : IDisposable
         // Every .bella written before this feature has no url line; those must keep working.
         WriteBella(_dir, url: null);
 
-        var config = new ConfigService();
+        var config = Trusting();
 
         Assert.Equal(BellaConfig.DefaultApiUrl, config.ApiUrl);
         Assert.Equal("config.json", config.ApiUrlSource);
@@ -97,7 +101,7 @@ public class ApiUrlResolutionTests : IDisposable
         Directory.CreateDirectory(nested);
         Directory.SetCurrentDirectory(nested);
 
-        Assert.Equal("https://bb-lab-gw.cosmic-chimps.com", new ConfigService().ApiUrl);
+        Assert.Equal("https://bb-lab-gw.cosmic-chimps.com", Trusting().ApiUrl);
     }
 
     [Theory]
@@ -112,7 +116,7 @@ public class ApiUrlResolutionTests : IDisposable
             Path.Combine(_dir, ".bella"),
             $"project = \"p\"\nenvironment = \"e\"\n{line}\n");
 
-        var config = new ConfigService();
+        var config = Trusting();
 
         Assert.Equal(BellaConfig.DefaultApiUrl, config.ApiUrl);
     }
@@ -122,6 +126,6 @@ public class ApiUrlResolutionTests : IDisposable
     {
         WriteBella(_dir, "https://bb-lab-gw.cosmic-chimps.com/");
 
-        Assert.Equal("https://bb-lab-gw.cosmic-chimps.com", new ConfigService().ApiUrl);
+        Assert.Equal("https://bb-lab-gw.cosmic-chimps.com", Trusting().ApiUrl);
     }
 }

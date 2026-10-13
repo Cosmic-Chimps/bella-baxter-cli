@@ -158,6 +158,12 @@ public class CredentialStore
             return new StoredApiKey(KeyId: keyId, SigningSecret: signingSecret, Raw: envKey) { FromEnvironment = true };
         }
 
+        return LoadStoredApiKey();
+    }
+
+    /// <summary>The key <c>bella login --api-key</c> stored, ignoring any key the environment supplies.</summary>
+    private StoredApiKey? LoadStoredApiKey()
+    {
         if (!File.Exists(ApiKeyFile)) return null;
         try
         {
@@ -170,6 +176,18 @@ public class CredentialStore
             return null;
         }
     }
+
+    /// <summary>
+    /// The origins the STORED credentials are bound to (advisory clients-1): where the user logged in.
+    /// An origin listed here was reached on the user's own choice, so a <c>.bella</c> naming it asks
+    /// nothing new (see <c>ConfigService.IsKnownOrigin</c>). A legacy credential with no recorded origin
+    /// contributes nothing, and neither does a key from the environment.
+    /// </summary>
+    public IReadOnlyList<string> StoredOrigins() =>
+        new[] { LoadTokens()?.Origin, LoadStoredApiKey()?.Origin }
+            .Where(o => !string.IsNullOrEmpty(o))
+            .Select(o => o!)
+            .ToList();
 
     public void ClearApiKey()
     {
