@@ -142,6 +142,10 @@ public class LoginCommand(AuthService auth, CredentialStore credentials, KeyCont
         try
         {
             StoredTokens tokens = null!;
+            // #1317 — a .bella naming an unknown server asks the operator whether to trust it on the first
+            // read of the address. That question cannot run while the spinner below is live, so it is asked
+            // here, before the spinner and before anything is sent or a browser is opened.
+            config.ResolveServer();
             await output.StatusAsync(
                     "Opening browser for login...",
                     async setStatus =>

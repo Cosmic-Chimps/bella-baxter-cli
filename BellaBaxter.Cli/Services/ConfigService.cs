@@ -129,6 +129,15 @@ public class ConfigService
     }
 
     /// <summary>
+    /// Resolves the server NOW — running the <c>.bella</c> trust check, which may ask the operator — and
+    /// discards the address. Call it before opening a status display (<c>IOutputWriter.StatusAsync</c>)
+    /// when nothing earlier in the command has read <see cref="ApiUrl"/> (#1317): Spectre cannot run a
+    /// prompt while a spinner is live, so the FIRST read of the address must happen outside it. The
+    /// answer is remembered for the run, so the reads inside the spinner then ask nothing.
+    /// </summary>
+    public void ResolveServer() => _ = ApiUrl;
+
+    /// <summary>
     /// The configured address WITHOUT the https rule. For display only; anything that sends a request
     /// uses <see cref="ApiUrl"/>. A guard forbids this in any file that builds an HTTP request.
     /// </summary>
@@ -211,10 +220,20 @@ public class ConfigService
     /// True when <paramref name="origin"/> is one the user already chose: <c>config.json</c>'s server, an
     /// origin a stored credential is bound to, or one confirmed before.
     /// </summary>
-    public bool IsKnownOrigin(string origin) =>
-        string.Equals(origin, OriginOf(MachineDefaultApiUrl), StringComparison.Ordinal)
-        || TrustedOrigins.Contains(origin, StringComparer.Ordinal)
-        || (StoredCredentialOrigins?.Invoke() ?? []).Contains(origin, StringComparer.Ordinal);
+    public bool IsKnownOrigin(string origin) => KnownBecause(origin) != OriginKnownBecause.None;
+
+    /// <summary>Every reason <paramref name="origin"/> is known (<see cref="IsKnownOrigin"/>); None when it is not.</summary>
+    public OriginKnownBecause KnownBecause(string origin)
+    {
+        var because = OriginKnownBecause.None;
+        if (string.Equals(origin, OriginOf(MachineDefaultApiUrl), StringComparison.Ordinal))
+            because |= OriginKnownBecause.ConfiguredServer;
+        if (TrustedOrigins.Contains(origin, StringComparer.Ordinal))
+            because |= OriginKnownBecause.Trusted;
+        if ((StoredCredentialOrigins?.Invoke() ?? []).Contains(origin, StringComparer.Ordinal))
+            because |= OriginKnownBecause.StoredCredential;
+        return because;
+    }
 
     /// <summary>
     /// Refuses, before anything is sent or a browser is opened, an address that came from a <c>.bella</c>
@@ -438,4 +457,17 @@ public class ConfigService
         File.WriteAllText(temp, json);
         File.Move(temp, _configFile, overwrite: true);
     }
+}
+
+/// <summary>Why a server a <c>.bella</c> names is followed without asking (<see cref="ConfigService.KnownBecause"/>).</summary>
+[Flags]
+public enum OriginKnownBecause
+{
+    None = 0,
+    /// <summary><c>config.json</c>'s own server.</summary>
+    ConfiguredServer = 1,
+    /// <summary>In <c>trustedOrigins</c> (<c>bella config trust</c>).</summary>
+    Trusted = 2,
+    /// <summary>A stored login or API key is bound to it.</summary>
+    StoredCredential = 4,
 }

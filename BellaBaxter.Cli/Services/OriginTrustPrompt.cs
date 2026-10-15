@@ -9,6 +9,14 @@ namespace BellaCli.Services;
 public static class OriginTrustPrompt
 {
     /// <summary>
+    /// The <see cref="ConfigService.OriginConfirmer"/> the CLI installs: asks only when <paramref name="canAsk"/>
+    /// says there is an operator to answer (a terminal, not <c>--json</c>, not CI), otherwise null — "cannot
+    /// ask", which the caller turns into a refusal. A seam so a test can exercise the REAL question.
+    /// </summary>
+    public static Func<UntrustedBellaServer, bool?> CreateConfirmer(Func<bool> canAsk) =>
+        server => canAsk() ? Ask(server) : null;
+
+    /// <summary>
     /// Shows the origin, the file it came from and the server the user has configured, and asks.
     /// Default No: Enter must never trust a stranger's server.
     /// </summary>

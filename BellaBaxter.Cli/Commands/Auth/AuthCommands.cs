@@ -190,7 +190,7 @@ public class AuthStatusCommand(
 
 public class AuthRefreshSettings : CommandSettings { }
 
-public class AuthRefreshCommand(AuthService auth, IOutputWriter output)
+public class AuthRefreshCommand(AuthService auth, ConfigService config, IOutputWriter output)
     : AsyncCommand<AuthRefreshSettings>
 {
     protected override async Task<int> ExecuteAsync(
@@ -202,6 +202,9 @@ public class AuthRefreshCommand(AuthService auth, IOutputWriter output)
         try
         {
             StoredTokens tokens = null!;
+            // #1317 — the first read of the server address may ask whether to trust a .bella's server, and a
+            // prompt cannot run inside the spinner.
+            config.ResolveServer();
             await output.StatusAsync("Refreshing token...", async () =>
                     {
                         tokens = await auth.RefreshAsync(ct);

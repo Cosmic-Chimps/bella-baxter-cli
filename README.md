@@ -675,7 +675,9 @@ server. The CLI therefore follows a `.bella` `url` only when that server is one 
 it shows the address and the file it came from and asks (default **No**) before sending anything or opening a
 browser; in CI or a pipe it refuses with exit code 1. Trust a server ahead of time with
 `bella config trust https://bella.example.com` (`--list` / `--remove <url>` manage the list), or choose the
-server yourself with `BELLA_BAXTER_URL`, which needs no confirmation.
+server yourself with `BELLA_BAXTER_URL`, which needs no confirmation. `--remove` only drops the server from that
+list: a server you are logged in to, or your configured server, stays known, and the command says so (`bella logout`
+ends the session).
 
 ## `bella run` vs `bella sdk run`
 

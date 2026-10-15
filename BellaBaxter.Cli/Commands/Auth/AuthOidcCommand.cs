@@ -48,7 +48,7 @@ public class AuthOidcSettings : CommandSettings
     public bool Json { get; init; }
 }
 
-public class AuthOidcCommand(WorkloadIdentityService workloadIdentity, IOutputWriter output)
+public class AuthOidcCommand(WorkloadIdentityService workloadIdentity, ConfigService config, IOutputWriter output)
     : AsyncCommand<AuthOidcSettings>
 {
     protected override async Task<int> ExecuteAsync(
@@ -95,6 +95,9 @@ public class AuthOidcCommand(WorkloadIdentityService workloadIdentity, IOutputWr
         // Global exchange — server finds matching TrustDomain by issuer + env context
         OidcExchangeResult? result = null;
         string? exchangeError = null;
+        // #1317 — the exchange reads the server address; the question about a .bella's server is asked here,
+        // outside the spinner (a prompt cannot run inside it).
+        config.ResolveServer();
         await output.StatusAsync("Exchanging OIDC token for Bella key...", async () =>
                 {
                     var (tenantSlug, projectSlug, envSlug) = workloadIdentity.ResolveSlugs(

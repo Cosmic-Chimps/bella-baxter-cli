@@ -21,6 +21,8 @@
     <!-- Console UI -->
     <PackageVersion Include="Spectre.Console" Version="0.55.2" />
     <PackageVersion Include="Spectre.Console.Cli" Version="0.55.0" />
+    <!-- Tests only: TestConsole, so a prompt and a status display can be exercised for real (#1317). -->
+    <PackageVersion Include="Spectre.Console.Testing" Version="0.55.2" />
 
     <!-- Generated API client transport/serialization (Kiota) -->
     <PackageVersion Include="Microsoft.Kiota.Http.HttpClientLibrary" Version="1.22.1" />

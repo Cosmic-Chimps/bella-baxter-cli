@@ -143,10 +143,30 @@ public class ConfigTrustCommand(ConfigService configService, IOutputWriter outpu
             if (settings.Remove)
             {
                 var (origin, removed) = configService.UntrustOrigin(settings.Url);
-                if (removed)
-                    output.WriteSuccess($"No longer trusting {origin}");
-                else
+                if (!removed)
+                {
                     output.WriteInfo($"{origin} was not in the trusted list.");
+                    return 0;
+                }
+
+                // #1312 — the list is not the only thing that makes an origin known. Say "no longer trusting"
+                // only when that is true; otherwise say what still keeps it in use. (--remove does not sign
+                // out or unbind anything: that is the user's call, via `bella logout`.)
+                var still = configService.KnownBecause(origin);
+                if (still == OriginKnownBecause.None)
+                {
+                    output.WriteSuccess($"No longer trusting {origin}");
+                    return 0;
+                }
+
+                output.WriteSuccess($"Removed {origin} from the trusted list.");
+                var reasons = new List<string>();
+                if (still.HasFlag(OriginKnownBecause.ConfiguredServer))
+                    reasons.Add("it is your configured server (config.json)");
+                if (still.HasFlag(OriginKnownBecause.StoredCredential))
+                    reasons.Add("you have a stored session on it (run `bella logout` to end that)");
+                output.WriteWarning(
+                    $"A .bella naming {origin} is still followed without asking, because {string.Join(" and ", reasons)}.");
                 return 0;
             }
 

@@ -26,6 +26,10 @@
     <!-- Spec 001 T041: the Workload API conformance test dials the agent's real Unix socket with a
          real HTTP/2 gRPC client. Pinned alongside the server's Grpc.AspNetCore in Directory.Packages.props. -->
     <PackageReference Include="Grpc.Net.Client" />
+
+    <!-- #1317: TestConsole drives the real prompt + the real status display (the confirmer was
+         injected before, which is how the spinner/prompt clash escaped). -->
+    <PackageReference Include="Spectre.Console.Testing" />
   </ItemGroup>
 
   <ItemGroup>

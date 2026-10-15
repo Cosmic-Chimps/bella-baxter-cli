@@ -371,6 +371,79 @@ public class BellaFileServerTrustTests : IDisposable
         Assert.Contains(output.Lines, l => l.Contains("not in the trusted list", StringComparison.Ordinal));
     }
 
+    // ── bella config trust --remove: only claim what is true (#1312) ─────────────────────────
+
+    [Fact]
+    public void Removing_an_origin_a_stored_login_is_bound_to_does_not_claim_trust_ended()
+    {
+        var config = Machine(trusted: [Known], credentialOrigins: Known);
+        var output = new Capture();
+
+        Assert.Equal(0, new ConfigTrustCommand(config, output).Run(
+            new ConfigTrustCommand.Settings { Url = Known, Remove = true }));
+
+        Assert.Empty(PersistedTrust()); // the list entry really is gone
+        Assert.True(config.IsKnownOrigin(Known)); // ...and the origin is still followed without asking
+        Assert.DoesNotContain(output.Lines, l => l.Contains("No longer trusting", StringComparison.Ordinal));
+        Assert.Contains(output.Lines, l => l.Contains("session", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(output.Lines, l => l.Contains("bella logout", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Removing_the_configured_server_says_it_is_the_configured_server()
+    {
+        var config = Machine(defaultUrl: Known, trusted: [Known]);
+        var output = new Capture();
+
+        Assert.Equal(0, new ConfigTrustCommand(config, output).Run(
+            new ConfigTrustCommand.Settings { Url = Known, Remove = true }));
+
+        Assert.True(config.IsKnownOrigin(Known));
+        Assert.DoesNotContain(output.Lines, l => l.Contains("No longer trusting", StringComparison.Ordinal));
+        Assert.Contains(output.Lines, l => l.Contains("configured server", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(output.Lines, l => l.Contains("bella logout", StringComparison.Ordinal)); // no session here
+    }
+
+    [Fact]
+    public void Removing_an_origin_nothing_else_binds_says_no_longer_trusting()
+    {
+        var config = Machine(trusted: [Known]);
+        var output = new Capture();
+
+        Assert.Equal(0, new ConfigTrustCommand(config, output).Run(
+            new ConfigTrustCommand.Settings { Url = Known, Remove = true }));
+
+        Assert.False(config.IsKnownOrigin(Known));
+        Assert.Contains(output.Lines, l => l == $"No longer trusting {Known}");
+        Assert.DoesNotContain(output.Lines, l => l.Contains("logout", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Removing_while_a_session_binds_it_is_reported_in_json_mode_too()
+    {
+        // The command only talks to the writer, but JSON mode is where a script reads the answer: stdout keeps
+        // the (true) success, and the caveat goes to stderr as a warning.
+        var config = Machine(trusted: [Known], credentialOrigins: Known);
+        var (stdout, stderr) = (new StringWriter(), new StringWriter());
+        var (originalOut, originalErr) = (Console.Out, Console.Error);
+        Console.SetOut(stdout);
+        Console.SetError(stderr);
+        try
+        {
+            Assert.Equal(0, new ConfigTrustCommand(config, new JsonOutputWriter()).Run(
+                new ConfigTrustCommand.Settings { Url = Known, Remove = true }));
+        }
+        finally
+        {
+            Console.SetOut(originalOut);
+            Console.SetError(originalErr);
+        }
+
+        Assert.DoesNotContain("No longer trusting", stdout.ToString() + stderr, StringComparison.Ordinal);
+        Assert.Contains("\"success\":true", stdout.ToString(), StringComparison.Ordinal);
+        Assert.Contains("bella logout", stderr.ToString(), StringComparison.Ordinal);
+    }
+
     [Fact]
     public void The_trust_command_rejects_a_missing_or_unusable_address()
     {

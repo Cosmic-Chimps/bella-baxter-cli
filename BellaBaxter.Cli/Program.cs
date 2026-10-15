@@ -27,6 +27,7 @@ using BellaCli.Commands.Usage;
 using BellaCli.Infrastructure;
 using BellaCli.Services;
 using Microsoft.Extensions.DependencyInjection;
+using Spectre.Console;
 using Spectre.Console.Cli;
 
 // ── Dependency injection ─────────────────────────────────────────────────────
@@ -40,10 +41,8 @@ services.AddSingleton<CredentialStore>();
 services.AddSingleton<ConfigService>(sp => new ConfigService
 {
     StoredCredentialOrigins = () => sp.GetRequiredService<CredentialStore>().StoredOrigins(),
-    OriginConfirmer = server =>
-        Interactivity.IsInteractive(sp.GetRequiredService<IOutputWriter>())
-            ? OriginTrustPrompt.Ask(server)
-            : null,
+    OriginConfirmer = OriginTrustPrompt.CreateConfirmer(
+        () => Interactivity.IsInteractive(sp.GetRequiredService<IOutputWriter>())),
 });
 services.AddSingleton<BellaClientProvider>();
 services.AddSingleton<ContextService>();
@@ -193,6 +192,10 @@ app.Configure(config =>
     config.SetApplicationName("bella");
     config.SetApplicationVersion(applicationVersion);
     config.ValidateExamples();
+    // #1313 — Spectre catches every exception inside RunAsync and prints it on stdout with exit 255, so the
+    // untrusted-.bella refusal (stderr, exit 1) has to be mapped HERE; everything else is rendered as before.
+    config.SetExceptionHandler((ex, _) =>
+        CliExceptionHandler.Handle(ex, AnsiConsole.Console, Console.Error, config.Settings.CancellationExitCode));
 
     config
         .AddCommand<LoginCommand>("login")
@@ -941,13 +944,4 @@ if (separatorIdx >= 0)
     args = args[..(separatorIdx + 1)]; // keep '--' so Spectre.Console still sees the separator
 }
 
-try
-{
-    return await app.RunAsync(args);
-}
-catch (Exception ex) when (OriginTrustPrompt.Find(ex) is { } untrusted)
-{
-    // Advisory clients-1 follow-up — an untrusted .bella server is a refusal with a fix, not a crash.
-    Console.Error.WriteLine(untrusted.Message);
-    return 1;
-}
+return await app.RunAsync(args);
