@@ -156,7 +156,7 @@ public class WorkloadIdentityService(HttpClient httpClient, ConfigService config
         CancellationToken ct = default
     )
     {
-        // Spec 064 — one resolution for every keyless entry point (flag > BELLA_OIDC_AUDIENCE > .bella > default).
+        // Spec 064 — one resolution for every keyless entry point (flag > BELLA_OIDC_AUDIENCE > default; .bella is deliberately not a source).
         audience = ResolveOidcAudience(audience);
         return DetectPlatform() switch
         {

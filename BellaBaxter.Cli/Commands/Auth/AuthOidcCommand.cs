@@ -12,13 +12,15 @@ namespace BellaCli.Commands.Auth;
 /// Works on any platform that WorkloadIdentityService supports:
 ///   GitHub Actions, GitLab CI, Azure Pipelines, AWS CodeBuild, GCP Cloud Build, Kubernetes
 ///
-/// The server finds the matching TrustDomain automatically by OIDC issuer —
-/// no project/environment context needed. The role of the issued key (Consumer/Manager)
-/// is determined by the TrustDomain configured in Bella.
+/// The exchange needs the tenant, project and environment slugs (--tenant/--project/--env, or
+/// BELLA_BAXTER_TENANT/BELLA_BAXTER_PROJECT/BELLA_BAXTER_ENV, or a .bella file): the server looks for the
+/// TrustDomain of THAT environment and answers 422 missing_context without them. The role of the issued key
+/// (Consumer/Manager) is determined by the TrustDomain configured in Bella.
 ///
 /// Typical CI usage:
-///   bella auth oidc
-///   → exports BELLA_API_KEY to GITHUB_ENV (or prints for other platforms)
+///   bella auth oidc --tenant acme --project my-api --env production
+///   → exports BELLA_BAXTER_API_KEY (and the legacy alias BELLA_API_KEY) to GITHUB_ENV, masked,
+///     or prints it for other platforms
 /// </summary>
 public class AuthOidcSettings : CommandSettings
 {
@@ -92,7 +94,7 @@ public class AuthOidcCommand(WorkloadIdentityService workloadIdentity, ConfigSer
             }
         }
 
-        // Global exchange — server finds matching TrustDomain by issuer + env context
+        // Global exchange — the server finds the TrustDomain of the named tenant/project/environment
         OidcExchangeResult? result = null;
         string? exchangeError = null;
         // #1317 — the exchange reads the server address; the question about a .bella's server is asked here,
@@ -127,9 +129,13 @@ public class AuthOidcCommand(WorkloadIdentityService workloadIdentity, ConfigSer
 
         if (result is null)
         {
+            // Name the platform that was detected; with --token there is none, so say "the supplied token".
+            var source = WorkloadIdentityService.DetectPlatform() is var detected && detected != WorkloadPlatform.None
+                ? $"{detected} OIDC issuer"
+                : "issuer of the supplied token";
             output.WriteError(
                 $"OIDC exchange failed. Verify that a TrustDomain is configured in Bella "
-                    + $"matching the GitHubActions OIDC issuer.",
+                    + $"for this environment and matches the {source}.",
                 "exchange_failed"
             );
             return 1;
