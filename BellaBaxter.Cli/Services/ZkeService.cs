@@ -123,7 +123,7 @@ public class ZkeService
     /// <see cref="BellaBaxter.Client.ZkeDekHandler"/>. The caller is responsible for disposing.
     /// Returns null if no keypair is set up or if loading fails.
     /// </summary>
-    public ECDiffieHellman? LoadEcdhKey()
+    public virtual ECDiffieHellman? LoadEcdhKey()
     {
         if (!File.Exists(PrivateKeyFile)) return null;
         try

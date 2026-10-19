@@ -17,6 +17,13 @@ public enum ZkeGateOutcome
 
     /// <summary>Enforced, and an explicit <c>--private-key</c> could not be resolved.</summary>
     StopUnresolvableKey,
+
+    /// <summary>
+    /// Enforced, and <c>BELLA_BAXTER_PRIVATE_KEY</c> is set but could not be read (spec 085). Its own outcome: the
+    /// variable said "this process is that device", so it is never quietly replaced by the device file, and the message
+    /// must name the variable rather than <c>--private-key</c>.
+    /// </summary>
+    StopUnresolvableEnvironmentKey,
 }
 
 /// <summary>
@@ -53,18 +60,26 @@ public static class ZkeGate
     /// <param name="overridePresent"><c>--private-key</c> was given on the command line.</param>
     /// <param name="overrideResolved">…and it resolved to a usable key.</param>
     /// <param name="keyRegisteredHere">The server says the presented key is registered in THIS tenant.</param>
+    /// <param name="environmentKeyUnresolvable">
+    /// <c>BELLA_BAXTER_PRIVATE_KEY</c> is set (and no <c>--private-key</c> outranks it) but did not resolve to a key.
+    /// </param>
     public static ZkeGateOutcome Decide(
         bool enforced,
         bool hasDeviceKey,
         bool overridePresent,
         bool overrideResolved,
-        bool keyRegisteredHere)
+        bool keyRegisteredHere,
+        bool environmentKeyUnresolvable = false)
     {
         // An explicit --private-key that did not resolve is a stated intention that failed. Under
         // enforcement this stops; it used to print a warning and read in the clear, which is the
         // opposite of what the flag asked for (FR-021).
         if (overridePresent && !overrideResolved)
             return enforced ? ZkeGateOutcome.StopUnresolvableKey : ZkeGateOutcome.ProceedTransportOnly;
+
+        // The same rule for the variable a keyless sign-in exports (spec 085): a stated intention that failed.
+        if (environmentKeyUnresolvable)
+            return enforced ? ZkeGateOutcome.StopUnresolvableEnvironmentKey : ZkeGateOutcome.ProceedTransportOnly;
 
         if (!enforced)
             return hasDeviceKey ? ZkeGateOutcome.ProceedWithDevice : ZkeGateOutcome.ProceedTransportOnly;
@@ -79,17 +94,37 @@ public static class ZkeGate
     /// The sentence shown when the gate stops, or null when it does not. Every one names the command
     /// that fixes it — a refusal an operator cannot act on is only half a refusal.
     /// </summary>
-    public static string? MessageFor(ZkeGateOutcome outcome, string? tenantSlug = null) => outcome switch
+    /// <param name="keylessKey">
+    /// The key in use is a <c>bax-</c> key a keyless sign-in minted (spec 085). <c>bella auth setup</c> registers a
+    /// PERSON's device from an interactive login; it can never fix a key that has no person, so telling this caller to
+    /// run it was advice that could not work. The fix is the sign-in that binds a device, or the exported key.
+    /// </param>
+    public static string? MessageFor(ZkeGateOutcome outcome, string? tenantSlug = null, bool keylessKey = false) => outcome switch
     {
+        ZkeGateOutcome.StopNeedsSetup when keylessKey =>
+            "This tenant requires a registered device key, and this key has none bound to it. " + KeylessFix,
         ZkeGateOutcome.StopNeedsSetup =>
             "This tenant requires a registered device key. Run 'bella auth setup'.",
+        ZkeGateOutcome.StopNotRegisteredHere when keylessKey =>
+            $"The device key this process presents is not the one bound to its API key in {NameTenant(tenantSlug)}. " + KeylessFix,
         ZkeGateOutcome.StopNotRegisteredHere =>
             $"Your device key is not registered in {NameTenant(tenantSlug)}. Run 'bella auth setup' "
             + "(or 'bella org switch' if you meant another org).",
         ZkeGateOutcome.StopUnresolvableKey =>
             "This tenant requires a registered device key, and --private-key could not be resolved.",
+        ZkeGateOutcome.StopUnresolvableEnvironmentKey =>
+            "This tenant requires a registered device key, and BELLA_BAXTER_PRIVATE_KEY could not be read. "
+            + "It must hold the private key as PEM or base64 PKCS#8 — the key the sign-in step exported.",
         _ => null,
     };
+
+    /// <summary>
+    /// What fixes a keyless key that fails the device check (spec 085). Shared with <c>ZkeClientSelection</c>'s
+    /// refusal rendering so the two places cannot disagree.
+    /// </summary>
+    public const string KeylessFix =
+        "Sign in keylessly with a current CLI ('bella auth oidc' binds a device key to the key it issues), "
+        + "or set BELLA_BAXTER_PRIVATE_KEY to the private key that sign-in exported.";
 
     /// <summary>
     /// The tenant as the sentence should name it (#820).
@@ -108,5 +143,6 @@ public static class ZkeGate
     public static bool Stops(this ZkeGateOutcome outcome) =>
         outcome is ZkeGateOutcome.StopNeedsSetup
             or ZkeGateOutcome.StopNotRegisteredHere
-            or ZkeGateOutcome.StopUnresolvableKey;
+            or ZkeGateOutcome.StopUnresolvableKey
+            or ZkeGateOutcome.StopUnresolvableEnvironmentKey;
 }

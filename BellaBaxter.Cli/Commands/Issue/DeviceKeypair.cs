@@ -34,11 +34,44 @@ internal static class DeviceKeypair
     /// </returns>
     internal static (string PublicKey, string PrivateKey) Create()
     {
-        using var ecdh = ECDiffieHellman.Create(ECCurve.NamedCurves.nistP256);
+        using var ecdh = CreateKey();
         return (
-            Convert.ToBase64String(ecdh.ExportSubjectPublicKeyInfo()),
+            PublicKeyOf(ecdh),
             Convert.ToBase64String(ecdh.ExportPkcs8PrivateKey())
         );
+    }
+
+    /// <summary>
+    /// Spec 085 — a fresh P-256 key, IN MEMORY, for a caller that signs in and reads in one process. The caller
+    /// disposes it; nothing here, and nothing the caller does with it by contract, touches the disk.
+    /// </summary>
+    internal static ECDiffieHellman CreateKey() => ECDiffieHellman.Create(ECCurve.NamedCurves.nistP256);
+
+    /// <summary>
+    /// The base64 SPKI public half — the one encoding used everywhere: sent with the sign-in, and presented as
+    /// <c>X-E2E-Public-Key</c> by <c>ZkeDekHandler</c>, which computes it the same way. Byte for byte, because the
+    /// server compares them.
+    /// </summary>
+    internal static string PublicKeyOf(ECDiffieHellman key) => Convert.ToBase64String(key.ExportSubjectPublicKeyInfo());
+
+    /// <summary>
+    /// The private half as PKCS#8 PEM — the form every SDK reads (#731) and the CLI's own <c>env://</c> reader
+    /// accepts. The PKCS#8 bytes are zeroed on the way out; the returned string is the caller's to place (an env var of a
+    /// child, a masked CI export) and never to log.
+    /// </summary>
+    internal static string ExportPrivateKeyPem(ECDiffieHellman key)
+    {
+        var pkcs8 = key.ExportPkcs8PrivateKey();
+        var pem = PemEncoding.Write("PRIVATE KEY", pkcs8);
+        try
+        {
+            return new string(pem);
+        }
+        finally
+        {
+            CryptographicOperations.ZeroMemory(pkcs8);
+            Array.Clear(pem);
+        }
     }
 
     /// <summary>

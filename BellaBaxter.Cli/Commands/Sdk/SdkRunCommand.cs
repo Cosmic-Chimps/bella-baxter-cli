@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using System.Diagnostics;
 using BellaCli.Commands;
+using BellaCli.Commands.Issue;
 using BellaCli.Infrastructure;
 using BellaCli.Services;
 using Spectre.Console;
@@ -48,7 +49,6 @@ public class SdkRunCommand(
     ConfigService config,
     AuthService authService,
     WorkloadIdentityService workloadIdentity,
-    ZkeService zke,
     ZkeClientSelection zkeSelection,
     IOutputWriter output
 ) : AsyncCommand<SdkRunCommand.Settings>
@@ -110,6 +110,7 @@ public class SdkRunCommand(
         string? accessToken = null;
         string? projectSlug = null;
         string? environmentSlug = null;
+        string? privateKeyPem = null;
 
         // Use stored/env key first — only attempt OIDC if no key is available
         if (credentials.LoadApiKey() is { } storedKey)
@@ -121,23 +122,47 @@ public class SdkRunCommand(
         }
         else
         {
-            var workloadResult = await workloadIdentity.TryAutoExchangeAsync(
+            var keyless = await workloadIdentity.TryAutoExchangeAsync(
                 settings.Tenant,
                 settings.Project,
                 settings.Environment,
                 ct: ct
             );
+            // Spec 085 — disposed when this block ends: only the PEM below survives, and only in the child's environment.
+            using var workloadResult = (keyless as KeylessExchange.Exchanged)?.Key;
             if (workloadResult is not null)
             {
                 var platform = WorkloadIdentityService.DetectPlatform();
                 AnsiConsole.MarkupLine($"[dim]🔑 Using workload identity ({platform})[/]");
                 apiKey = workloadResult.Token;
                 apiUrl = config.ApiUrlForSuppliedCredential();
+                // The key is bound to the device key made for this sign-in; the SDK in the child needs the private half.
+                if (workloadResult.DeviceKey is { } deviceKey)
+                    privateKeyPem = DeviceKeypair.ExportPrivateKeyPem(deviceKey);
+            }
+            else if (keyless is KeylessExchange.MissingContext missing && !credentials.IsAuthenticated())
+            {
+                // #1370 — name what is missing instead of "Not authenticated". With a stored login the old fallback stands.
+                output.WriteError(missing.Describe(includeLoginHint: true), "missing_context");
+                return 1;
+            }
+            else if (keyless is KeylessExchange.Failed { Refusal: { } refusal } && !credentials.IsAuthenticated())
+            {
+                // Spec 085 — the server answered; say what it said.
+                output.WriteError(refusal.Describe(), refusal.Code ?? "exchange_refused");
+                return 1;
             }
         }
 
         if (string.IsNullOrEmpty(apiKey) && credentials.HasOAuthTokens())
         {
+            // A stored login acts in the tenant it is signed in to; a different --tenant is refused, not ignored.
+            if (OrgContext.CheckExplicitTenant(settings.Tenant, credentials) is { } tenantRefusal)
+            {
+                output.WriteError(tenantRefusal);
+                return 1;
+            }
+
             // JWT mode — refresh token if needed
             try
             {
@@ -246,29 +271,43 @@ public class SdkRunCommand(
         if (appClient is not null)
             psi.Environment["BELLA_BAXTER_APP_CLIENT"] = appClient;
 
-        // ZKE: inject the device private key so SDK child processes use the same device identity.
-        // Only for developer auth flows (workload identity manages its own keys externally).
-        if (apiKey is null || !apiKey.StartsWith("bax-"))
+        // ZKE: hand the SDK child the device private key, so it presents the same identity the gate asked about.
+        if (privateKeyPem is null)
         {
-            // spec 037 — decide BEFORE launching the child. Without this, an enforcing tenant produces
-            // a child process that starts, connects, and fails on its first secret read with a 403 the
-            // developer sees from inside somebody else's SDK. Stopping here says what to do instead.
-            var selection = await zkeSelection.SelectAsync(
-                privateKeyOverride: null, appClientOverride: null, announce: false, ct);
-            if (selection.Stopped)
-                return selection.ExitCode!.Value;
-
-            // #731 — PEM, not base64 DER. Python (`E2EKeyPair.from_pem`), JS (`fromPkcs8Pem`), Go
-            // (`PrivateKeyPEM`) and Java (`privateKeyPem()`) all read PEM, as does docs/e2ee-zke.md;
-            // only the .NET SDK accepted base64. Injecting base64 made `sdk run` unusable with a
-            // device key for four of the five SDKs — and under ZKE enforcement a device key is
-            // mandatory, so this is the normal path rather than an edge case.
-            var deviceKeyPem = zke.LoadPrivateKeyPem();
-            if (deviceKeyPem is not null)
+            if (apiKey is null || !apiKey.StartsWith("bax-"))
             {
-                psi.Environment["BELLA_BAXTER_PRIVATE_KEY"] = deviceKeyPem;
-                AnsiConsole.MarkupLine("[dim]🔐 ZKE device key injected into subprocess.[/]");
+                // spec 037 — decide BEFORE launching the child. Without this, an enforcing tenant produces
+                // a child process that starts, connects, and fails on its first secret read with a 403 the
+                // developer sees from inside somebody else's SDK. Stopping here says what to do instead.
+                var selection = await zkeSelection.SelectAsync(
+                    privateKeyOverride: null, appClientOverride: null, announce: false, ct);
+                if (selection.Stopped)
+                    return selection.ExitCode!.Value;
+
+                // Spec 085 — the key the GATE selected (explicit, then BELLA_BAXTER_PRIVATE_KEY, then the device file),
+                // not always the device file: the gate and the child must agree, or the gate approves one key while the
+                // child presents another.
+                //
+                // #731 — PEM, not base64 DER. Python (`E2EKeyPair.from_pem`), JS (`fromPkcs8Pem`), Go
+                // (`PrivateKeyPEM`) and Java (`privateKeyPem()`) all read PEM, as does docs/e2ee-zke.md;
+                // only the .NET SDK accepted base64. Injecting base64 made `sdk run` unusable with a
+                // device key for four of the five SDKs — and under ZKE enforcement a device key is
+                // mandatory, so this is the normal path rather than an edge case.
+                privateKeyPem = selection.ExportPrivateKeyPem();
             }
+            else if (System.Environment.GetEnvironmentVariable(ZkeClientSelection.PrivateKeyVariable) is { Length: > 0 } exported
+                     && !string.IsNullOrWhiteSpace(exported))
+            {
+                // A `bax-` key arrives with no gate (it manages its own keys), but the key a previous sign-in step
+                // exported travels with it. It was stripped above and never put back, which un-did the export.
+                privateKeyPem = exported;
+            }
+        }
+
+        if (privateKeyPem is not null)
+        {
+            psi.Environment["BELLA_BAXTER_PRIVATE_KEY"] = privateKeyPem;
+            AnsiConsole.MarkupLine("[dim]🔐 ZKE device key injected into subprocess.[/]");
         }
 
         var process = Process.Start(psi);

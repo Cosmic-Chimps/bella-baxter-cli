@@ -2,6 +2,7 @@ using System.Security.Cryptography;
 using BellaBaxter.Client;
 using BellaBaxter.Client.Models;
 using BellaCli.Commands;
+using BellaCli.Commands.Issue;
 using BellaCli.Infrastructure;
 using Microsoft.Kiota.Abstractions;
 
@@ -33,15 +34,35 @@ public sealed class ZkeClientSelection(
     IOutputWriter output
 )
 {
+    /// <summary>The variable a keyless sign-in exports its device key in, and the one the SDKs read.</summary>
+    public const string PrivateKeyVariable = "BELLA_BAXTER_PRIVATE_KEY";
+
+    /// <summary>The variable as the CLI's own <c>--private-key</c> reader takes it (PEM or base64 PKCS#8).</summary>
+    private const string PrivateKeyUrl = "env://BELLA_BAXTER_PRIVATE_KEY";
+
     /// <summary>The chosen client, or a refusal the caller returns as-is.</summary>
-    public sealed record Selection(BellaClient? Client, int? ExitCode, bool DeviceKeyInUse)
+    /// <param name="Key">
+    /// The key the client presents, when one is in use. Kept so a caller that must hand the SAME key to a child process
+    /// (<c>sdk run</c>) asks the selection rather than re-reading the device file and possibly disagreeing with the
+    /// key the gate just asked the server about.
+    /// </param>
+    public sealed record Selection(BellaClient? Client, int? ExitCode, bool DeviceKeyInUse, ECDiffieHellman? Key = null)
     {
         public bool Stopped => ExitCode is not null;
+
+        /// <summary>The private key in use as PKCS#8 PEM, or null when no key is (stopped, or transport-only).</summary>
+        public string? ExportPrivateKeyPem() => Key is null ? null : DeviceKeypair.ExportPrivateKeyPem(Key);
     }
 
     /// <summary>
     /// Resolves the key in hand, asks the server about it, and returns either a client or a stop.
     /// </summary>
+    /// <remarks>
+    /// The key is, in order: the command's explicit <c>--private-key</c>; else <c>BELLA_BAXTER_PRIVATE_KEY</c> (spec 085 —
+    /// a CI step that holds the key a keyless sign-in exported IS that device, and has no device file); else the device
+    /// file on this machine. A variable that is set but cannot be read is NOT skipped in favour of the device file: it
+    /// is a stated intention that failed, so it stops under enforcement exactly as an unreadable <c>--private-key</c> does.
+    /// </remarks>
     /// <param name="privateKeyOverride">The command's <c>--private-key</c>, if given.</param>
     /// <param name="appClientOverride">The command's <c>--app</c>, if given.</param>
     /// <param name="announce">Print the "ZKE enabled" line (interactive commands do; <c>sdk run</c> does not).</param>
@@ -53,32 +74,16 @@ public sealed class ZkeClientSelection(
     )
     {
         var overridePresent = !string.IsNullOrEmpty(privateKeyOverride);
-        ECDiffieHellman? ecdh = null;
+        var environmentKeyPresent = !overridePresent
+            && !string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable(PrivateKeyVariable));
+        ECDiffieHellman? ecdh;
 
         if (overridePresent)
-        {
-            var pkcs8b64 = ZkeService.ResolvePrivateKeyFromUrl(privateKeyOverride!);
-            if (pkcs8b64 is not null)
-            {
-                // Zeroed after the import (#829). The base64 STRING it was decoded from cannot be —
-                // see ZkeService.ImportStoredKey for why that is a storage-format problem and not an
-                // oversight here.
-                var pkcs8 = Convert.FromBase64String(pkcs8b64);
-                try
-                {
-                    ecdh = ECDiffieHellman.Create();
-                    ecdh.ImportPkcs8PrivateKey(pkcs8, out _);
-                }
-                finally
-                {
-                    CryptographicOperations.ZeroMemory(pkcs8);
-                }
-            }
-        }
+            ecdh = TryImport(privateKeyOverride!);
+        else if (environmentKeyPresent)
+            ecdh = TryImport(PrivateKeyUrl);
         else
-        {
             ecdh = zke.LoadEcdhKey();
-        }
 
         var hasDeviceKey = ecdh is not null;
 
@@ -124,7 +129,8 @@ public sealed class ZkeClientSelection(
             hasDeviceKey,
             overridePresent,
             overrideResolved: !overridePresent || ecdh is not null,
-            keyRegisteredHere: registeredHere
+            keyRegisteredHere: registeredHere,
+            environmentKeyUnresolvable: environmentKeyPresent && ecdh is null
         );
 
         if (outcome.Stops())
@@ -136,9 +142,10 @@ public sealed class ZkeClientSelection(
             var tenantSlug = credentials.LoadTokens()?.OrgSlug;
 
             output.WriteError(
-                ZkeGate.MessageFor(outcome, tenantSlug) ?? "Refused by ZKE policy.",
+                ZkeGate.MessageFor(outcome, tenantSlug, IsKeylessKey()) ?? "Refused by ZKE policy.",
                 "zke-required"
             );
+            ecdh?.Dispose();
             return new Selection(null, ZkeGate.RefusedExitCode, false);
         }
 
@@ -154,11 +161,61 @@ public sealed class ZkeClientSelection(
             return new Selection(client, null, false);
         }
 
+        if (outcome == ZkeGateOutcome.ProceedTransportOnly && environmentKeyPresent && ecdh is null && announce)
+            output.WriteWarning(
+                $"Could not read {PrivateKeyVariable}; continuing without local decryption."
+            );
+
         if (outcome == ZkeGateOutcome.ProceedWithDevice && announce)
             output.WriteInfo("🔐 ZKE enabled — secrets will be decrypted locally.");
 
-        return new Selection(client, null, outcome == ZkeGateOutcome.ProceedWithDevice);
+        var inUse = outcome == ZkeGateOutcome.ProceedWithDevice;
+        return new Selection(client, null, inUse, inUse ? ecdh : null);
     }
+
+    /// <summary>
+    /// Reads a private key from a <c>--private-key</c> style URL, or null when it is not there or is not a P-256 key.
+    /// An unreadable key is the SAME outcome as a missing one (null), never an exception: a value the user pasted wrong
+    /// is a refusal the gate can word, not a stack trace.
+    /// </summary>
+    private static ECDiffieHellman? TryImport(string url)
+    {
+        byte[]? pkcs8 = null;
+        ECDiffieHellman? ecdh = null;
+        try
+        {
+            var pkcs8b64 = ZkeService.ResolvePrivateKeyFromUrl(url);
+            if (pkcs8b64 is null)
+                return null;
+
+            // Zeroed after the import (#829). The base64 STRING it was decoded from cannot be —
+            // see ZkeService.ImportStoredKey for why that is a storage-format problem and not an
+            // oversight here.
+            pkcs8 = Convert.FromBase64String(pkcs8b64);
+            ecdh = ECDiffieHellman.Create();
+            ecdh.ImportPkcs8PrivateKey(pkcs8, out _);
+            return ecdh;
+        }
+        catch (Exception ex) when (ex is FormatException or CryptographicException)
+        {
+            ecdh?.Dispose();
+            return null;
+        }
+        finally
+        {
+            if (pkcs8 is not null)
+                CryptographicOperations.ZeroMemory(pkcs8);
+        }
+    }
+
+    /// <summary>
+    /// The API key in use is one a keyless sign-in minted: a <c>bax-</c> key handed in by the environment (which is how
+    /// <c>bella auth oidc</c> and the setup action export it). No person is signed in behind it, so no advice that
+    /// starts with an interactive login can apply.
+    /// </summary>
+    private bool IsKeylessKey() =>
+        credentials.LoadApiKey() is { FromEnvironment: true } key
+        && key.Raw.StartsWith("bax-", StringComparison.Ordinal);
 
     /// <summary>
     /// Renders a <c>zke-required</c> refusal the server returned anyway (the race above) and yields
@@ -167,7 +224,7 @@ public sealed class ZkeClientSelection(
     /// </summary>
     public bool RenderRefusal(Exception ex)
     {
-        var detail = ExtractZkeDetail(ex);
+        var detail = ExtractZkeDetail(ex, IsKeylessKey());
         if (detail is null)
             return false;
 
@@ -178,13 +235,15 @@ public sealed class ZkeClientSelection(
     /// <summary>The exit code for a refusal rendered by <see cref="RenderRefusal"/>.</summary>
     public static int RefusedExitCode => ZkeGate.RefusedExitCode;
 
-    private static string? ExtractZkeDetail(Exception ex)
+    private static string? ExtractZkeDetail(Exception ex, bool keylessKey)
     {
         // The generated client surfaces a typed ApiException; the ZKE problem is identified by its
         // stable `type`, never by matching on the human-readable text.
         var message = ex.Message ?? string.Empty;
         if (message.Contains("zke-required", StringComparison.OrdinalIgnoreCase))
-            return "This tenant requires a registered device key. Run 'bella auth setup' to register this device.";
+            return keylessKey
+                ? "This tenant requires a registered device key, and this key has none bound to it. " + ZkeGate.KeylessFix
+                : "This tenant requires a registered device key. Run 'bella auth setup' to register this device.";
 
         if (ex is ApiException { ResponseStatusCode: 403 })
             return null; // a 403 for some other reason — the caller's own handling is right

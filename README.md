@@ -997,8 +997,8 @@ bella agent
    └── resolves project/environment/provider slugs
    └── fetches initial secrets → writes all sinks
    └── every poll-interval seconds per watch:
-         GET /secrets/hash  (lightweight — only the hash changes)
-         if hash changed:
+         GET /secrets/hash  (lightweight — an opaque change token, compared for equality only)
+         if the token changed:
            GET /secrets      (fetch all values)
            write all sinks
            send SIGHUP/SIGTERM to PID

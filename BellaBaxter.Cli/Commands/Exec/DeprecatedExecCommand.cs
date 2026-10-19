@@ -15,10 +15,9 @@ public class DeprecatedExecCommand(
     ConfigService config,
     AuthService authService,
     WorkloadIdentityService workloadIdentity,
-    ZkeService zke,
     ZkeClientSelection zkeSelection,
     IOutputWriter output
-) : SdkRunCommand(credentials, config, authService, workloadIdentity, zke, zkeSelection, output)
+) : SdkRunCommand(credentials, config, authService, workloadIdentity, zkeSelection, output)
 {
     protected override async Task<int> ExecuteAsync(
         CommandContext context,

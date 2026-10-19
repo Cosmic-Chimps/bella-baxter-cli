@@ -3,6 +3,8 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using BellaBaxter.Client;
 using BellaBaxter.Client.Models;
+using Microsoft.Kiota.Abstractions;
+using BellaCli.Commands.Issue;
 using BellaCli.Commands.Shell;
 using BellaCli.Infrastructure;
 
@@ -151,7 +153,7 @@ public class WorkloadIdentityService(HttpClient httpClient, ConfigService config
     /// Obtains the raw platform OIDC token.
     /// Returns null if the platform is not detected or the token cannot be obtained.
     /// </summary>
-    public async Task<string?> GetOidcTokenAsync(
+    public virtual async Task<string?> GetOidcTokenAsync(
         string? audience = null,
         CancellationToken ct = default
     )
@@ -324,90 +326,81 @@ public class WorkloadIdentityService(HttpClient httpClient, ConfigService config
     // ── Slug resolution ───────────────────────────────────────────────────────
 
     /// <summary>
-    /// Resolves tenant + project + environment slugs for workload identity from (priority order):
-    ///   1. Explicit arguments passed to the command
-    ///   2. BELLA_BAXTER_TENANT / BELLA_BAXTER_PROJECT / BELLA_BAXTER_ENV environment variables
-    ///   3. .bella file in the current directory tree (org = tenant)
-    /// Returns (null, null, null) if no context can be determined.
+    /// Resolves tenant + project + environment slugs for workload identity, FIELD BY FIELD (#1370). Each field takes
+    /// the first of:
+    ///   1. the explicit argument passed to the command (<c>-t</c>, <c>-p</c>, <c>-e</c>)
+    ///   2. the ambient context — <c>BELLA_BAXTER_TENANT</c>/<c>BELLA_BAXTER_PROJECT</c>/<c>BELLA_BAXTER_ENV</c>, else the
+    ///      nearest <c>.bella</c> (<c>org</c> = tenant). That order, and the rule that a source supplies project and
+    ///      environment together, are <see cref="ContextCommand.ResolveContextWithOrg"/>'s and unchanged
+    ///   3. a lone variable of its own (<c>BELLA_BAXTER_PROJECT=api bella run -e prod</c>) — only for a field the two
+    ///      above left empty, so it never outranks anything that used to be chosen
+    /// A field no source names is null. Never all-or-nothing: before this, one explicit value was silently dropped
+    /// unless all three were given, and the exchange went to whichever environment the ambient context named.
+    /// Only the three slugs are merged — a <c>.bella</c> supplies nothing else here.
     /// </summary>
     public (string? TenantSlug, string? ProjectSlug, string? EnvironmentSlug) ResolveSlugs(
         string? explicitTenant = null,
         string? explicitProject = null,
         string? explicitEnvironment = null
-    )
+    ) =>
+        MergeSlugs(
+            explicitTenant, explicitProject, explicitEnvironment,
+            ContextCommand.ResolveContextWithOrg(config),
+            Environment.GetEnvironmentVariable);
+
+    internal static (string? TenantSlug, string? ProjectSlug, string? EnvironmentSlug) MergeSlugs(
+        string? explicitTenant,
+        string? explicitProject,
+        string? explicitEnvironment,
+        (string? Project, string? Env, string? Org, string Source) ambient,
+        Func<string, string?> getEnvironmentVariable)
     {
-        // 1. Explicit command arguments take highest priority
-        if (
-            !string.IsNullOrWhiteSpace(explicitTenant)
-            && !string.IsNullOrWhiteSpace(explicitProject)
-            && !string.IsNullOrWhiteSpace(explicitEnvironment)
-        )
-            return (explicitTenant, explicitProject, explicitEnvironment);
+        static string? Clean(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 
-        // 2. Env vars / .bella file (org = tenant slug)
-        var (ctxProject, ctxEnv, ctxOrg, _) = ContextCommand.ResolveContextWithOrg(config);
-        if (!string.IsNullOrWhiteSpace(ctxProject) && !string.IsNullOrWhiteSpace(ctxEnv))
-            return (
-                !string.IsNullOrWhiteSpace(explicitTenant) ? explicitTenant : ctxOrg,
-                ctxProject,
-                ctxEnv
-            );
+        string? FirstEnvironmentVariable(params string[] names) =>
+            names.Select(n => Clean(getEnvironmentVariable(n))).FirstOrDefault(v => v is not null);
 
-        return (null, null, null);
+        return (
+            Clean(explicitTenant) ?? Clean(ambient.Org) ?? FirstEnvironmentVariable("BELLA_BAXTER_TENANT"),
+            Clean(explicitProject) ?? Clean(ambient.Project) ?? FirstEnvironmentVariable("BELLA_BAXTER_PROJECT", "BELLA_PROJECT"),
+            Clean(explicitEnvironment) ?? Clean(ambient.Env) ?? FirstEnvironmentVariable("BELLA_BAXTER_ENV", "BELLA_ENV")
+        );
+    }
+
+    /// <summary>The slugs <see cref="ResolveSlugs"/> left empty, in tenant, project, environment order.</summary>
+    public static IReadOnlyList<SlugField> MissingSlugs(string? tenant, string? project, string? environment)
+    {
+        var missing = new List<SlugField>();
+        if (string.IsNullOrWhiteSpace(tenant)) missing.Add(SlugField.Tenant);
+        if (string.IsNullOrWhiteSpace(project)) missing.Add(SlugField.Project);
+        if (string.IsNullOrWhiteSpace(environment)) missing.Add(SlugField.Environment);
+        return missing;
     }
 
     // ── Exchange ──────────────────────────────────────────────────────────────
 
     /// <summary>
-    /// Exchanges an OIDC token for a short-lived Bella API key using project + environment slugs.
-    /// Calls POST /api/v1/token — no Bella auth required.
-    /// Returns null if the exchange fails.
-    /// </summary>
-    public async Task<OidcExchangeResult?> ExchangeBySlugAsync(
-        string tenantSlug,
-        string projectSlug,
-        string environmentSlug,
-        string oidcToken,
-        CancellationToken ct = default
-    )
-    {
-        try
-        {
-            var client = BellaClientFactory.CreateAnonymous(
-                // Advisory clients-1 — the workload's OIDC token is not sent to a server a .bella chose.
-                config.ApiUrlForSuppliedCredential(),
-                DebugLoggingHandler.IsEnabled ? new DebugLoggingHandler() : null);
-            var resp = await client.Api.V1.Token.PostAsync(
-                new ExchangeOidcTokenBySlugCommand
-                {
-                    OidcToken = oidcToken,
-                    TenantSlug = tenantSlug,
-                    ProjectSlug = projectSlug,
-                    EnvironmentSlug = environmentSlug,
-                },
-                cancellationToken: ct
-            );
-            return resp is null ? null : new OidcExchangeResult(resp.Token!, resp.ExpiresAt!.Value);
-        }
-        catch (Exception ex)
-        {
-            Console.Error.WriteLine($"[bella/oidc] ExchangeBySlugAsync failed: {ex.GetType().Name}: {ex.Message}");
-            if (ex.InnerException is not null)
-                Console.Error.WriteLine($"[bella/oidc] Inner: {ex.InnerException.GetType().Name}: {ex.InnerException.Message}");
-            return null;
-        }
-    }
-
-    /// <summary>
     /// Exchanges an OIDC token for a short-lived Bella API key.
     /// Requires tenant + project + environment slugs to locate the matching TrustDomain.
     /// </summary>
-    public async Task<OidcExchangeResult?> ExchangeGlobalAsync(
+    /// <param name="publicKey">
+    /// Spec 085 — base64 SPKI P-256 public key of the device this key is bound to. A tenant that requires registered
+    /// devices admits only a key bound to one, and the server answers 400 <c>device_key_malformed</c> for a value that
+    /// cannot be one. It is the trailing parameter so a caller (and a test double) that never sends one keeps compiling.
+    /// </param>
+    /// <returns>The key, or null when the exchange could not be completed.</returns>
+    /// <exception cref="OidcExchangeRefusedException">
+    /// The server ANSWERED with a problem (a refusal, not a transport failure): its status, <c>type</c> and <c>detail</c>
+    /// are carried, because reducing them to null is how "this tenant needs a device key" once read as "the trust domain
+    /// is wrong".
+    /// </exception>
+    public virtual async Task<OidcExchangeResult?> ExchangeGlobalAsync(
         string oidcToken,
         string? tenantSlug = null,
         string? projectSlug = null,
         string? environmentSlug = null,
-        CancellationToken ct = default
+        CancellationToken ct = default,
+        string? publicKey = null
     )
     {
         try
@@ -423,10 +416,15 @@ public class WorkloadIdentityService(HttpClient httpClient, ConfigService config
                     TenantSlug = tenantSlug,
                     ProjectSlug = projectSlug,
                     EnvironmentSlug = environmentSlug,
+                    PublicKey = publicKey,
                 },
                 cancellationToken: ct
             );
             return resp is null ? null : new OidcExchangeResult(resp.Token!, resp.ExpiresAt!.Value);
+        }
+        catch (ApiException ex)
+        {
+            throw new OidcExchangeRefusedException(OidcExchangeRefusal.From(ex));
         }
         catch (Exception ex)
         {
@@ -441,17 +439,19 @@ public class WorkloadIdentityService(HttpClient httpClient, ConfigService config
 
     /// <summary>
     /// Full auto-detection flow:
-    ///   detect platform → resolve slugs → get OIDC token → exchange → return short-lived token.
+    ///   detect platform → get OIDC token → resolve slugs → exchange → return short-lived token.
     ///
-    /// Returns null (silently) when:
-    ///   - Not running in a recognised workload environment
-    ///   - Cannot determine project/environment slugs
-    ///   - OIDC token cannot be obtained
-    ///   - Exchange endpoint rejects the token
+    /// The result says WHICH of four things happened (#1370 — a bare null used to mean all of them):
+    ///   - <see cref="KeylessExchange.NotApplicable"/>: not a workload platform, a Bella key is already in the
+    ///     environment, or no OIDC token could be obtained
+    ///   - <see cref="KeylessExchange.MissingContext"/>: an exchange would have run but tenant, project or
+    ///     environment is still empty; the endpoint was NOT called
+    ///   - <see cref="KeylessExchange.Exchanged"/>: the short-lived key
+    ///   - <see cref="KeylessExchange.Failed"/>: the exchange endpoint rejected the token
     ///
     /// Never throws. Never persists anything.
     /// </summary>
-    public async Task<OidcExchangeResult?> TryAutoExchangeAsync(
+    public async Task<KeylessExchange> TryAutoExchangeAsync(
         string? explicitTenant = null,
         string? explicitProject = null,
         string? explicitEnvironment = null,
@@ -459,30 +459,128 @@ public class WorkloadIdentityService(HttpClient httpClient, ConfigService config
         CancellationToken ct = default
     )
     {
-        if (DetectPlatform() == WorkloadPlatform.None)
-            return null;
+        if (CurrentPlatform() == WorkloadPlatform.None)
+            return new KeylessExchange.NotApplicable();
 
         // If a Bella API key is already in the environment (e.g. exported by a prior
         // 'bella auth oidc' step), skip the OIDC exchange entirely — no need to obtain
         // another key, and attempting it would just produce a noisy 422 error.
-        var existingKey = Environment.GetEnvironmentVariable("BELLA_BAXTER_API_KEY")
-                       ?? Environment.GetEnvironmentVariable("BELLA_API_KEY");
-        if (!string.IsNullOrEmpty(existingKey))
-            return null;
+        if (!string.IsNullOrEmpty(ApiKeyInEnvironment()))
+            return new KeylessExchange.NotApplicable();
 
         var oidcToken = await GetOidcTokenAsync(audience, ct);
         if (string.IsNullOrEmpty(oidcToken))
-            return null;
+            return new KeylessExchange.NotApplicable();
 
         var (tenantSlug, projectSlug, environmentSlug) = ResolveSlugs(explicitTenant, explicitProject, explicitEnvironment);
 
-        return await ExchangeGlobalAsync(oidcToken, tenantSlug, projectSlug, environmentSlug, ct);
+        // #1370 — without all three the server can only answer 422 missing_context, which this method used to turn
+        // into a bare null and the caller into "Not logged in". Say what is missing, and send nothing.
+        var missing = MissingSlugs(tenantSlug, projectSlug, environmentSlug);
+        if (missing.Count > 0)
+            return new KeylessExchange.MissingContext(CurrentPlatform(), missing);
+
+        // Spec 085 — a throwaway device key, made here and kept in memory: its public half is what the server binds to the
+        // key it issues, and the SAME key backs the client that reads, so a tenant that requires registered devices
+        // accepts this one command. It is never written anywhere; the caller disposes it with the result.
+        var deviceKey = DeviceKeypair.CreateKey();
+        try
+        {
+            var key = await ExchangeGlobalAsync(
+                oidcToken, tenantSlug, projectSlug, environmentSlug, ct, DeviceKeypair.PublicKeyOf(deviceKey));
+            if (key is null)
+            {
+                deviceKey.Dispose();
+                return new KeylessExchange.Failed();
+            }
+
+            return new KeylessExchange.Exchanged(key with { DeviceKey = deviceKey });
+        }
+        catch (OidcExchangeRefusedException refused)
+        {
+            deviceKey.Dispose();
+            return new KeylessExchange.Failed(refused.Refusal);
+        }
+        catch
+        {
+            deviceKey.Dispose();
+            throw;
+        }
     }
+
+    /// <summary>Tests only: stands in for the machine-dependent platform probe.</summary>
+    internal virtual WorkloadPlatform CurrentPlatform() => DetectPlatform();
+
+    /// <summary>Tests only: stands in for the process environment.</summary>
+    internal virtual string? ApiKeyInEnvironment() =>
+        Environment.GetEnvironmentVariable("BELLA_BAXTER_API_KEY")
+        ?? Environment.GetEnvironmentVariable("BELLA_API_KEY");
 }
 
 // ── Response types ────────────────────────────────────────────────────────────
 
-public record OidcExchangeResult(string Token, DateTimeOffset ExpiresAt);
+/// <summary>
+/// The key a trust-domain exchange issued.
+/// </summary>
+/// <param name="DeviceKey">
+/// Spec 085 — present when this process made the device keypair whose public half the key is bound to (the in-process
+/// keyless flow). It lives in memory only and is disposed with the result; a caller that needs the private half
+/// exports it to a CHILD, never to a file. Kept here rather than on <see cref="KeylessExchange"/> so the context
+/// resolution that type models stays untouched.
+/// </param>
+public sealed record OidcExchangeResult(string Token, DateTimeOffset ExpiresAt, System.Security.Cryptography.ECDiffieHellman? DeviceKey = null)
+    : IDisposable
+{
+    public void Dispose() => DeviceKey?.Dispose();
+}
+
+/// <summary>What the server said when it refused an exchange: the HTTP status and the problem's stable code and detail.</summary>
+public sealed record OidcExchangeRefusal(int? Status, string? Code, string? Detail)
+{
+    /// <summary>The refusals a CLI can do something about, by the code the server gives them (spec 085).</summary>
+    public bool IsDeviceKeyRefusal => Code is "device_key_required" or "device_key_malformed";
+
+    /// <summary>One line naming the server's reason — never the generic "verify the trust domain".</summary>
+    public string Describe()
+    {
+        var reason = string.Join(" — ", new[] { Code, Detail }.Where(v => !string.IsNullOrWhiteSpace(v)));
+        var status = Status is { } code ? $" (HTTP {code})" : string.Empty;
+        return reason.Length == 0
+            ? $"OIDC exchange refused by the server{status}."
+            : $"OIDC exchange refused by the server{status}: {reason}";
+    }
+
+    /// <summary>
+    /// Reads the problem a Kiota <see cref="ApiException"/> carries. The code is the problem's <c>error</c> extension,
+    /// else its <c>type</c> when that is a bare code (not a URL), else its <c>title</c>.
+    /// </summary>
+    internal static OidcExchangeRefusal From(ApiException ex)
+    {
+        if (ex is not ProblemDetails problem)
+            return new OidcExchangeRefusal(ex.ResponseStatusCode, null, null);
+
+        static string? Text(object? value) => value switch
+        {
+            string s => s,
+            Microsoft.Kiota.Abstractions.Serialization.UntypedString u => u.GetValue(),
+            _ => null,
+        };
+
+        var code = problem.AdditionalData.TryGetValue("error", out var extension) ? Text(extension) : null;
+        if (string.IsNullOrWhiteSpace(code) && !string.IsNullOrWhiteSpace(problem.Type) && !problem.Type.Contains("://", StringComparison.Ordinal))
+            code = problem.Type;
+        if (string.IsNullOrWhiteSpace(code))
+            code = problem.Title;
+
+        return new OidcExchangeRefusal(problem.Status ?? ex.ResponseStatusCode, code, problem.Detail);
+    }
+}
+
+/// <summary>Thrown by <see cref="WorkloadIdentityService.ExchangeGlobalAsync"/> when the server answered with a refusal.</summary>
+public sealed class OidcExchangeRefusedException(OidcExchangeRefusal refusal) : Exception(refusal.Describe())
+{
+    public OidcExchangeRefusal Refusal { get; } = refusal;
+}
 
 file record GitHubOidcResponse([property: System.Text.Json.Serialization.JsonPropertyName("value")] string Value);
 

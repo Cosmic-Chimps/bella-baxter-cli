@@ -27,10 +27,14 @@ public class RunCommand(
     /// context; it is named now, and pinned by a test.
     /// </summary>
     public static (string? Tenant, string? Project, string? Environment) WorkloadExchangeContext(Settings settings) =>
-        (null, settings.Project, settings.Environment);
+        (settings.Tenant, settings.Project, settings.Environment);
 
     public class Settings : CommandSettings
     {
+        [CommandOption("-t|--tenant <slug>")]
+        [Description("Tenant slug — used for workload identity context")]
+        public string? Tenant { get; set; }
+
         [CommandOption("-p|--project <slug>")]
         [Description("Project slug or ID")]
         public string? Project { get; set; }
@@ -101,26 +105,47 @@ public class RunCommand(
         // ── Try workload identity first (GitHub Actions / Kubernetes) ─────────
         BellaClient client;
         var exchange = WorkloadExchangeContext(settings);
-        var workloadResult = await workloadIdentity.TryAutoExchangeAsync(
+        var keyless = await workloadIdentity.TryAutoExchangeAsync(
             explicitTenant: exchange.Tenant,
             explicitProject: exchange.Project,
             explicitEnvironment: exchange.Environment,
             ct: ct
         );
+        // Spec 085 — the key made for this sign-in lives exactly as long as this command (and nothing is written).
+        using var workloadResult = (keyless as KeylessExchange.Exchanged)?.Key;
 
         if (workloadResult is not null)
         {
             var platform = WorkloadIdentityService.DetectPlatform();
             AnsiConsole.MarkupLine($"[dim]🔑 Using workload identity ({platform})[/]");
-            client = clientProvider.CreateClientWithApiKey(workloadResult.Token);
+            // Spec 085 — the client PRESENTS the key the exchange bound. A fresh ephemeral key matches nothing the server
+            // recorded, and a tenant that requires registered devices refuses it, so a keyless `bella run` could not read.
+            var deviceKey = workloadResult.DeviceKey
+                ?? throw new InvalidOperationException("The keyless exchange returned no device key.");
+            client = clientProvider.CreateClientWithApiKeyAndZke(workloadResult.Token, new ZkeDekHandler(deviceKey));
         }
         else
         {
             if (!credentials.IsAuthenticated())
             {
-                output.WriteError("Not logged in. Run 'bella login' first.");
+                // #1370 — a job that only forgot its context is told what is missing, not "Not logged in".
+                if (keyless is KeylessExchange.MissingContext missing)
+                    output.WriteError(missing.Describe(includeLoginHint: true), "missing_context");
+                else if (keyless is KeylessExchange.Failed { Refusal: { } refusal })
+                    // Spec 085 — the server answered; say what it said rather than "Not logged in".
+                    output.WriteError(refusal.Describe(), refusal.Code ?? "exchange_refused");
+                else
+                    output.WriteError("Not logged in. Run 'bella login' first.");
                 return 1;
             }
+
+            // A stored login acts in the tenant it is signed in to; a different --tenant is refused, not ignored.
+            if (OrgContext.CheckExplicitTenant(settings.Tenant, credentials) is { } tenantRefusal)
+            {
+                output.WriteError(tenantRefusal);
+                return 1;
+            }
+
             try
             {
                 client = clientProvider.CreateClient(settings.App);

@@ -53,6 +53,29 @@ public class BellaClientProvider(
     }
 
     /// <summary>
+    /// Spec 085 — like <see cref="CreateClientWithApiKey"/>, but the client PRESENTS the caller's device key (and decrypts
+    /// with it) instead of a fresh ephemeral one.
+    /// </summary>
+    /// <remarks>
+    /// A keyless <c>bella run</c> exchanges its OIDC token for a key bound to a device key it just made. A tenant that
+    /// requires registered devices refuses a read that presents any OTHER key, so the plain ephemeral-key client could
+    /// never read there. The caller owns <paramref name="zkeHandler"/>'s key and disposes it when the command ends.
+    /// </remarks>
+    public BellaClient CreateClientWithApiKeyAndZke(string rawApiKey, ZkeDekHandler zkeHandler)
+    {
+        settings.OutputMode = OutputMode.Json;
+        var appClient = Environment.GetEnvironmentVariable("BELLA_BAXTER_APP_CLIENT");
+        return BellaClientFactory.CreateWithHmacApiKeyAndZke(
+            config.ApiUrlForSuppliedCredential(),
+            rawApiKey,
+            zkeHandler,
+            DebugLoggingHandler.IsEnabled ? new DebugLoggingHandler() : null,
+            bellaClient: CliClientName,
+            appClient: appClient
+        );
+    }
+
+    /// <summary>
     /// Whether <see cref="CreateClient"/> authenticates with an API key — the same precedence it uses
     /// (a key in the environment, then a bearer token in the environment, then a stored key). #1141: a
     /// command uses this to read a bodyless 403 as the API's person-only refusal.

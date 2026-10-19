@@ -31,14 +31,24 @@ public class OidcAudienceResolutionTests
     }
 
     [Fact]
-    public void Bella_run_passes_project_and_environment_into_the_right_parameters()
+    public void Bella_run_passes_tenant_project_and_environment_into_the_right_parameters()
     {
         // Found while adding the audience: the call was positional, so the project landed in the TENANT parameter
         // and the environment in the PROJECT parameter — every keyless `bella run` resolved the wrong context.
+        // #1370: and `bella run` had no tenant at all, so the tenant parameter was always null.
+        var context = RunCommand.WorkloadExchangeContext(
+            new RunCommand.Settings { Tenant = "acme", Project = "proj", Environment = "env" });
+
+        Assert.Equal("acme", context.Tenant);
+        Assert.Equal("proj", context.Project);
+        Assert.Equal("env", context.Environment);
+    }
+
+    [Fact]
+    public void An_absent_tenant_flag_is_passed_as_null_so_the_environment_can_supply_it()
+    {
         var context = RunCommand.WorkloadExchangeContext(new RunCommand.Settings { Project = "proj", Environment = "env" });
 
         Assert.Null(context.Tenant);
-        Assert.Equal("proj", context.Project);
-        Assert.Equal("env", context.Environment);
     }
 }

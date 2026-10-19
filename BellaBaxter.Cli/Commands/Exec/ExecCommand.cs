@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using System.Diagnostics;
 using BellaCli.Commands;
+using BellaCli.Commands.Issue;
 using BellaCli.Infrastructure;
 using BellaCli.Services;
 using Spectre.Console;
@@ -99,6 +100,7 @@ public class ExecCommand(
         string? accessToken = null;
         string? projectSlug = null;
         string? environmentSlug = null;
+        string? privateKeyPem = null;
 
         // Use stored/env key first — only attempt OIDC if no key is available
         if (credentials.LoadApiKey() is { } storedKey)
@@ -110,23 +112,47 @@ public class ExecCommand(
         }
         else
         {
-            var workloadResult = await workloadIdentity.TryAutoExchangeAsync(
+            var keyless = await workloadIdentity.TryAutoExchangeAsync(
                 settings.Tenant,
                 settings.Project,
                 settings.Environment,
                 ct: ct
             );
+            // Spec 085 — disposed when this block ends: only the PEM below survives, and only in the child's environment.
+            using var workloadResult = (keyless as KeylessExchange.Exchanged)?.Key;
             if (workloadResult is not null)
             {
                 var platform = WorkloadIdentityService.DetectPlatform();
                 AnsiConsole.MarkupLine($"[dim]🔑 Using workload identity ({platform})[/]");
                 apiKey = workloadResult.Token;
                 apiUrl = config.ApiUrlForSuppliedCredential();
+                // The key is bound to the device key made for this sign-in; the child needs the private half to read.
+                if (workloadResult.DeviceKey is { } deviceKey)
+                    privateKeyPem = DeviceKeypair.ExportPrivateKeyPem(deviceKey);
+            }
+            else if (keyless is KeylessExchange.MissingContext missing && !credentials.IsAuthenticated())
+            {
+                // #1370 — name what is missing instead of "Not authenticated". With a stored login the old fallback stands.
+                output.WriteError(missing.Describe(includeLoginHint: true), "missing_context");
+                return 1;
+            }
+            else if (keyless is KeylessExchange.Failed { Refusal: { } refusal } && !credentials.IsAuthenticated())
+            {
+                // Spec 085 — the server answered; say what it said.
+                output.WriteError(refusal.Describe(), refusal.Code ?? "exchange_refused");
+                return 1;
             }
         }
 
         if (string.IsNullOrEmpty(apiKey) && credentials.HasOAuthTokens())
         {
+            // A stored login acts in the tenant it is signed in to; a different --tenant is refused, not ignored.
+            if (OrgContext.CheckExplicitTenant(settings.Tenant, credentials) is { } tenantRefusal)
+            {
+                output.WriteError(tenantRefusal);
+                return 1;
+            }
+
             // JWT mode — refresh token if needed
             try
             {
@@ -233,6 +259,11 @@ public class ExecCommand(
 
         if (appClient is not null)
             psi.Environment["BELLA_BAXTER_APP_CLIENT"] = appClient;
+
+        // Spec 085 — a keyless child holds the key bound to its API key; without it a tenant that requires registered
+        // devices refuses its first read. Any other child inherits whatever the caller already exported.
+        if (privateKeyPem is not null)
+            psi.Environment["BELLA_BAXTER_PRIVATE_KEY"] = privateKeyPem;
 
         var process = Process.Start(psi);
         if (process is null)
