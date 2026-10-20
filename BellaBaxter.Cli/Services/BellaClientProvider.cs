@@ -76,6 +76,30 @@ public class BellaClientProvider(
     }
 
     /// <summary>
+    /// Issue #990 — a client that authenticates as THIS <c>bax-</c> key (HMAC) and presents the caller's device key,
+    /// whatever else the environment holds.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="CreateClientWithZke"/> picks its credential by precedence (an exported key or token first), which is
+    /// right for a read command and wrong for a question about ONE key: <c>sdk run</c> asks the server whether the local
+    /// device is the one recorded against the key it is about to hand a child, so the call must be that key's, sent to
+    /// the server that key is bound to (<c>ApiUrlFor(key)</c>), never to a different credential's. It does not touch
+    /// the output mode: this is a metadata question, not a choice of how the command prints.
+    /// </remarks>
+    public BellaClient CreateClientForApiKeyWithZke(StoredApiKey apiKey, ZkeDekHandler zkeHandler)
+    {
+        var appClient = Environment.GetEnvironmentVariable("BELLA_BAXTER_APP_CLIENT");
+        return BellaClientFactory.CreateWithHmacApiKeyAndZke(
+            config.ApiUrlFor(apiKey),
+            apiKey.Raw,
+            zkeHandler,
+            DebugLoggingHandler.IsEnabled ? new DebugLoggingHandler() : null,
+            bellaClient: CliClientName,
+            appClient: appClient
+        );
+    }
+
+    /// <summary>
     /// Whether <see cref="CreateClient"/> authenticates with an API key — the same precedence it uses
     /// (a key in the environment, then a bearer token in the environment, then a stored key). #1141: a
     /// command uses this to read a bodyless 403 as the API's person-only refusal.

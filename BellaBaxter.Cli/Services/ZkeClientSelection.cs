@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using BellaBaxter.Client;
 using BellaBaxter.Client.Models;
+using BellaBaxter.Crypto;
 using BellaCli.Commands;
 using BellaCli.Commands.Issue;
 using BellaCli.Infrastructure;
@@ -171,6 +172,77 @@ public sealed class ZkeClientSelection(
 
         var inUse = outcome == ZkeGateOutcome.ProceedWithDevice;
         return new Selection(client, null, inUse, inUse ? ecdh : null);
+    }
+
+    /// <summary>What <see cref="CheckDeviceKeyForApiKeyAsync"/> learned.</summary>
+    public enum ApiKeyDeviceVerdict
+    {
+        /// <summary>This machine has no device key, so there is nothing to confirm and no question was asked.</summary>
+        NoDeviceKey,
+
+        /// <summary>The server says the local device key IS the one recorded against this API key.</summary>
+        Confirmed,
+
+        /// <summary>The server answered, and the local device key is NOT the one recorded against this API key.</summary>
+        NotThisKeysDevice,
+
+        /// <summary>The question could not be answered (network, 5xx, 401): never a verdict, so never a reason to inject.</summary>
+        Unconfirmed,
+    }
+
+    /// <param name="Verdict">What the server said.</param>
+    /// <param name="PrivateKeyPem">The local device key as PKCS#8 PEM, ONLY for <see cref="ApiKeyDeviceVerdict.Confirmed"/>.</param>
+    /// <param name="Enforced">The tenant requires registered devices (meaningful for <see cref="ApiKeyDeviceVerdict.NotThisKeysDevice"/>).</param>
+    /// <param name="Fingerprint">The local device's fingerprint (never the key), for <see cref="ApiKeyDeviceVerdict.NotThisKeysDevice"/>.</param>
+    public sealed record ApiKeyDeviceCheck(
+        ApiKeyDeviceVerdict Verdict, string? PrivateKeyPem = null, bool Enforced = false, string? Fingerprint = null);
+
+    /// <summary>
+    /// Issue #990 — is the device key on this machine the one recorded against this <c>bax-</c> key?
+    /// </summary>
+    /// <remarks>
+    /// <para>An API key's only device is the one recorded at creation (spec 037 R5, spec 051), so handing a child
+    /// "the developer's" key next to a <c>bax-</c> key is right ONLY when that key is the recorded one. The server
+    /// already answers it: <c>getZkeStatus</c> runs the same gate a read meets, with the key presented in
+    /// <c>X-E2E-Public-Key</c>, and an API-key caller is <c>registered</c> only when the presented key equals its
+    /// recorded one. So the CLI asks AS that API key with the local key presented, and believes the answer.</para>
+    /// <para>Only a confirmed yes yields a key. An answer that never came (<see cref="ApiKeyDeviceVerdict.Unconfirmed"/>)
+    /// is not "no": it is also not "yes", and a key injected on a guess makes the child present one the gate refuses.
+    /// Nothing is asked when there is no local device key.</para>
+    /// <para>The key is the device file's, and nothing else: a key already exported is the caller's stated device and
+    /// never reaches here. A <see cref="CredentialOriginException"/> from building the client propagates, exactly as it
+    /// does for every other credential sender.</para>
+    /// </remarks>
+    public async Task<ApiKeyDeviceCheck> CheckDeviceKeyForApiKeyAsync(StoredApiKey apiKey, CancellationToken ct)
+    {
+        using var ecdh = zke.LoadEcdhKey();
+        if (ecdh is null)
+            return new ApiKeyDeviceCheck(ApiKeyDeviceVerdict.NoDeviceKey);
+
+        // Built OUTSIDE the try: a refusal to send this key to that server is the origin rule talking, not a failed call.
+        var client = provider.CreateClientForApiKeyWithZke(apiKey, new ZkeDekHandler(ecdh));
+
+        ZkeStatusResponse? status;
+        try
+        {
+            status = await client.Api.V1.Tenants.Me.Zke.GetAsync(cancellationToken: ct);
+        }
+        catch (Exception ex) when (!(ex is OperationCanceledException && ct.IsCancellationRequested))
+        {
+            status = null;
+        }
+
+        if (status is null)
+            return new ApiKeyDeviceCheck(ApiKeyDeviceVerdict.Unconfirmed);
+
+        // Flat fields, as everywhere else (see SelectAsync).
+        if (status.PresentedKeyRegistered == true)
+            return new ApiKeyDeviceCheck(ApiKeyDeviceVerdict.Confirmed, DeviceKeypair.ExportPrivateKeyPem(ecdh), status.Enforced ?? false);
+
+        return new ApiKeyDeviceCheck(
+            ApiKeyDeviceVerdict.NotThisKeysDevice,
+            Enforced: status.Enforced ?? false,
+            Fingerprint: DeviceFingerprint.Compute(ecdh.ExportSubjectPublicKeyInfo()));
     }
 
     /// <summary>

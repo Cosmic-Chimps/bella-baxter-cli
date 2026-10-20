@@ -121,15 +121,12 @@ public class ListSecretsCommand(
                 output.WriteInfo($"\n  Provider: {prov.ProviderName} ({prov.ProviderType})");
                 try
                 {
-                    var payload = await client
-                        .Api.V1.Projects[projectSlug]
-                        .Environments[envSlug]
-                        .Providers[prov.ProviderSlug ?? prov.ProviderId ?? ""]
-                        .Secrets.GetAsync(cancellationToken: ct);
+                    // #1187 — the typed listSecrets response, plaintext or decrypted; null is "could not read".
+                    var secretsDict = await ProviderSecretValues.ReadAsync(
+                        client, projectSlug, envSlug, prov.ProviderSlug ?? prov.ProviderId ?? "", ct);
 
-                    if (payload?.AdditionalData.TryGetValue("secrets", out var rawSecrets) == true)
+                    if (secretsDict is not null)
                     {
-                        var secretsDict = rawSecrets.ToStringDict();
                         if (secretsDict.Count == 0)
                         {
                             output.WriteInfo("  (no secrets)");

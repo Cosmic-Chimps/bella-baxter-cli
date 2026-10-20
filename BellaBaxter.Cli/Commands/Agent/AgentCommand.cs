@@ -202,19 +202,13 @@ public class AgentCommand(BellaClientProvider provider, IOutputWriter output)
         {
             try
             {
-                var resp = await client.Api.V1.Projects[watch.ProjectSlug]
-                    .Environments[watch.EnvSlug]
-                    .Providers[watch.ProviderSlug]
-                    .Secrets.GetAsync(cancellationToken: ct);
+                // #1187 — the typed listSecrets response, plaintext or decrypted.
+                var parsed = await ProviderSecretValues.ReadAsync(
+                    client, watch.ProjectSlug, watch.EnvSlug, watch.ProviderSlug, ct);
 
-                if (resp?.AdditionalData?.TryGetValue("secrets", out var rawSecrets) == true && rawSecrets is not null)
-                {
-                    var json = JsonSerializer.Serialize(rawSecrets);
-                    var parsed = JsonSerializer.Deserialize<Dictionary<string, string>>(json);
-                    if (parsed is not null)
-                        foreach (var kvp in parsed)
-                            result[kvp.Key] = kvp.Value;
-                }
+                if (parsed is not null)
+                    foreach (var kvp in parsed)
+                        result[kvp.Key] = kvp.Value;
             }
             catch (Exception ex)
             {

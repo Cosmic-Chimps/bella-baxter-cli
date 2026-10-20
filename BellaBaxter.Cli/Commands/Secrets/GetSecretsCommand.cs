@@ -112,16 +112,11 @@ public class GetSecretsCommand(
                     {
                         if (!string.IsNullOrWhiteSpace(settings.Provider))
                         {
-                            var payload = await client
-                                .Api.V1.Projects[projectSlug]
-                                .Environments[envSlug]
-                                .Providers[settings.Provider]
-                                .Secrets.GetAsync(cancellationToken: ct);
-                            if (
-                                payload?.AdditionalData.TryGetValue("secrets", out var rawSecrets)
-                                == true
-                            )
-                                allSecrets = rawSecrets.ToStringDict();
+                            // #1187 — the typed listSecrets response, plaintext or decrypted.
+                            allSecrets =
+                                await ProviderSecretValues.ReadAsync(
+                                    client, projectSlug, envSlug, settings.Provider, ct)
+                                ?? new();
                         }
                         else
                         {

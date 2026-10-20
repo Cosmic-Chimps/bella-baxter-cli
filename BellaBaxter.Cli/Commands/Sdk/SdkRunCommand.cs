@@ -36,6 +36,8 @@ namespace BellaCli.Commands.Sdk;
 ///   BELLA_BAXTER_URL          — Baxter API base URL
 ///   BELLA_BAXTER_APP_CLIENT   — optional app name for audit logs (set with --app)
 ///   BELLA_API_KEY / BELLA_API_URL — deprecated aliases
+///   BELLA_BAXTER_PRIVATE_KEY  — only when already exported, or when the server confirms this machine's device key
+///                               is the one recorded against the key (#990)
 ///
 /// Injected vars (JWT mode):
 ///   BELLA_BAXTER_ACCESS_TOKEN — short-lived JWT access token (refreshed if needed)
@@ -111,10 +113,14 @@ public class SdkRunCommand(
         string? projectSlug = null;
         string? environmentSlug = null;
         string? privateKeyPem = null;
+        // Issue #990 — the key `apiKey` came from when it is a stored/environment one (not a workload exchange), so the
+        // server can be asked whether this machine's device key is that key's recorded device.
+        StoredApiKey? callersKey = null;
 
         // Use stored/env key first — only attempt OIDC if no key is available
         if (credentials.LoadApiKey() is { } storedKey)
         {
+            callersKey = storedKey;
             apiKey = storedKey.Raw;
             // Advisory clients-1 — a stored key goes only to the server it was stored for; one from the
             // environment never to a server a repository's .bella chose.
@@ -301,6 +307,42 @@ public class SdkRunCommand(
                 // A `bax-` key arrives with no gate (it manages its own keys), but the key a previous sign-in step
                 // exported travels with it. It was stripped above and never put back, which un-did the export.
                 privateKeyPem = exported;
+            }
+            else if (callersKey is not null)
+            {
+                // Issue #990 — a stored or environment `bax-` key, and nothing exported. The Go, Python, PHP, Ruby and Swift SDKs
+                // accept only such a key, so without this a developer machine with a registered device file gives them no
+                // device key at all. An API key's only device is the one recorded at creation (spec 037 R5, spec 051), so
+                // the local key is injected ONLY when the server says it is that one. The workload path never gets here
+                // (callersKey is null: its key is bound to the pair made at the exchange, or to nothing).
+                //
+                // The first read of the server address happened above (`config.ApiUrl`, `ApiUrlFor(storedKey)`), outside any
+                // spinner, so a `.bella` origin prompt cannot collide with Spectre's one-display rule here (#1317).
+                var check = await zkeSelection.CheckDeviceKeyForApiKeyAsync(callersKey, ct);
+                switch (check.Verdict)
+                {
+                    case ZkeClientSelection.ApiKeyDeviceVerdict.Confirmed:
+                        privateKeyPem = check.PrivateKeyPem; // PEM (#731), the same form every other path injects
+                        break;
+
+                    case ZkeClientSelection.ApiKeyDeviceVerdict.NotThisKeysDevice when check.Enforced:
+                        // Not a failure: the child still runs and may be exactly the kind that needs no device (the
+                        // tenant's other callers). One line on stderr, naming the device by fingerprint, never the key.
+                        Console.Error.WriteLine(
+                            $"⚠ This tenant requires registered devices, and the device recorded against this API key is not "
+                            + $"this machine's ({check.Fingerprint}), so BELLA_BAXTER_PRIVATE_KEY was not injected and the SDK's "
+                            + "secret reads will be refused. Create the API key with this machine's device public key "
+                            + "(or attach it to a key that has none), or export BELLA_BAXTER_PRIVATE_KEY as the private key "
+                            + "of the key's own device.");
+                        break;
+
+                    case ZkeClientSelection.ApiKeyDeviceVerdict.Unconfirmed:
+                        AnsiConsole.MarkupLine(
+                            "[dim]  Device key not injected: the server could not confirm it belongs to this API key.[/]");
+                        break;
+
+                    // NoDeviceKey: nothing to confirm. NotThisKeysDevice on a tenant that enforces nothing: nothing is wrong.
+                }
             }
         }
 
