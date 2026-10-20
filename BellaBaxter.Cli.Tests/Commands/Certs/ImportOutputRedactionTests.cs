@@ -69,10 +69,11 @@ public class ImportOutputRedactionTests
         drop.Add(CertificateFixtures.CreateWithMismatchedKey("bad.acme.example"));
 
         var planned = CertificateImportPlanner.Plan(
-            CertificateDropReader.Read(drop.Root),
+            CertificateDropReader.Read(drop.Root, TestContext.Current.CancellationToken),
             Prefix,
             [],
-            stripRoot: false
+            stripRoot: false,
+            ct: TestContext.Current.CancellationToken
         );
 
         var reason = planned.Single().Reason!;
@@ -91,7 +92,7 @@ public class ImportOutputRedactionTests
             );
 
             var planned = CertificateImportPlanner.Plan(
-                CertificateDropReader.Read(drop.Root),
+                CertificateDropReader.Read(drop.Root, TestContext.Current.CancellationToken),
                 Prefix,
                 [new ManifestRow("daffy.acme.example", Passphrase)],
                 stripRoot: false

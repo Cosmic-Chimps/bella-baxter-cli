@@ -98,7 +98,7 @@ public class SecretValueSourceTests
         try
         {
             const string pem = "-----BEGIN PRIVATE KEY-----\nMIIE\n-----END PRIVATE KEY-----\n";
-            await File.WriteAllTextAsync(path, pem);
+            await File.WriteAllTextAsync(path, pem, TestContext.Current.CancellationToken);
 
             Assert.Equal(pem, await SecretValueSource.ReadFileAsync(path, CancellationToken.None));
         }

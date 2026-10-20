@@ -162,7 +162,7 @@ public class SpiffeAddCommand(
                     issuedTokenTtlMinutes = created.IssuedTokenTtlMinutes,
                     nodeAttestors = nodes.Select(n => n.ToString()),
                     selectors = selectors.Select(s => s.ToString()),
-                    constraintReport = ReportJson(created.ConstraintReport?.ConstraintReportDto ?? posted?.ConstraintReport?.ConstraintReportDto),
+                    constraintReport = ReportJson(created.ConstraintReport ?? posted?.ConstraintReport),
                 });
                 return 0;
             }
@@ -174,7 +174,7 @@ public class SpiffeAddCommand(
             // protects". It warns when every constraint is self-asserted and when there are none at all
             // (the zero-constraint warning that used to be written here). Printed in the same voice as
             // before; exit stays 0 because the registration succeeded.
-            var report = created.ConstraintReport?.ConstraintReportDto ?? posted?.ConstraintReport?.ConstraintReportDto;
+            var report = created.ConstraintReport ?? posted?.ConstraintReport;
             foreach (var warning in report?.Warnings ?? [])
                 output.WriteWarning(warning);
 

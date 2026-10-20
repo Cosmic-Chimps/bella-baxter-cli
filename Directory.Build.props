@@ -3,7 +3,13 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <AnalysisLevel>latest</AnalysisLevel>
-    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+    <!-- #631: a warning fails the build, here and in every local build, so the count cannot drift back
+         (it had reached 49 code warnings that an incremental build hid). The vulnerable-package advisories
+         NU1901-NU1904 are the one exemption: they appear overnight with no code change, so as errors they
+         would turn every unrelated PR red. They are gated where they belong, by the OSV PR gate
+         (.github/workflows/osv-pr-gate.yml), and a restore still prints them. -->
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <WarningsNotAsErrors>$(WarningsNotAsErrors);NU1901;NU1902;NU1903;NU1904</WarningsNotAsErrors>
     <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
     <NoWarn>NU1608</NoWarn>
   </PropertyGroup>

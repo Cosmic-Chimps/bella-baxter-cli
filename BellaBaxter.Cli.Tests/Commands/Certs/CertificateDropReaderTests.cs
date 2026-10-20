@@ -19,7 +19,7 @@ public class CertificateDropReaderTests
         drop.Add(CertificateFixtures.CreateValidChain("daffy.acme.example"))
             .Add(CertificateFixtures.CreateValidChain("tweety.acme.example"));
 
-        var result = CertificateDropReader.Read(drop.Root);
+        var result = CertificateDropReader.Read(drop.Root, TestContext.Current.CancellationToken);
 
         Assert.Equal(2, result.Entries.Count);
         Assert.All(result.Entries, e => Assert.True(e.HasMaterial));
@@ -36,7 +36,7 @@ public class CertificateDropReaderTests
             folderName: "RoadRunner"
         );
 
-        var entry = CertificateDropReader.Read(drop.Root).Entries.Single();
+        var entry = CertificateDropReader.Read(drop.Root, TestContext.Current.CancellationToken).Entries.Single();
 
         Assert.Equal("RoadRunner", entry.SourceDirectory);
         Assert.Equal("RoadRunner.acme.example", entry.CommonName);
@@ -57,7 +57,7 @@ public class CertificateDropReaderTests
             bundle.ChainPem
         );
 
-        var entry = CertificateDropReader.Read(drop.Root).Entries.Single();
+        var entry = CertificateDropReader.Read(drop.Root, TestContext.Current.CancellationToken).Entries.Single();
 
         Assert.True(entry.HasMaterial);
         Assert.Equal("app.example", entry.CommonName);
@@ -74,7 +74,7 @@ public class CertificateDropReaderTests
             bundle.ChainPem + "\n" + bundle.PrivateKeyPem
         );
 
-        var entry = CertificateDropReader.Read(drop.Root).Entries.Single();
+        var entry = CertificateDropReader.Read(drop.Root, TestContext.Current.CancellationToken).Entries.Single();
 
         Assert.True(entry.HasMaterial);
         Assert.Equal("combined.example", entry.CommonName);
@@ -88,7 +88,7 @@ public class CertificateDropReaderTests
             .AddExtraFile("app", ".DS_Store", "\0\0binary junk")
             .AddExtraFile("app", "notes.txt", "renewed by the other department");
 
-        var entry = CertificateDropReader.Read(drop.Root).Entries.Single();
+        var entry = CertificateDropReader.Read(drop.Root, TestContext.Current.CancellationToken).Entries.Single();
 
         Assert.True(entry.HasMaterial);
     }
@@ -101,7 +101,7 @@ public class CertificateDropReaderTests
         using var drop = new DropBuilder();
         drop.Add(CertificateFixtures.CreateValidChain("app.example"), omitChain: true);
 
-        var entry = CertificateDropReader.Read(drop.Root).Entries.Single();
+        var entry = CertificateDropReader.Read(drop.Root, TestContext.Current.CancellationToken).Entries.Single();
 
         Assert.False(entry.HasMaterial);
         Assert.Equal(DropEntrySkipReason.NoCertificate, entry.SkipReason);
@@ -114,7 +114,7 @@ public class CertificateDropReaderTests
         using var drop = new DropBuilder();
         drop.Add(CertificateFixtures.CreateValidChain("app.example"), omitKey: true);
 
-        var entry = CertificateDropReader.Read(drop.Root).Entries.Single();
+        var entry = CertificateDropReader.Read(drop.Root, TestContext.Current.CancellationToken).Entries.Single();
 
         Assert.False(entry.HasMaterial);
         Assert.Equal(DropEntrySkipReason.NoPrivateKey, entry.SkipReason);
@@ -128,7 +128,7 @@ public class CertificateDropReaderTests
         drop.Add(CertificateFixtures.CreateValidChain("app.example"), folderName: "app")
             .AddExtraFile("app", "key-2.pem", other.PrivateKeyPem);
 
-        var entry = CertificateDropReader.Read(drop.Root).Entries.Single();
+        var entry = CertificateDropReader.Read(drop.Root, TestContext.Current.CancellationToken).Entries.Single();
 
         Assert.Equal(DropEntrySkipReason.MultiplePrivateKeys, entry.SkipReason);
     }
@@ -141,7 +141,7 @@ public class CertificateDropReaderTests
         drop.Add(CertificateFixtures.CreateValidChain("app.example"), folderName: "app")
             .AddExtraFile("app", "second-chain.pem", other.ChainPem);
 
-        var entry = CertificateDropReader.Read(drop.Root).Entries.Single();
+        var entry = CertificateDropReader.Read(drop.Root, TestContext.Current.CancellationToken).Entries.Single();
 
         Assert.Equal(DropEntrySkipReason.MultipleCertificates, entry.SkipReason);
     }
@@ -151,7 +151,7 @@ public class CertificateDropReaderTests
     {
         using var drop = new DropBuilder();
 
-        var result = CertificateDropReader.Read(drop.Root);
+        var result = CertificateDropReader.Read(drop.Root, TestContext.Current.CancellationToken);
 
         Assert.Empty(result.Entries);
     }
@@ -160,7 +160,7 @@ public class CertificateDropReaderTests
     public void A_missing_directory_is_an_error()
     {
         Assert.Throws<DirectoryNotFoundException>(() =>
-            CertificateDropReader.Read(Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString()))
+            CertificateDropReader.Read(Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString()), TestContext.Current.CancellationToken)
         );
     }
 
@@ -176,7 +176,7 @@ public class CertificateDropReaderTests
         File.WriteAllText(Path.Combine(nested, "key.pem"), bundle.PrivateKeyPem);
         File.WriteAllText(Path.Combine(nested, "app.pem"), bundle.ChainPem);
 
-        var result = CertificateDropReader.Read(drop.Root);
+        var result = CertificateDropReader.Read(drop.Root, TestContext.Current.CancellationToken);
 
         var entry = Assert.Single(result.Entries);
         Assert.Equal("wrapper", entry.SourceDirectory);

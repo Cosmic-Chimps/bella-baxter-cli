@@ -76,7 +76,7 @@ public class SpiffeListCommand(
                         issuedTokenTtlMinutes = w.IssuedTokenTtlMinutes,
                         nodeAttestors = (w.NodeAttestors ?? []).Select(s => $"{s.Type}={s.Value}"),
                         selectors = (w.Selectors ?? []).Select(s => $"{s.Type}={s.Value}"),
-                        constraintReport = SpiffeAddCommand.ReportJson(w.ConstraintReport?.ConstraintReportDto),
+                        constraintReport = SpiffeAddCommand.ReportJson(w.ConstraintReport),
                     }),
                 });
                 return 0;
@@ -105,8 +105,8 @@ public class SpiffeListCommand(
                 table.AddRow(
                     revoked ? $"[dim]{w.Name} (revoked)[/]" : w.Name ?? "—",
                     revoked ? $"[dim]{w.SpiffeId}[/]" : w.SpiffeId ?? "—",
-                    Describe(w.NodeAttestors, w.ConstraintReport?.ConstraintReportDto?.NodeAttestors),
-                    Describe(w.Selectors, w.ConstraintReport?.ConstraintReportDto?.Selectors),
+                    Describe(w.NodeAttestors, w.ConstraintReport?.NodeAttestors),
+                    Describe(w.Selectors, w.ConstraintReport?.Selectors),
                     $"{w.IssuedTokenTtlMinutes} min");
             }
 

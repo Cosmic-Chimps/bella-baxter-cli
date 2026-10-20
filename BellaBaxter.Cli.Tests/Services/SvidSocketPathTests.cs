@@ -1,4 +1,5 @@
 using System.Runtime.InteropServices;
+using System.Runtime.Versioning;
 using BellaCli.Services.Spiffe;
 
 namespace BellaBaxter.Cli.Tests.Services;
@@ -121,6 +122,7 @@ public class SvidSocketPathTests
     }
 
     [Fact]
+    [UnsupportedOSPlatform("windows")] // Unix permission bits; the body skips itself there, this tells CA1416 so.
     public void PrepareDirectory_creates_the_directory_owner_only()
     {
         Assert.SkipUnless(OnUnix, "Unix permission bits do not describe the Windows ACL model.");
@@ -146,6 +148,7 @@ public class SvidSocketPathTests
     }
 
     [Fact]
+    [UnsupportedOSPlatform("windows")] // Unix permission bits; the body skips itself there, this tells CA1416 so.
     public void PrepareDirectory_REFUSES_an_existing_world_accessible_directory()
     {
         Assert.SkipUnless(OnUnix, "Unix permission bits do not describe the Windows ACL model.");
@@ -182,7 +185,7 @@ public class SvidSocketPathTests
         var root = Path.Combine(Path.GetTempPath(), $"bella-sock-{Guid.NewGuid():N}");
         var socket = Path.Combine(root, "workload.sock");
         Directory.CreateDirectory(root);
-        if (OnUnix) File.SetUnixFileMode(root, SvidSocketPath.DirectoryMode);
+        if (!OperatingSystem.IsWindows()) File.SetUnixFileMode(root, SvidSocketPath.DirectoryMode);
         File.WriteAllText(socket, "stale");
 
         try
@@ -198,6 +201,7 @@ public class SvidSocketPathTests
     }
 
     [Fact]
+    [UnsupportedOSPlatform("windows")] // Unix permission bits; the body skips itself there, this tells CA1416 so.
     public void SecureSocket_applies_owner_only_to_the_bound_socket()
     {
         Assert.SkipUnless(OnUnix, "Unix permission bits do not describe the Windows ACL model.");

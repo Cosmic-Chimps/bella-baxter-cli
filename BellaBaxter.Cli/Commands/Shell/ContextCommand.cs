@@ -299,8 +299,9 @@ public class ContextInitCommand(
         CancellationToken ct
     )
     {
-        string project,
-            env;
+        string project;
+        // Null for a project-scoped API key: it names no environment (the branch below handles that).
+        string? env;
         string? org = null;
 
         // Positional and flag forms name the same two things; a contradiction is the operator's

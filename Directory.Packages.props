@@ -14,9 +14,8 @@
        resolves its pins from here too. -->
 
   <ItemGroup>
-    <!-- CLI host + configuration -->
-    <PackageVersion Include="Microsoft.AspNetCore.DataProtection" Version="10.0.7" />
-    <PackageVersion Include="Microsoft.Extensions.Hosting" Version="10.0.7" />
+    <!-- CLI host + configuration: Microsoft.AspNetCore.DataProtection and Microsoft.Extensions.Hosting are NOT pinned here.
+         They arrive with the Microsoft.AspNetCore.App FrameworkReference, and a PackageReference to either is pruned (NU1510, #631). -->
 
     <!-- Console UI -->
     <PackageVersion Include="Spectre.Console" Version="0.55.2" />

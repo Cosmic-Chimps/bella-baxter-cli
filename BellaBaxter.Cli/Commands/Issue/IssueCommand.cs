@@ -10,7 +10,6 @@ using Spectre.Console.Cli;
 namespace BellaCli.Commands.Issue;
 
 public class IssueCommand(
-    BellaClientProvider clientProvider,
     CredentialStore credentials,
     ContextService contextService,
     IOutputWriter output,

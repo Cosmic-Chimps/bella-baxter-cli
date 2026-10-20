@@ -95,8 +95,8 @@ public class CreateEnvironmentCommand(
 
             // Spec 028 (FR-020a): a new environment starts in Strict. Say so, and say what that checks,
             // at the moment the operator can still choose otherwise for a development environment.
-            // Kiota renders the nullable `environment` as a composed wrapper; the real record sits one level in.
-            var environment = created?.Environment?.EnvironmentResponse;
+            // The nullable `environment` is the record itself (Kiota 1.35; 1.30 wrapped it in a composed type).
+            var environment = created?.Environment;
             var mode = environment?.SpiffeAttestationMode;
             if (!string.IsNullOrWhiteSpace(mode))
             {

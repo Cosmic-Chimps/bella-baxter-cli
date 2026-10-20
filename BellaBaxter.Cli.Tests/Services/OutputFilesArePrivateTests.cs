@@ -104,14 +104,14 @@ public class OutputFilesArePrivateTests
         try
         {
             var fresh = Path.Combine(dir, "fresh.key");
-            await PrivateFiles.WritePrivateAsync(fresh, "-----BEGIN PRIVATE KEY-----\n");
+            await PrivateFiles.WritePrivateAsync(fresh, "-----BEGIN PRIVATE KEY-----\n", TestContext.Current.CancellationToken);
             Assert.Equal(PrivateFiles.FilePermissions, File.GetUnixFileMode(fresh));
 
             var wide = Path.Combine(dir, "wide.env");
             File.WriteAllText(wide, "OLD=1\n");
             File.SetUnixFileMode(wide, PrivateFiles.FilePermissions | UnixFileMode.OtherRead);
 
-            await PrivateFiles.WritePrivateAsync(wide, "NEW=2\n");
+            await PrivateFiles.WritePrivateAsync(wide, "NEW=2\n", TestContext.Current.CancellationToken);
             Assert.Equal(PrivateFiles.FilePermissions, File.GetUnixFileMode(wide));
             Assert.Equal("NEW=2\n", File.ReadAllText(wide));
         }

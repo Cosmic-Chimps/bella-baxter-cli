@@ -88,7 +88,7 @@ public class ImportCertsCommandTests
         var planned = Plan(drop);
 
         Assert.Equal(2, planned.Count(p => p.Action == ImportAction.Created));
-        var rejected = Assert.Single(planned.Where(p => p.Action == ImportAction.Rejected));
+        var rejected = Assert.Single(planned, p => p.Action == ImportAction.Rejected);
         Assert.Contains("does not belong", rejected.Reason!);
 
         // Exit status alone tells the operator something needs attention (SC-009).
@@ -118,7 +118,7 @@ public class ImportCertsCommandTests
         var planned = Plan(drop);
 
         Assert.Equal(1, planned.Count(p => p.Action == ImportAction.Created));
-        var rejected = Assert.Single(planned.Where(p => p.Action == ImportAction.Rejected));
+        var rejected = Assert.Single(planned, p => p.Action == ImportAction.Rejected);
         Assert.Contains("same common name", rejected.Reason!);
     }
 

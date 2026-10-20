@@ -403,7 +403,7 @@ public class KeylessCommandsTests : KeylessFixture
     public void Bella_run_declares_the_tenant_option_exactly_as_exec_and_sdk_run_do()
     {
         string Template(Type settings) => settings.GetProperty("Tenant")!
-            .GetCustomAttributes(typeof(CommandOptionAttribute), false).Cast<CommandOptionAttribute>().Single().ToString();
+            .GetCustomAttributes(typeof(CommandOptionAttribute), false).Cast<CommandOptionAttribute>().Single().ToString()!;
         string Description(Type settings) => settings.GetProperty("Tenant")!
             .GetCustomAttributes(typeof(System.ComponentModel.DescriptionAttribute), false)
             .Cast<System.ComponentModel.DescriptionAttribute>().Single().Description;

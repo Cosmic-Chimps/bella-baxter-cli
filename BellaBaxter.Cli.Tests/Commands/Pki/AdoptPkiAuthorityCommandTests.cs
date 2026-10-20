@@ -32,7 +32,7 @@ public class AdoptPkiAuthorityCommandTests
             return Json(HttpStatusCode.OK, """{"status":"own","mountPath":"pki-acme-prod","notice":"n"}""");
         });
 
-        var result = await client.Api.V1.Projects["acme"].Environments["prod"].Pki.Authority.Adoption.PostAsync();
+        var result = await client.Api.V1.Projects["acme"].Environments["prod"].Pki.Authority.Adoption.PostAsync(cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Equal(HttpMethod.Post, seen!.Method);
         Assert.EndsWith("/api/v1/projects/acme/environments/prod/pki/authority/adoption", seen.RequestUri!.AbsolutePath);
