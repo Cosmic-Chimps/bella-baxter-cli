@@ -43,10 +43,13 @@ public class PersonOnlyRefusalTests
     [Fact]
     public async Task A_person_who_gets_a_403_is_not_told_to_stop_using_an_api_key()
     {
-        // The generated client surfaces this 403 without a body, so it is the refusal only when the caller
-        // is a key; for a person it propagates as it always did.
+        // Since the client was regenerated with the declared 403 (Kiota 1.35), the body is typed and the `person-only` code
+        // decides on its own (The_typed_problem_is_recognised_by_its_code_alone); the server sends that code only to a key.
+        // A PERSON's 403 is some other refusal, and it propagates as it always did, with no advice about API keys.
+        const string OtherRefusal =
+            """{"type":"audit-streaming-plan-required","title":"Not on this plan.","status":403}""";
         var output = new CapturingOutput();
-        var client = ClientAnswering(HttpStatusCode.Forbidden, PersonOnlyBody, out _);
+        var client = ClientAnswering(HttpStatusCode.Forbidden, OtherRefusal, out _);
 
         await Assert.ThrowsAnyAsync<ApiException>(() => OrgQueries.FetchOrgsAsync(client, callerIsApiKey: false, output, Ct));
         Assert.Empty(output.Errors);
