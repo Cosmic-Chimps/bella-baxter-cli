@@ -132,6 +132,16 @@ public class SpiffeSetModeSettings : CommandSettings
             // Required rather than defaulted. Defaulting to --lax would silently loosen an environment
             // somebody had deliberately set to Strict; defaulting to --strict would break attestation
             // for anyone running `set-mode` to change only the TTL.
+            //
+            // Spec 064 (T067 finding 3): the audience flags are the likeliest to be typed alone, because they read
+            // like a switch of their own. Say which mode they belong with instead of only that a mode is missing.
+            if (EnforceAudience || ObserveAudience)
+            {
+                return Spectre.Console.ValidationResult.Error(
+                    "Pass --strict or --lax to say which mode to set. The token audience is only checked in Strict, "
+                    + $"so pass --strict {(EnforceAudience ? "--enforce-audience" : "--observe-audience")}.");
+            }
+
             return Spectre.Console.ValidationResult.Error("Pass --strict or --lax to say which mode to set.");
         }
 
@@ -288,6 +298,13 @@ public class SpiffeSetModeCommand(
                 // operator either fixes the registrations or says, explicitly, that they mean it.
                 output.WriteError(problem.Detail ?? "Strict mode would refuse workloads in this environment.");
                 output.WriteInfo("Re-run with --acknowledge-strict-refusals to switch anyway.");
+                return 1;
+            }
+            catch (BellaBaxter.Client.Models.ProblemDetails problem) when (problem.ResponseStatusCode == 400)
+            {
+                // Spec 064 (T067 finding 4): the server's reason, e.g. why an audience is not allowed. Before the 400
+                // was declared as a problem document, this printed Kiota's "no error factory is registered".
+                output.WriteError(problem.Detail ?? "The server refused these settings. Nothing was changed.");
                 return 1;
             }
             catch (BellaBaxter.Client.Models.ProblemDetails problem) when (problem.ResponseStatusCode == 503)

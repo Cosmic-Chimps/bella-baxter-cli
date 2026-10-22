@@ -216,4 +216,14 @@ public class SpiffeSetModeSettingsTests
         Assert.True(Ok(new SpiffeSetModeSettings { Strict = true, EnforceAudience = true }));
         Assert.True(Ok(new SpiffeSetModeSettings { Strict = true, ObserveAudience = true }));
     }
+
+    [Fact]
+    public void An_audience_flag_alone_says_which_mode_it_needs()
+    {
+        // T067 finding 3: the quickstart typed `set-mode --enforce-audience` and got only "pass --strict or --lax".
+        // The mode stays required (see A_mode_is_required); the message names the command that works.
+        Assert.False(Ok(new SpiffeSetModeSettings { EnforceAudience = true }));
+        Assert.Contains("--strict --enforce-audience", Why(new SpiffeSetModeSettings { EnforceAudience = true })!, StringComparison.Ordinal);
+        Assert.Contains("--strict --observe-audience", Why(new SpiffeSetModeSettings { ObserveAudience = true })!, StringComparison.Ordinal);
+    }
 }
