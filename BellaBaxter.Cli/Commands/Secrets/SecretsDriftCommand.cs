@@ -48,13 +48,21 @@ public class SecretsDriftCommand(
             return 1;
         }
 
-        if (settings.Json)
-        {
-            output.WriteObject(drift);
-            return 0;
-        }
+        return Report(drift, projectSlug, settings.Json, output);
+    }
 
-        RenderTable(drift, projectSlug);
+    /// <summary>
+    /// Writes the result and answers the exit code. The code is the same in both modes: the documented CI gate
+    /// ("exits with code 1 when drift is detected") is useless if the machine-readable mode, the one pipelines parse,
+    /// reports success while drift is present (#1485).
+    /// </summary>
+    internal static int Report(DriftResponse drift, string projectSlug, bool json, IOutputWriter output)
+    {
+        if (json)
+            output.WriteObject(drift);
+        else
+            RenderTable(drift, projectSlug);
+
         return drift.Summary?.DriftedKeys > 0 ? 1 : 0;
     }
 

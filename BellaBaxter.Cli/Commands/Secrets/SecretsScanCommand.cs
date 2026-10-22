@@ -150,7 +150,25 @@ public class SecretsScanCommand(
             );
 
         // ── 4. Render ─────────────────────────────────────────────────────────
-        if (settings.Json)
+        return Report(findings, projectSlug, envName, scanPath, files.Count, usingGit, settings.Json, output);
+    }
+
+    /// <summary>
+    /// Writes the result and answers the exit code. Same code in both modes: the documented CI gate ("exits with
+    /// code 1 when keys are not found") must not turn green because a pipeline asked for JSON (#1485).
+    /// </summary>
+    internal static int Report(
+        Dictionary<string, List<string>> findings,
+        string projectSlug,
+        string envName,
+        string scanPath,
+        int fileCount,
+        bool usingGit,
+        bool json,
+        IOutputWriter output
+    )
+    {
+        if (json)
         {
             var obj = findings.Select(kv => new
             {
@@ -159,10 +177,11 @@ public class SecretsScanCommand(
                 files = kv.Value,
             });
             output.WriteObject(obj);
-            return 0;
         }
-
-        RenderTable(findings, projectSlug, envName, scanPath, files.Count, usingGit);
+        else
+        {
+            RenderTable(findings, projectSlug, envName, scanPath, fileCount, usingGit);
+        }
 
         var unusedCount = findings.Values.Count(f => f.Count == 0);
         return unusedCount > 0 ? 1 : 0;

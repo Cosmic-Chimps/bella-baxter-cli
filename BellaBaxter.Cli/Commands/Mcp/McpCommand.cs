@@ -491,12 +491,27 @@ public class McpCommand(ConfigService config, CredentialStore credentials)
         );
     }
 
-    private static void PrintConfigSnippets(string apiBase)
+    /// <summary>
+    /// The <c>env</c> block of the printed proxy configs (#1483). Every name in it is one the CLI READS: the key is
+    /// <c>BELLA_BAXTER_API_KEY</c> and the address <c>BELLA_BAXTER_URL</c> (<c>ConfigService</c> is the one reader).
+    /// It used to say <c>BELLA_API_URL</c>, which is only an alias the CLI injects into its children, so a
+    /// self-hoster who pasted the block had the proxy talk to the hosted service instead.
+    /// </summary>
+    internal static Dictionary<string, string> ProxyEnvironment(string apiBase)
     {
         // Whether the configured origin is the hosted default — this one legitimately branches on it
         // (the printed snippet omits an override that would be redundant). Sourced centrally so a
         // self-hosted/gateway origin cannot drift from the definition in ConfigService.
         bool isDefault = apiBase == BellaCli.Services.BellaConfig.DefaultApiUrl;
+
+        var env = new Dictionary<string, string> { ["BELLA_BAXTER_API_KEY"] = "bax-<your-api-key>" };
+        if (!isDefault)
+            env["BELLA_BAXTER_URL"] = apiBase;
+        return env;
+    }
+
+    private static void PrintConfigSnippets(string apiBase)
+    {
 
         // ── Claude Desktop ────────────────────────────────────────────────────
         // Show both: API key (recommended) and bare (for `bella login` users)
@@ -504,11 +519,7 @@ public class McpCommand(ConfigService config, CredentialStore credentials)
         {
             command = "bella",
             args = new[] { "mcp" },
-            env = new Dictionary<string, string> { ["BELLA_BAXTER_API_KEY"] = "bax-<your-api-key>" }
-                .Concat(
-                    isDefault ? [] : [new KeyValuePair<string, string>("BELLA_API_URL", apiBase)]
-                )
-                .ToDictionary(kvp => kvp.Key, kvp => kvp.Value),
+            env = ProxyEnvironment(apiBase),
         };
 
         var claudeConfig = new
@@ -533,11 +544,7 @@ public class McpCommand(ConfigService config, CredentialStore credentials)
             type = "stdio",
             command = "bella",
             args = new[] { "mcp" },
-            env = new Dictionary<string, string> { ["BELLA_BAXTER_API_KEY"] = "bax-<your-api-key>" }
-                .Concat(
-                    isDefault ? [] : [new KeyValuePair<string, string>("BELLA_API_URL", apiBase)]
-                )
-                .ToDictionary(kvp => kvp.Key, kvp => kvp.Value),
+            env = ProxyEnvironment(apiBase),
         };
 
         var vscodeConfig = new

@@ -1,4 +1,6 @@
+using BellaBaxter.Cli.Tests.Services;
 using BellaCli.Commands.Mcp;
+using BellaCli.Services;
 
 namespace BellaBaxter.Cli.Tests.Commands.Mcp;
 
@@ -7,6 +9,7 @@ namespace BellaBaxter.Cli.Tests.Commands.Mcp;
 /// address derived from the configured API origin, the client id, and the fact that no secret is needed.
 /// The proxy blocks (Claude Desktop / VS Code) are printed by the same method and are unchanged.
 /// </summary>
+[Collection(ApiUrlEnvironmentCollection.Name)]
 public class McpPrintConfigTests
 {
     [Fact]
@@ -35,5 +38,51 @@ public class McpPrintConfigTests
         // The PKI-topology planes publish the connector on the API domain, not the gateway (research R10).
         var block = McpCommand.RenderConnectorBlock("https://api.customer.internal");
         Assert.Contains("Connector address : https://api.customer.internal/mcp", block);
+    }
+
+    // ── #1483 — the proxy block uses only names the CLI reads ────────────────────────────────
+
+    [Fact]
+    public void A_self_hosted_proxy_block_names_the_canonical_variables_only()
+    {
+        var env = McpCommand.ProxyEnvironment("https://bella.customer.example");
+
+        // BELLA_API_URL / BELLA_API_KEY are aliases the CLI INJECTS into children; it never reads them,
+        // so a pasted block that used them pointed the proxy at the hosted service.
+        Assert.Equal(["BELLA_BAXTER_API_KEY", "BELLA_BAXTER_URL"], env.Keys.Order(StringComparer.Ordinal));
+    }
+
+    [Fact]
+    public void The_address_in_the_printed_block_is_the_one_the_cli_resolves_when_it_is_exported()
+    {
+        const string SelfHosted = "https://bella.customer.example";
+        var saved = Environment.GetEnvironmentVariable("BELLA_BAXTER_URL");
+        var savedLegacy = Environment.GetEnvironmentVariable("BAXTER_URL");
+        try
+        {
+            Environment.SetEnvironmentVariable("BAXTER_URL", null);
+            Environment.SetEnvironmentVariable("BELLA_BAXTER_URL", null);
+            foreach (var (name, value) in McpCommand.ProxyEnvironment(SelfHosted).Where(kv => kv.Key.EndsWith("_URL", StringComparison.Ordinal)))
+                Environment.SetEnvironmentVariable(name, value);
+
+            // The machine default is the hosted service: if the printed name is not one ConfigService reads,
+            // this is what comes back instead of the self-hosted address.
+            var config = new ConfigService(new BellaConfig("https://api.bella-baxter.io"));
+
+            Assert.Equal(SelfHosted, config.ApiUrl);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("BELLA_BAXTER_URL", saved);
+            Environment.SetEnvironmentVariable("BAXTER_URL", savedLegacy);
+        }
+    }
+
+    [Fact]
+    public void The_hosted_default_prints_no_address_override()
+    {
+        var env = McpCommand.ProxyEnvironment(BellaConfig.DefaultApiUrl);
+
+        Assert.Equal(["BELLA_BAXTER_API_KEY"], env.Keys);
     }
 }
