@@ -247,6 +247,12 @@ public class SetSecretCommand(
                         // a bare catch here turned every failure — a 403, a validation error, a
                         // network fault — into a create attempt, and the operator was then shown the
                         // CREATE error, which describes the wrong problem.
+                        //
+                        // #1476: the server's PUT is an upsert, so for a caller with no scope limit it
+                        // creates a missing key itself (secret.created, audit `create`) and this 404
+                        // never comes. It is NOT dead: a scope-limited token gets 404 from a PUT on a
+                        // key that is not registered (it may not change what it may not read), and
+                        // POST is the path that stamps such a token's scopes on what it creates.
                         try
                         {
                             await client
