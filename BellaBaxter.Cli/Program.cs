@@ -299,7 +299,7 @@ app.Configure(config =>
                 .WithDescription("Update a project.");
             projects
                 .AddCommand<DeleteProjectCommand>("delete")
-                .WithDescription("Delete a project.");
+                .WithDescription("Delete a project after showing what it destroys.");
         }
     );
 

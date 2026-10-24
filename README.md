@@ -593,7 +593,8 @@ bella projects list           List projects
 bella projects get <slug>     Get project details
 bella projects create         Create a project
 bella projects update         Update a project
-bella projects delete         Delete a project
+bella projects delete         Show what deleting destroys, then delete after typing the slug
+                              (--dry-run; unattended: --yes --confirm <slug>; --force = --yes)
 
 bella environments list       List environments
 bella environments get        Get environment details
