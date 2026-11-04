@@ -394,7 +394,7 @@ public class KeylessCommandsTests : KeylessFixture
 
     private static RunCommand NewRun(FakeKeyless keyless, CredentialStore credentials, RecordingOutput output) =>
         // Provider, context and ZKE selection are only reached once a client is chosen; every test below ends before.
-        new(null!, credentials, null!, keyless, null!, output);
+        new(null!, credentials, null!, keyless, null!, null!, output);
 
     private static Task<int> Run(RunCommand command, RunCommand.Settings settings) =>
         ((ICommand)command).ExecuteAsync(NoRemaining("run"), settings, Ct);

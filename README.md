@@ -698,7 +698,7 @@ bella run -p myproject -e production -- node server.js
 Options:
 - `--project / -p` — project slug or ID (required unless a `.bella` file is present)
 - `--environment / -e` — environment slug or ID (required unless a `.bella` file is present)
-- `--provider` — target a specific provider if the environment has multiple
+- `--provider` — read only this provider's secrets, on top of the project's global secrets. With `--watch`, a change in any provider of the environment restarts the process.
 - `--watch` — poll for secret changes and restart the process when they change
 - `--poll-interval <seconds>` — how often to poll (default: `30`)
 - `--signal restart|sighup` — how to reload: `restart` (default) kills and respawns; `sighup` sends SIGHUP

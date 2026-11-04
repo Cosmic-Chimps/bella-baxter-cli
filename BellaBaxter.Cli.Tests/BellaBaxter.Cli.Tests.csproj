@@ -30,6 +30,10 @@
     <!-- #1317: TestConsole drives the real prompt + the real status display (the confirmer was
          injected before, which is how the spinner/prompt clash escaped). -->
     <PackageReference Include="Spectre.Console.Testing" />
+
+    <!-- #1618: CommandAppTester runs the real command tree through the real parser, with the shipped
+         CliParsing policy, so an undeclared option is proven to be refused before anything is resolved. -->
+    <PackageReference Include="Spectre.Console.Cli.Testing" />
   </ItemGroup>
 
   <ItemGroup>

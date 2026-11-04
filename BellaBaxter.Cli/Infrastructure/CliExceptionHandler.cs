@@ -13,19 +13,34 @@ namespace BellaCli.Infrastructure;
 /// <c>.bella</c> server — stderr, exit 1, nothing sent — therefore came out as stdout and 255.</para>
 ///
 /// <para>Installing ANY handler replaces Spectre's rendering, so everything that is not that refusal is
-/// rendered the way Spectre does it (parse errors keep their usage snippet and exit code), instead of
+/// rendered the way Spectre does it (exit code included; parse errors are the exception, see below), instead of
 /// switching the whole CLI to <c>PropagateExceptions</c>, which would turn every command error into a crash.</para>
 /// </summary>
 public static class CliExceptionHandler
 {
     /// <summary>Returns the process exit code for <paramref name="ex"/>.</summary>
-    public static int Handle(Exception ex, IAnsiConsole console, TextWriter stderr, int cancellationExitCode)
+    /// <param name="arguments">What Spectre parsed (nothing after <c>--</c>); read, never echoed.</param>
+    public static int Handle(
+        Exception ex,
+        IAnsiConsole console,
+        TextWriter stderr,
+        int cancellationExitCode,
+        IReadOnlyList<string> arguments)
     {
         // Advisory clients-1 follow-up — an untrusted .bella server is a refusal with a fix, not a crash.
         if (OriginTrustPrompt.Find(ex) is { } untrusted)
         {
             stderr.WriteLine(untrusted.Message);
             return 1;
+        }
+
+        // #1618 — any parse error. Spectre's rendering would repeat the whole command line, a token value
+        // included. An option the command does not declare gets its own text (the option, never its value; S1, S4);
+        // every other parse error gets Spectre's message alone (B2). Stderr, Spectre's exit code (255).
+        if (ex is CommandParseException parseError)
+        {
+            stderr.WriteLine(UnknownOptionRefusal.Describe(ex, arguments) ?? UnknownOptionRefusal.ParseErrorMessage(parseError));
+            return -1;
         }
 
         // Spectre's own behaviour, unchanged (CommandApp.RunAsync in Spectre.Console.Cli 0.55).

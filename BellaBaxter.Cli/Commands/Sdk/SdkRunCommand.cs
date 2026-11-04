@@ -417,7 +417,8 @@ public class SdkRunCommand(
     /// </summary>
     protected static string[] MergeArgs(string[] cmd, CommandContext context)
     {
-        var stripped = PassthroughArgsHolder.Get().Where(a => a != "--").ToList();
+        // Program.cs already dropped the first "--"; any later "--" belongs to the child (`npm run x -- --watch`), so it is kept.
+        var stripped = PassthroughArgsHolder.Get().ToList();
         if (stripped.Count > 0) return [.. stripped];
 
         var positional = cmd.Where(a => a != "--").ToList();

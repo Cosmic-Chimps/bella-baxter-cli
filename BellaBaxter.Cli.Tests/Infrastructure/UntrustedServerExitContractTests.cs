@@ -101,15 +101,15 @@ public class UntrustedServerExitContractTests : IDisposable
     }
 
     [Fact]
-    public async Task Other_errors_keep_Spectres_rendering_and_exit_code()
+    public async Task A_parse_error_keeps_Spectres_exit_code_and_is_its_message_alone_on_stderr()
     {
-        // The handler that maps the refusal must not change anything else: a parse error is still Spectre's
-        // own "Error:" block with its usage snippet on stdout, exit 255 (-1).
+        // The handler that maps the refusal keeps Spectre's exit code, 255 (-1). Since #1618 (Security B2) a parse
+        // error is no longer Spectre's block on stdout: that block repeats the command line, so only the message
+        // is written, on stderr.
         var (exit, stdout, stderr) = await RunAsync("nonsense");
 
         Assert.Equal(255, exit);
-        Assert.Contains("Error: Unknown command 'nonsense'.", stdout, StringComparison.Ordinal);
-        Assert.Contains("No such command", stdout, StringComparison.Ordinal);
-        Assert.Equal(string.Empty, stderr);
+        Assert.Equal(string.Empty, stdout);
+        Assert.Equal("Unknown command 'nonsense'.", stderr.TrimEnd());
     }
 }

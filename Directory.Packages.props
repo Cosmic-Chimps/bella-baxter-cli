@@ -22,6 +22,9 @@
     <PackageVersion Include="Spectre.Console.Cli" Version="0.55.0" />
     <!-- Tests only: TestConsole, so a prompt and a status display can be exercised for real (#1317). -->
     <PackageVersion Include="Spectre.Console.Testing" Version="0.55.2" />
+    <!-- Tests only: CommandAppTester, so the parser is exercised with the shipped configuration (#1618). It moved
+         out of Spectre.Console.Testing when Spectre.Console.Cli became its own repository; pinned to the Cli version. -->
+    <PackageVersion Include="Spectre.Console.Cli.Testing" Version="0.55.0" />
 
     <!-- Generated API client transport/serialization (Kiota) -->
     <PackageVersion Include="Microsoft.Kiota.Http.HttpClientLibrary" Version="1.22.1" />

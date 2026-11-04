@@ -183,7 +183,7 @@ public class KeylessRunPresentsItsBoundKeyTests : KeylessFixture
         var keyless = NewKeyless();
         keyless.IssuedKey = new OidcExchangeResult(
             "bax-0123456789abcdef0123456789abcdef-0123456789abcdef0123456789abcdef", DateTimeOffset.UtcNow.AddMinutes(10));
-        var command = new RunCommand(provider, credentials, new ContextService(config, output, credentials), keyless, null!, output);
+        var command = new RunCommand(provider, credentials, new ContextService(config, output, credentials), keyless, null!, null!, output);
 
         await ((ICommand)command).ExecuteAsync(
             NoRemaining("run"),

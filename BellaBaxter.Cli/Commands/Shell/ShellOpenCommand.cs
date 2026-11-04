@@ -1,3 +1,4 @@
+using BellaCli.Commands;
 using BellaCli.Services;
 using Spectre.Console;
 using Spectre.Console.Cli;
@@ -95,7 +96,15 @@ public class ShellOpenCommand(ConfigService config, CredentialStore credentials)
         }
 
         // ── Check for command to run (args after --) ─────────────────────────
-        var remainingArgs = context.Remaining.Raw.ToArray();
+        // #1618 — Program.cs strips everything after '--' into PassthroughArgsHolder before Spectre parses (so a
+        // child flag like -auto-approve never reaches the parser); this command read only Remaining.Raw, which
+        // that strip leaves empty, and opened an interactive shell instead of running the command. Same merge
+        // as run/sdk run/exec: the stripped args first, Remaining.Raw as the fallback.
+        // Program.cs already dropped the first "--"; any later "--" belongs to the child (`npm run x -- --watch`), so it is kept.
+        var stripped = PassthroughArgsHolder.Get().ToArray();
+        var remainingArgs = stripped.Length > 0
+            ? stripped
+            : context.Remaining.Raw.Where(a => a != "--").ToArray();
         if (remainingArgs.Length > 0)
             return RunCommand(remainingArgs, project, env, storedKey.Raw, config.ApiUrlFor(storedKey));
 

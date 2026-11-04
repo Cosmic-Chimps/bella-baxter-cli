@@ -18,6 +18,7 @@ public class RunCommand(
     ContextService contextService,
     WorkloadIdentityService workloadIdentity,
     ZkeClientSelection zkeSelection,
+    SecretProviderResolver providerResolver,
     IOutputWriter output
 ) : AsyncCommand<RunCommand.Settings>
 {
@@ -44,7 +45,10 @@ public class RunCommand(
         public string? Environment { get; set; }
 
         [CommandOption("--provider <slug>")]
-        [Description("Provider name to use (if environment has multiple)")]
+        [Description(
+            "Read only this provider's secrets, on top of the project's global secrets. "
+                + "With --watch, a change in any provider of the environment restarts the process."
+        )]
         public string? Provider { get; set; }
 
         [CommandOption("--watch")]
@@ -196,12 +200,23 @@ public class RunCommand(
             return 1;
         }
 
+        // #1616 — a named provider is verified before anything is read or started: it must be attached to the
+        // environment and store secrets, the same rule and the same text as every write (SecretProviderSelection).
+        // The resolver reports the refusal itself; the canonical slug comes back for the read.
+        string? provider = null;
+        if (!string.IsNullOrWhiteSpace(settings.Provider))
+        {
+            provider = await providerResolver.ResolveAsync(client, projectSlug, envSlug, settings.Provider, ct);
+            if (provider is null)
+                return 1;
+        }
+
         // Fetch secrets — ZkeDekHandler (if active) handles ECIES + DEK transparently
         Dictionary<string, string> secrets;
         long? initialVersion;
         try
         {
-            (secrets, initialVersion) = await FetchSecretsAsync(client, projectSlug, envSlug, ct);
+            (secrets, initialVersion) = await FetchSecretsAsync(client, projectSlug, envSlug, provider, ct);
         }
         catch (Exception ex)
         {
@@ -225,6 +240,7 @@ public class RunCommand(
                 initialVersion,
                 projectSlug,
                 envSlug,
+                provider,
                 settings,
                 ct
             );
@@ -238,29 +254,47 @@ public class RunCommand(
     /// <see cref="ZkeDekHandler"/>, ECIES decryption and ZKE bellabaxter:v1: decryption
     /// happen automatically inside the handler — this method just calls Kiota normally.
     /// </summary>
-    private static async Task<(
+    /// <param name="provider">
+    /// #1616 — when named, the read goes through the provider-scoped route plus the project's globals
+    /// (<see cref="RunSecretSources"/>), never through the bulk route that merges every provider. The bulk
+    /// response carries a version; the provider route does not, and <c>--watch</c> seeds its own from the
+    /// version endpoint anyway.
+    /// </param>
+    internal static async Task<(
         Dictionary<string, string> Secrets,
         long? Version
     )> FetchSecretsAsync(
         BellaClient client,
         string projectSlug,
         string envSlug,
+        string? provider,
         CancellationToken ct
     )
     {
-        var resp = await client
-            .Api.V1.Projects[projectSlug]
-            .Environments[envSlug]
-            .Secrets.GetAsync(null, ct);
+        Dictionary<string, string> secrets;
+        long? version = null;
 
-        var secrets =
-            resp?.Secrets?.AdditionalData?.ToStringDict()
-            ?? new Dictionary<string, string>(StringComparer.Ordinal);
+        if (provider is not null)
+        {
+            secrets = await RunSecretSources.ReadProviderAsync(client, projectSlug, envSlug, provider, ct);
+        }
+        else
+        {
+            var resp = await client
+                .Api.V1.Projects[projectSlug]
+                .Environments[envSlug]
+                .Secrets.GetAsync(null, ct);
+
+            secrets =
+                resp?.Secrets?.AdditionalData?.ToStringDict()
+                ?? new Dictionary<string, string>(StringComparer.Ordinal);
+            version = resp?.Version;
+        }
 
         if (secrets.Count == 0)
             AnsiConsole.MarkupLine("[yellow]⚠ No secrets found in this environment.[/]");
 
-        return (secrets, resp?.Version);
+        return (secrets, version);
     }
 
     private async Task<int> RunWithWatchAsync(
@@ -270,6 +304,7 @@ public class RunCommand(
         long? initialVersion,
         string projectSlug,
         string envSlug,
+        string? provider,
         Settings settings,
         CancellationToken ct
     )
@@ -350,7 +385,10 @@ public class RunCommand(
                         // IMPORTANT: update lastVersion only AFTER a successful fetch so that
                         // a transient fetch failure does not permanently consume the version
                         // bump (which would cause the change to be silently skipped forever).
-                        var (fresh, _) = await FetchSecretsAsync(client, projectSlug, envSlug, ct);
+                        // #1616 — the same route as the first read. The version polled above is the
+                        // ENVIRONMENT's, so with --provider a change in any of its providers lands here and
+                        // restarts the process: an extra restart, never wrong values (documented in --help).
+                        var (fresh, _) = await FetchSecretsAsync(client, projectSlug, envSlug, provider, ct);
 
                         // Commit the version only now that we have the new secrets.
                         lastVersion = newVersion;
@@ -547,7 +585,8 @@ public class RunCommand(
     private static string[] CollectArgs(string[] cmd, CommandContext context)
     {
         // Primary: args stripped before Spectre saw them (handles -auto-approve etc.)
-        var stripped = PassthroughArgsHolder.Get().Where(a => a != "--").ToList();
+        // Program.cs already dropped the first "--"; any later "--" belongs to the child (`npm run x -- --watch`), so it is kept.
+        var stripped = PassthroughArgsHolder.Get().ToList();
         if (stripped.Count > 0)
             return [.. stripped];
 

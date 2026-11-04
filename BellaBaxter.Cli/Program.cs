@@ -192,10 +192,10 @@ app.Configure(config =>
     config.SetApplicationName("bella");
     config.SetApplicationVersion(applicationVersion);
     config.ValidateExamples();
-    // #1313 — Spectre catches every exception inside RunAsync and prints it on stdout with exit 255, so the
-    // untrusted-.bella refusal (stderr, exit 1) has to be mapped HERE; everything else is rendered as before.
-    config.SetExceptionHandler((ex, _) =>
-        CliExceptionHandler.Handle(ex, AnsiConsole.Console, Console.Error, config.Settings.CancellationExitCode));
+    // #1618 — strict parsing (an undeclared option is refused, exit 255) and the exception handler (#1313) live
+    // together in CliParsing so a test configures exactly what ships. `args` is read when an error is rendered,
+    // after the passthrough below has stripped everything after '--'.
+    CliParsing.Apply(config, AnsiConsole.Console, Console.Error, () => args);
 
     config
         .AddCommand<LoginCommand>("login")
