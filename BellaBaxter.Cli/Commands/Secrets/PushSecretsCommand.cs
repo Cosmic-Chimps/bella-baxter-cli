@@ -208,17 +208,4 @@ public class PushSecretsCommand(
             return 1;
         }
     }
-
-    private static bool IsSecretsProvider(EnvironmentProviderResponse prov) =>
-        prov.ProviderMetaType is not null
-            ? prov.ProviderMetaType == "Secrets"
-            : prov.ProviderType switch
-            {
-                "Vault" => true,
-                "AwsSecretsManager" => true,
-                "AwsParameterStore" => true,
-                "AzureKeyVault" => true,
-                "GoogleSecretManager" => true,
-                _ => false,
-            };
 }

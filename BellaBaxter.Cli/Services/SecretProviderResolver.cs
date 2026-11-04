@@ -12,19 +12,63 @@ namespace BellaCli.Services;
 // certificate-source, appliance, DNS, and deploy-script providers, so a secret write could be
 // aimed at a provider that does not store secrets purely on attachment order.
 //
-// The rule is: select by MEANING (ProviderMetaType == Secrets), never by position. One
-// candidate resolves silently — that keeps every ordinary single-store environment behaving
-// exactly as it did. More than one asks the operator. Ambiguity with nobody to ask REFUSES
+// The rule is: select by what the provider CAN DO (the server-published capability), never by
+// position. One candidate resolves silently — that keeps every ordinary single-store environment
+// behaving exactly as it did. More than one asks the operator. Ambiguity with nobody to ask REFUSES
 // rather than guessing (Constitution I — fail closed).
+//
+// #1617: "does this provider store secrets?" used to have two answers — meta-type here, adapter
+// capability on the server — and they disagree for VaultDatabase (meta-type Secrets, no adapter) and
+// HttpRest (meta-type Generic, adapter exists). The server now publishes its own answer
+// (supportsSecretsManagement) and this is the only place the CLI turns it into a decision.
 
-/// <summary>One provider attached to an environment, as far as destination selection cares.</summary>
-public sealed record SecretProviderCandidate(string Slug, string Type, string MetaType)
+/// <summary>
+/// The one predicate for "does this provider store secrets?", used by the destination resolver and by
+/// <c>secrets list</c> / <c>secrets push</c>. Do not write a second copy: three copies of one rule is
+/// what #1617 was.
+/// </summary>
+public static class SecretProviderCapability
 {
-    /// <summary>The meta-type that marks a provider as a store for application secrets.</summary>
+    /// <summary>The meta-type that marks a provider as a store for application secrets (fallback only).</summary>
     public const string SecretsMetaType = "Secrets";
 
+    /// <summary>
+    /// Capability when the server published it; otherwise the meta-type (an older server); otherwise, when the
+    /// server sent neither, the legacy list of provider types that were always stores.
+    /// </summary>
+    public static bool StoresSecrets(bool? supportsSecretsManagement, string? metaType, string? providerType)
+    {
+        if (supportsSecretsManagement is { } capability)
+            return capability;
+
+        if (metaType is not null)
+            return string.Equals(metaType, SecretsMetaType, StringComparison.OrdinalIgnoreCase);
+
+        return providerType is "Vault"
+            or "AwsSecretsManager"
+            or "AwsParameterStore"
+            or "AzureKeyVault"
+            or "GoogleSecretManager";
+    }
+
+    public static bool StoresSecrets(EnvironmentProviderResponse provider) =>
+        StoresSecrets(provider.SupportsSecretsManagement, provider.ProviderMetaType, provider.ProviderType);
+}
+
+/// <summary>One provider attached to an environment, as far as destination selection cares.</summary>
+/// <param name="SupportsSecretsManagement">
+/// What the server says: true when it can list, read and write secrets through this provider. Null when the
+/// server is older than #1617 and does not say.
+/// </param>
+public sealed record SecretProviderCandidate(
+    string Slug,
+    string Type,
+    string? MetaType,
+    bool? SupportsSecretsManagement = null
+)
+{
     public bool StoresSecrets =>
-        string.Equals(MetaType, SecretsMetaType, StringComparison.OrdinalIgnoreCase);
+        SecretProviderCapability.StoresSecrets(SupportsSecretsManagement, MetaType, Type);
 }
 
 public enum SecretProviderDecisionKind
@@ -166,7 +210,8 @@ public class SecretProviderResolver(IOutputWriter output)
             .Select(p => new SecretProviderCandidate(
                 Slug: p.ProviderSlug ?? p.ProviderId ?? string.Empty,
                 Type: p.ProviderType ?? "unknown",
-                MetaType: p.ProviderMetaType ?? "unknown"
+                MetaType: p.ProviderMetaType,
+                SupportsSecretsManagement: p.SupportsSecretsManagement
             ))
             .Where(p => !string.IsNullOrWhiteSpace(p.Slug))
             .ToList();

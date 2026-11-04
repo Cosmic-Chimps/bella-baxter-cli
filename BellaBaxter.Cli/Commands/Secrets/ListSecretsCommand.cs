@@ -110,7 +110,7 @@ public class ListSecretsCommand(
             // ── Per-provider secrets ──────────────────────────────────────────
             foreach (var prov in providerList)
             {
-                if (!IsSecretsProvider(prov))
+                if (!SecretProviderCapability.StoresSecrets(prov))
                 {
                     AnsiConsole.MarkupLine(
                         $"[dim]  Skipping {prov.ProviderName} ({prov.ProviderType}) — not a secrets storage provider.[/]"
@@ -165,22 +165,4 @@ public class ListSecretsCommand(
             return 1;
         }
     }
-
-    /// <summary>
-    /// Returns true for providers whose MetaType is Secrets — i.e. they support secrets CRUD
-    /// via the secrets API. Falls back to ProviderType check for older API versions that do not
-    /// yet return ProviderMetaType.
-    /// </summary>
-    private static bool IsSecretsProvider(EnvironmentProviderResponse prov) =>
-        prov.ProviderMetaType is not null
-            ? prov.ProviderMetaType == "Secrets"
-            : prov.ProviderType switch
-            {
-                "Vault" => true,
-                "AwsSecretsManager" => true,
-                "AwsParameterStore" => true,
-                "AzureKeyVault" => true,
-                "GoogleSecretManager" => true,
-                _ => false,
-            };
 }
