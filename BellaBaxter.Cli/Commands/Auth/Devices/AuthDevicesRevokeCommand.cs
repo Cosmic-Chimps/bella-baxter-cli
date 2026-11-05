@@ -11,16 +11,28 @@ public class AuthDevicesRevokeSettings : CommandSettings
     [CommandArgument(0, "<device>")]
     public string Device { get; set; } = string.Empty;
 
-    [System.ComponentModel.Description("Do not ask for confirmation")]
+    [System.ComponentModel.Description("Do not ask for confirmation. Never implies --rotate")]
     [CommandOption("-y|--yes")]
     public bool Yes { get; set; }
+
+    [System.ComponentModel.Description(
+        "After revoking, rotate the data keys the device received and re-seal what they protected (runs in the background)")]
+    [CommandOption("--rotate")]
+    public bool Rotate { get; set; }
+
+    [System.ComponentModel.Description("Output format: table (default) or json. json prints one document and never asks")]
+    [CommandOption("-o|--output <format>")]
+    public string? Output { get; set; }
 }
 
 /// <summary>
-/// bella auth devices revoke — withdraw a machine's ability to read secrets. spec 037 US3.
+/// bella auth devices revoke — withdraw a machine's ability to read secrets, and optionally rotate the data keys it was
+/// handed. spec 037 US3, spec 099.
 /// </summary>
 /// <remarks>
-/// Effective on that machine's very next request: the server holds no device cache, by design.
+/// Effective on that machine's very next request: the server holds no device cache, by design. The flow is
+/// <see cref="DeviceRevocation"/> (preview, revoke, rotate); this class wires the terminal and the exit code.
+/// Exit codes: 0, 1, and 2 (revoked, but <c>--rotate</c> did not start the rotation).
 /// </remarks>
 public class AuthDevicesRevokeCommand(
     BellaClientProvider provider,
@@ -31,80 +43,20 @@ public class AuthDevicesRevokeCommand(
     protected override async Task<int> ExecuteAsync(
         CommandContext context,
         AuthDevicesRevokeSettings settings,
-        CancellationToken ct
-    )
+        CancellationToken ct)
     {
         var client = provider.CreateClient();
 
-        Guid deviceId;
-        string? label = null;
-        var isThisMachine = false;
+        var options = new DeviceRevocation.Options(
+            settings.Device,
+            settings.Rotate,
+            settings.Yes,
+            Json: string.Equals(settings.Output, "json", StringComparison.OrdinalIgnoreCase),
+            Interactive: Interactivity.IsInteractive(output),
+            ThisMachineFingerprint: BellaBaxter.Crypto.DeviceFingerprint.ComputeFromBase64(zke.GetPublicKey()),
+            CallerIsApiKey: provider.UsesApiKey());
 
-        if (Guid.TryParse(settings.Device, out var parsed))
-        {
-            deviceId = parsed;
-        }
-        else
-        {
-            // A fingerprint is what a person has in front of them — it is what `auth status` and the
-            // console both print — so accept it and resolve it here rather than making them look up an id.
-            var devices = await client.Api.V1.Tenants.Me.Devices.GetAsync(
-                r => r.QueryParameters.Scope = "tenant", cancellationToken: ct);
-
-            var match = devices?.FirstOrDefault(d =>
-                string.Equals(d.Fingerprint, settings.Device, StringComparison.Ordinal));
-
-            if (match?.Id is null)
-            {
-                output.WriteError($"No device matches '{settings.Device}'.", "not-found");
-                return 1;
-            }
-
-            deviceId = match.Id.Value;
-            label = match.Label;
-        }
-
-        var thisFingerprint = BellaBaxter.Crypto.DeviceFingerprint.ComputeFromBase64(zke.GetPublicKey());
-        if (thisFingerprint is not null && settings.Device == thisFingerprint)
-            isThisMachine = true;
-
-        if (!settings.Yes && Interactivity.IsInteractive(output))
-        {
-            AnsiConsole.MarkupLine(
-                "[yellow]Revoking stops that machine from reading secrets on its next request.[/]");
-            AnsiConsole.MarkupLine(
-                "[yellow]It does NOT un-share what it already holds: an environment key already cached "
-                + "there still decrypts the values it decrypted before.[/]");
-
-            if (isThisMachine)
-                AnsiConsole.MarkupLine("[red]This is THIS machine — your next read will be refused.[/]");
-
-            if (!AnsiConsole.Confirm($"Revoke device {label ?? settings.Device}?", defaultValue: false))
-            {
-                output.WriteInfo("Nothing was revoked.");
-                return 0;
-            }
-        }
-
-        try
-        {
-            await client.Api.V1.Tenants.Me.Devices[deviceId].DeleteAsync(cancellationToken: ct);
-        }
-        catch (Microsoft.Kiota.Abstractions.ApiException ex) when (ex.ResponseStatusCode == 404)
-        {
-            // 404 also covers "not yours and you are not an admin" — the server does not distinguish,
-            // deliberately, so neither does this message.
-            output.WriteError("No such device, or it is not yours to revoke.", "not-found");
-            return 1;
-        }
-        catch (Exception ex)
-        {
-            output.WriteError($"Could not revoke the device: {ex.Message}");
-            return 1;
-        }
-
-        output.WriteSuccess(
-            $"Device revoked.{(isThisMachine ? " This machine's next secret read or credential request will be refused; run 'bella auth setup' to register again." : "")}");
-        return 0;
+        return await DeviceRevocation.RunAsync(
+            client, options, output, question => AnsiConsole.Confirm(question, defaultValue: false), ct);
     }
 }

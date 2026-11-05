@@ -267,9 +267,13 @@ app.Configure(config =>
                     devices.AddCommand<AuthDevicesRevokeCommand>("revoke")
                         .WithDescription(
                             "Revoke a device by id or full fingerprint. Effective on that machine's next "
-                            + "request; does not un-share an environment key it already cached.")
+                            + "request; does not un-share an environment key it already cached. "
+                            + "--rotate also rotates the data keys it received (revocation stops access, not knowledge: "
+                            + "rotate the secrets it read too). Exit 2: revoked, but the rotation did not start.")
                         .WithExample("auth", "devices", "revoke", "SHA256:abc...")
-                        .WithExample("auth", "devices", "revoke", "<id>", "--yes");
+                        .WithExample("auth", "devices", "revoke", "SHA256:abc...", "--rotate")
+                        .WithExample("auth", "devices", "revoke", "<id>", "--yes")
+                        .WithExample("auth", "devices", "revoke", "<id>", "--yes", "--rotate", "-o", "json");
                 }
             );
             auth.AddCommand<AuthOidcCommand>("oidc")
