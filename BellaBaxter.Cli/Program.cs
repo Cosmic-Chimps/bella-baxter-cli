@@ -873,13 +873,17 @@ app.Configure(config =>
             spiffe.SetDescription("Workload identity (SPIFFE): local evidence and the SVID agent.");
             spiffe.AddCommand<SpiffeWhoAmICommand>("whoami")
                 .WithDescription(
-                    "Show what node evidence this host can present to attestation. Makes no network call.")
+                    "Show what node evidence this host can present to attestation (--node-type k8s, aws-iid or nomad). "
+                    + "Makes no network call.")
                 .WithExample("spiffe", "whoami")
-                .WithExample("spiffe", "whoami", "--json");
+                .WithExample("spiffe", "whoami", "--json")
+                .WithExample("spiffe", "whoami", "--node-type", "nomad");
             spiffe.AddCommand<SpiffeAgentCommand>("agent")
                 .WithDescription(
-                    "Run the SVID agent: attest, hold the identity in memory, renew before expiry.")
-                .WithExample("spiffe", "agent", "--environment-id", "<guid>", "--name", "billing-service");
+                    "Run the SVID agent: attest, hold the identity in memory, renew before expiry. "
+                    + "Node evidence: k8s (default), aws-iid or nomad.")
+                .WithExample("spiffe", "agent", "--environment-id", "<guid>", "--name", "billing-service")
+                .WithExample("spiffe", "agent", "--node-type", "nomad", "--environment-id", "<guid>", "--name", "billing-service");
             spiffe.AddCommand<SpiffeAddCommand>("add")
                 .WithDescription("Register a workload identity and print the SPIFFE ID it was assigned.")
                 .WithExample("spiffe", "add", "--name", "billing-service",

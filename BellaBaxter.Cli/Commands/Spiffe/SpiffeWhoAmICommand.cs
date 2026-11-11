@@ -26,8 +26,19 @@ public class SpiffeWhoAmISettings : CommandSettings
 
     [CommandOption("--node-type <TYPE>")]
     [System.ComponentModel.Description(
-        "k8s (default) or aws-iid. aws-iid reads this EC2 instance's identity document over IMDSv2.")]
+        "k8s (default), aws-iid or nomad. aws-iid reads this EC2 instance's identity document over IMDSv2; "
+        + "nomad inspects the task's named workload identity.")]
     public string? NodeType { get; init; }
+
+    [CommandOption("--nomad-identity <NAME>")]
+    [System.ComponentModel.Description("Nomad: the name of the task's identity block. Also BELLA_NOMAD_IDENTITY; defaults to bella.")]
+    public string? NomadIdentity { get; init; }
+
+    [CommandOption("--nomad-identity-path <PATH>")]
+    [System.ComponentModel.Description(
+        "Nomad: the identity token file to inspect, resolved as the agent resolves it (flag, BELLA_NOMAD_IDENTITY_PATH, "
+        + "the named identity's file in $NOMAD_SECRETS_DIR, its NOMAD_TOKEN_<name> variable).")]
+    public string? NomadIdentityPath { get; init; }
 
     [CommandOption("--state-dir <DIR>")]
     [System.ComponentModel.Description("The agent's state directory (aws-iid), as the agent resolves it.")]
@@ -45,6 +56,11 @@ public class SpiffeWhoAmISettings : CommandSettings
 
     [CommandOption("--json")]
     public bool Json { get; init; }
+
+    public override Spectre.Console.ValidationResult Validate() =>
+        SpiffeNodeTypes.Refusal(NodeType) is { } refusal
+            ? Spectre.Console.ValidationResult.Error(refusal)
+            : Spectre.Console.ValidationResult.Success();
 }
 
 public class SpiffeWhoAmICommand(IOutputWriter output, GlobalSettings global, IHttpClientFactory httpClientFactory)
@@ -52,9 +68,58 @@ public class SpiffeWhoAmICommand(IOutputWriter output, GlobalSettings global, IH
 {
     protected override async Task<int> ExecuteAsync(
         CommandContext context, SpiffeWhoAmISettings settings, CancellationToken ct) =>
-        string.Equals(settings.NodeType, SpiffeAgentCommand.AwsNodeType, StringComparison.OrdinalIgnoreCase)
-            ? await AwsAsync(settings, ct)
-            : Kubernetes(settings);
+        SpiffeNodeTypes.Normalize(settings.NodeType) switch
+        {
+            SpiffeNodeTypes.AwsIid => await AwsAsync(settings, ct),
+            SpiffeNodeTypes.Nomad => await NomadAsync(settings, ct),
+            _ => Kubernetes(settings),
+        };
+
+    /// <summary>
+    /// Spec 081 (FR-023) — what this Nomad task would present: where the identity came from and its claims, read locally
+    /// and NOT verified. The token itself, its payload and its signature are never printed. No network call.
+    /// </summary>
+    internal Task<int> NomadAsync(SpiffeWhoAmISettings settings, CancellationToken ct)
+    {
+        var location = NomadIdentityPath.Resolve(settings.NomadIdentityPath, settings.NomadIdentity);
+        var report = NomadEvidence.Inspect(location);
+
+        if (settings.Json || global.IsJsonMode)
+        {
+            output.WriteObject(report);
+            // A problem is still an exit code in JSON mode, as for Kubernetes.
+            return Task.FromResult(report.Problem is null ? 0 : 1);
+        }
+
+        output.WriteInfo($"Node attestor: {report.NodeType}");
+        output.WriteInfo($"Identity: {report.IdentityName} (source: {report.Source}: {report.Path ?? report.Variable ?? "nothing found"})");
+
+        if (report.TokenPresent)
+        {
+            output.WriteInfo("Claims below are decoded locally and NOT verified; Bella verifies at attestation.");
+            if (report.Issuer is not null)
+                output.WriteInfo($"Issuer: {report.Issuer} (unverified)");
+            output.WriteInfo($"Audience: {(report.Audiences is { Count: > 0 } ? string.Join(", ", report.Audiences) : "(none)")} (unverified)");
+            if (report.ExpiresAt is { } expires)
+            {
+                var left = expires - DateTimeOffset.UtcNow;
+                output.WriteInfo($"Expires: {expires:yyyy-MM-ddTHH:mm:ssZ} ({(left > TimeSpan.Zero ? $"in {(int)left.TotalMinutes}m" : "EXPIRED")}) (unverified)");
+            }
+            if (report.LifetimeSeconds is { } lifetime)
+                output.WriteInfo($"Lifetime: {lifetime} s (unverified)");
+            foreach (var claim in report.NomadClaims!.OrderBy(c => c.Key, StringComparer.Ordinal))
+                output.WriteInfo($"{claim.Key}: {claim.Value} (unverified)");
+        }
+
+        if (report.Problem is not null)
+        {
+            output.WriteError(report.Problem);
+            return Task.FromResult(1);
+        }
+
+        output.WriteSuccess("Nomad identity is present and readable.");
+        return Task.FromResult(0);
+    }
 
     /// <summary>
     /// Spec 065 — what this EC2 instance would present: its identity document's claims (read locally and NOT verified)

@@ -18,6 +18,32 @@ namespace BellaCli.Commands.Spiffe;
 // reports what it resolved and refuses when something required is missing rather than starting and
 // dying on the first attestation.
 
+/// <summary>
+/// Spec 081 (FR-017) — the node attestors <c>--node-type</c> accepts. Anything else is refused: an unrecognised value
+/// used to be treated as Kubernetes, so a typo (<c>nomd</c>) attested with the pod's service-account token instead.
+/// </summary>
+public static class SpiffeNodeTypes
+{
+    /// <summary>Kubernetes service-account token (the default).</summary>
+    public const string Kubernetes = "k8s";
+
+    /// <summary>AWS EC2 instance identity document.</summary>
+    public const string AwsIid = "aws-iid";
+
+    /// <summary>Nomad workload identity.</summary>
+    public const string Nomad = NomadEvidence.NodeType;
+
+    /// <summary>The value in canonical (lower-case) form; null when none was given.</summary>
+    public static string? Normalize(string? nodeType) =>
+        string.IsNullOrWhiteSpace(nodeType) ? null : nodeType.Trim().ToLowerInvariant();
+
+    /// <summary>Why <paramref name="nodeType"/> is refused, or null when it is accepted (or absent).</summary>
+    public static string? Refusal(string? nodeType) =>
+        Normalize(nodeType) is null or Kubernetes or AwsIid or Nomad
+            ? null
+            : $"'{nodeType}' is not a node type. --node-type accepts {Kubernetes}, {AwsIid} or {Nomad}.";
+}
+
 public class SpiffeAgentSettings : CommandSettings
 {
     [CommandOption("-e|--environment-id <GUID>")]
@@ -32,8 +58,20 @@ public class SpiffeAgentSettings : CommandSettings
 
     [CommandOption("--node-type <TYPE>")]
     [System.ComponentModel.Description(
-        "Node attestor: k8s (default) or aws-iid. aws-iid reads this EC2 instance's identity document over IMDSv2.")]
+        "Node attestor: k8s (default), aws-iid or nomad. aws-iid reads this EC2 instance's identity document over IMDSv2; "
+        + "nomad presents the task's named workload identity.")]
     public string? NodeType { get; init; }
+
+    [CommandOption("--nomad-identity <NAME>")]
+    [System.ComponentModel.Description(
+        "Nomad: the name of the task's identity block. Also BELLA_NOMAD_IDENTITY; defaults to bella.")]
+    public string? NomadIdentity { get; init; }
+
+    [CommandOption("--nomad-identity-path <PATH>")]
+    [System.ComponentModel.Description(
+        "Nomad: the identity token file to present. Also BELLA_NOMAD_IDENTITY_PATH; otherwise the named identity's file in "
+        + "$NOMAD_SECRETS_DIR, then its NOMAD_TOKEN_<name> variable. A path that is missing stops the agent.")]
+    public string? NomadIdentityPath { get; init; }
 
     [CommandOption("--node-token-path <PATH>")]
     [System.ComponentModel.Description(
@@ -54,6 +92,11 @@ public class SpiffeAgentSettings : CommandSettings
 
     [CommandOption("--json")]
     public bool Json { get; init; }
+
+    public override Spectre.Console.ValidationResult Validate() =>
+        SpiffeNodeTypes.Refusal(NodeType) is { } refusal
+            ? Spectre.Console.ValidationResult.Error(refusal)
+            : Spectre.Console.ValidationResult.Success();
 }
 
 public class SpiffeAgentCommand(
@@ -73,7 +116,29 @@ public class SpiffeAgentCommand(
     public const string BootstrapTokenVariable = "BELLA_BOOTSTRAP_TOKEN";
 
     /// <summary>Spec 065 — the node type that attests with this EC2 instance's identity document.</summary>
-    public const string AwsNodeType = "aws-iid";
+    public const string AwsNodeType = SpiffeNodeTypes.AwsIid;
+
+    /// <summary>Spec 081 — the node type that attests with the task's Nomad workload identity.</summary>
+    public const string NomadNodeType = SpiffeNodeTypes.Nomad;
+
+    /// <summary>
+    /// Spec 081 (FR-020) — why the agent refuses to start, if the Nomad identity was configured explicitly and is
+    /// unusable. Same posture as <see cref="NodeTokenStartupRefusal"/>: no fallback to another source.
+    /// </summary>
+    public static string? NomadStartupRefusal(NomadIdentityLocation location, NomadEvidenceReport evidence) =>
+        location.IsExplicit && evidence.Problem is not null ? evidence.Problem : null;
+
+    /// <summary>
+    /// Spec 081 (FR-019) — the reader the attestation calls EVERY time: it resolves nothing and caches nothing, so the
+    /// token Nomad rewrote at its renewal is the one presented next. Null when there is no JWT-shaped token to send.
+    /// </summary>
+    public static Func<string?> NomadNodeTokenReader(NomadIdentityLocation location) =>
+        () => NomadEvidence.ReadPresentable(location);
+
+    /// <summary>Spec 081 — the startup line naming where the identity comes from. Never the token.</summary>
+    public static string NomadStartupLine(NomadIdentityLocation location) =>
+        $"Node evidence: nomad identity '{location.Name}' from {location.Path ?? location.Variable ?? "nothing found"} "
+        + $"(source: {location.SourceName}); re-read at every attestation.";
 
     /// <summary>
     /// Spec 064 (FR-013) — why the agent refuses to start, if the node token was configured explicitly and is
@@ -149,16 +214,27 @@ public class SpiffeAgentCommand(
         // Spec 064 — resolved ONCE, from the flag/environment/.bella, so the startup line, the check below and every
         // later attestation agree about which file is the token.
         var nodeToken = NodeTokenPath.Resolve(settings.NodeTokenPath);
-        var aws = string.Equals(settings.NodeType, AwsNodeType, StringComparison.OrdinalIgnoreCase);
-        var evidence = aws
-            ? new NodeEvidenceReport(WorkloadPlatform.None, AwsNodeType, null, false, null, null)
+        // Validated by the settings; normalised here so a differently-cased value takes the same branch everywhere.
+        var requested = SpiffeNodeTypes.Normalize(settings.NodeType);
+        var aws = requested == AwsNodeType;
+        var nomad = requested == NomadNodeType;
+        // Spec 081 — resolved ONCE (flag, BELLA_NOMAD_IDENTITY_PATH, the secrets file, the variable), never from `.bella`.
+        var nomadLocation = nomad ? NomadIdentityPath.Resolve(settings.NomadIdentityPath, settings.NomadIdentity) : null;
+        var nomadEvidence = nomadLocation is null ? null : NomadEvidence.Inspect(nomadLocation);
+        var evidence = aws || nomad
+            ? new NodeEvidenceReport(WorkloadPlatform.None, requested, null, false, null, null)
             : NodeEvidence.Inspect(nodeToken);
-        if (!aws && NodeTokenStartupRefusal(nodeToken, evidence) is { } nodeTokenRefusal)
+        if (!aws && !nomad && NodeTokenStartupRefusal(nodeToken, evidence) is { } nodeTokenRefusal)
         {
             output.WriteError(nodeTokenRefusal);
             return 1;
         }
-        var nodeType = settings.NodeType ?? evidence.NodeType ?? "k8s";
+        if (nomadLocation is not null && NomadStartupRefusal(nomadLocation, nomadEvidence!) is { } nomadRefusal)
+        {
+            output.WriteError(nomadRefusal);
+            return 1;
+        }
+        var nodeType = requested ?? evidence.NodeType ?? SpiffeNodeTypes.Kubernetes;
 
         var httpClient = httpClientFactory.CreateClient(nameof(SpiffeAgentCommand));
         // Advisory clients-1 — the node credential is not sent to a server a .bella chose.
@@ -207,9 +283,11 @@ public class SpiffeAgentCommand(
             nodeType,
             // Re-read on every attestation: a Kubernetes projected token is rotated underneath us,
             // so a value captured here would be stale by the first renewal.
-            ReadNodeToken: () => !aws && NodeEvidence.Inspect(nodeToken).TokenPresent
-                ? File.ReadAllText(nodeToken.Path).Trim()
-                : null,
+            ReadNodeToken: nomadLocation is not null
+                ? NomadNodeTokenReader(nomadLocation)
+                : () => !aws && NodeEvidence.Inspect(nodeToken).TokenPresent
+                    ? File.ReadAllText(nodeToken.Path).Trim()
+                    : null,
             ReadNodeTokenAsync: imds is null ? null : async token => await imds.ReadEnvelopeAsync(token),
             Credentials: credentials);
 
@@ -231,6 +309,14 @@ public class SpiffeAgentCommand(
 
         output.WriteInfo($"Attesting workload '{workloadName}' in environment {environmentId:D}.");
         output.WriteInfo($"Local endpoint: {location.Path} (from {location.Source}).");
+        if (nomadLocation is not null)
+        {
+            output.WriteInfo(NomadStartupLine(nomadLocation));
+            // A warning rather than a refusal, as for Kubernetes: the agent cannot know the environment's policy
+            // before it asks. An identity the operator NAMED has already been refused above.
+            if (nomadEvidence!.Problem is not null)
+                output.WriteWarning(nomadEvidence.Problem);
+        }
         if (evidence.Platform == WorkloadPlatform.Kubernetes)
             output.WriteInfo($"Node token: {nodeToken.Path} (source: {nodeToken.SourceName}).");
         if (KubeletDefaultTokenWarning(nodeToken, evidence) is { } kubeletWarning)

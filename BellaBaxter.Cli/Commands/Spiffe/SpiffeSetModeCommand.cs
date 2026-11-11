@@ -105,11 +105,51 @@ public class SpiffeSetModeSettings : CommandSettings
         "Enforce even though recent admissions presented another audience, or nothing has been measured yet.")]
     public bool AcknowledgeAudienceRefusals { get; init; }
 
+    // ── Spec 081: the Nomad node evidence ───────────────────────────────────────
+    // Same three-valued rule as every flag above: not passed is not sent, clearing is its own flag. There is no
+    // enforce/observe pair for Nomad: its audience is always enforced (FR-006).
+
+    [CommandOption("--nomad-oidc <URL>")]
+    [System.ComponentModel.Description(
+        "https address of the Nomad server that signs workload identities (its OIDC issuer).")]
+    public string? NomadOidcUrl { get; init; }
+
+    [CommandOption("--clear-nomad-oidc")]
+    [System.ComponentModel.Description("Stop verifying Nomad evidence against any Nomad issuer.")]
+    public bool ClearNomadOidc { get; init; }
+
+    [CommandOption("--nomad-audience <VALUE>")]
+    [System.ComponentModel.Description(
+        "Audience a Nomad workload identity must carry to count as node evidence here. Always enforced.")]
+    public string? NomadAudience { get; init; }
+
+    [CommandOption("--nomad-audience-recommended")]
+    [System.ComponentModel.Description(
+        "Use this environment's own unique Nomad audience (bella-spiffe/<environment id>).")]
+    public bool NomadAudienceRecommended { get; init; }
+
+    [CommandOption("--clear-nomad-audience")]
+    [System.ComponentModel.Description("Go back to the platform default audience, bella-spiffe (shared by every environment that keeps it).")]
+    public bool ClearNomadAudience { get; init; }
+
     [CommandOption("--json")]
     public bool Json { get; init; }
 
     public override Spectre.Console.ValidationResult Validate()
     {
+        var nomadAudienceChoices = (string.IsNullOrWhiteSpace(NomadAudience) ? 0 : 1) + (NomadAudienceRecommended ? 1 : 0) + (ClearNomadAudience ? 1 : 0);
+        if (nomadAudienceChoices > 1)
+        {
+            return Spectre.Console.ValidationResult.Error(
+                "Pass at most one of --nomad-audience, --nomad-audience-recommended and --clear-nomad-audience.");
+        }
+
+        if (ClearNomadOidc && !string.IsNullOrWhiteSpace(NomadOidcUrl))
+        {
+            return Spectre.Console.ValidationResult.Error(
+                "Pass either --nomad-oidc or --clear-nomad-oidc, not both.");
+        }
+
         var audienceChoices = (string.IsNullOrWhiteSpace(K8sAudience) ? 0 : 1) + (K8sAudienceRecommended ? 1 : 0) + (ClearK8sAudience ? 1 : 0);
         if (audienceChoices > 1)
         {
@@ -187,6 +227,27 @@ public class SpiffeSetModeSettings : CommandSettings
             }
         }
 
+        // Spec 081 — the same trust-anchor rule for the Nomad issuer, in Nomad's words. The server refuses it too
+        // (`nomad_oidc_not_https`); keep this wording in step with it.
+        var nomadUrl = NomadOidcUrl?.Trim();
+        if (!string.IsNullOrEmpty(nomadUrl))
+        {
+            if (!Uri.TryCreate(nomadUrl, UriKind.Absolute, out var nomadUri))
+            {
+                return Spectre.Console.ValidationResult.Error(
+                    "--nomad-oidc must be an absolute URL beginning with https:// "
+                    + "(for example https://nomad.example.com).");
+            }
+
+            if (!string.Equals(nomadUri.Scheme, Uri.UriSchemeHttps, StringComparison.Ordinal))
+            {
+                return Spectre.Console.ValidationResult.Error(
+                    $"--nomad-oidc must use https (got '{nomadUri.Scheme}'). Bella fetches the Nomad server's "
+                    + "token signing keys from this address and refuses an unencrypted one, so this "
+                    + "value could not be used.");
+            }
+        }
+
         // Caught here rather than at the server so the operator sees which value is wrong next to the
         // flag they typed. The server refuses it too — this is the friendlier of two closed doors.
         var malformed = AwsAccounts
@@ -235,15 +296,32 @@ public class SpiffeSetModeCommand(
             string? audience = settings.ClearK8sAudience
                 ? string.Empty
                 : string.IsNullOrWhiteSpace(settings.K8sAudience) ? null : settings.K8sAudience.Trim();
-            if (settings.K8sAudienceRecommended)
+            // Spec 081 — Nomad's, same three-valued rule. Its recommended value is the server's too.
+            string? nomadAudience = settings.ClearNomadAudience
+                ? string.Empty
+                : string.IsNullOrWhiteSpace(settings.NomadAudience) ? null : settings.NomadAudience.Trim();
+            if (settings.K8sAudienceRecommended || settings.NomadAudienceRecommended)
             {
                 var current = await client.Api.V1.Projects[projectSlug].Environments[envSlug]
                     .SpiffeSettings.GetAsync(cancellationToken: ct);
-                audience = current?.K8sRecommendedAudience;
-                if (string.IsNullOrWhiteSpace(audience))
+                if (settings.K8sAudienceRecommended)
                 {
-                    output.WriteError("The server did not return a recommended audience for this environment.");
-                    return 1;
+                    audience = current?.K8sRecommendedAudience;
+                    if (string.IsNullOrWhiteSpace(audience))
+                    {
+                        output.WriteError("The server did not return a recommended audience for this environment.");
+                        return 1;
+                    }
+                }
+
+                if (settings.NomadAudienceRecommended)
+                {
+                    nomadAudience = current?.NomadRecommendedAudience;
+                    if (string.IsNullOrWhiteSpace(nomadAudience))
+                    {
+                        output.WriteError("The server did not return a recommended Nomad audience for this environment.");
+                        return 1;
+                    }
                 }
             }
 
@@ -266,6 +344,11 @@ public class SpiffeSetModeCommand(
                 K8sExpectedAudience = audience,
                 K8sAudienceEnforced = settings.EnforceAudience ? true : settings.ObserveAudience ? false : null,
                 AcknowledgeAudienceRefusals = settings.AcknowledgeAudienceRefusals,
+                // Spec 081 — not passed is not sent; clearing sends "".
+                NomadOidcIssuerUrl = settings.ClearNomadOidc
+                    ? string.Empty
+                    : string.IsNullOrWhiteSpace(settings.NomadOidcUrl) ? null : settings.NomadOidcUrl.Trim(),
+                NomadExpectedAudience = nomadAudience,
             };
 
             BellaBaxter.Client.Models.SpiffeSettingsResponse? result;
@@ -289,7 +372,7 @@ public class SpiffeSetModeCommand(
                 when (problem.ResponseStatusCode == 409 && AudienceProblem.Is(problem, AudienceProblem.InUse))
             {
                 output.WriteError(problem.Detail ?? "This audience is already used by another environment.");
-                output.WriteInfo("Choose a different value, or use --k8s-audience-recommended.");
+                output.WriteInfo("Choose a different value, or use --k8s-audience-recommended / --nomad-audience-recommended.");
                 return 1;
             }
             catch (BellaBaxter.Client.Models.ProblemDetails problem) when (problem.ResponseStatusCode == 409)
@@ -342,6 +425,10 @@ public class SpiffeSetModeCommand(
                     k8sRecommendedAudience = result.K8sRecommendedAudience,
                     k8sAudienceEnforced = result.K8sAudienceEnforced,
                     audienceNotice = result.AudienceNotice,
+                    nomadOidcIssuerUrl = result.NomadOidcIssuerUrl,
+                    nomadExpectedAudience = result.NomadExpectedAudience,
+                    nomadRecommendedAudience = result.NomadRecommendedAudience,
+                    nomadOidcIssuerProblem = result.StrictReadiness?.NomadOidcIssuerProblem,
                 });
                 return 0;
             }
@@ -357,11 +444,18 @@ public class SpiffeSetModeCommand(
             table.AddRow("Node token audience", Markup.Escape(result.K8sExpectedAudience ?? "—")
                 + (result.K8sAudienceIsDefault == true ? " [yellow](shared default)[/]" : string.Empty));
             table.AddRow("Audience enforcement", result.K8sAudienceEnforced == true ? "enforced" : "[yellow]observed only[/]");
+            table.AddRow("Nomad OIDC issuer", string.IsNullOrEmpty(result.NomadOidcIssuerUrl)
+                ? "[yellow]not configured[/]" : Markup.Escape(result.NomadOidcIssuerUrl));
+            table.AddRow("Nomad token audience", Markup.Escape(result.NomadExpectedAudience ?? "—") + " (always enforced)");
             table.AddRow("AWS accounts",
                 result.AwsIidAllowedAccounts is { Count: > 0 } accts
                     ? string.Join(", ", accts)
                     : "[yellow]none[/]");
             AnsiConsole.Write(table);
+
+            // Spec 081 — why a recorded Nomad address cannot be used, in the server's own words.
+            if (!string.IsNullOrWhiteSpace(result.StrictReadiness?.NomadOidcIssuerProblem))
+                output.WriteWarning(result.StrictReadiness.NomadOidcIssuerProblem);
 
             // Printed whenever the allow-list is empty, because an empty list is not a safe default:
             // any AWS account's signed instance identity document can attest, and only each workload's

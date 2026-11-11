@@ -183,40 +183,18 @@ public static class NodeEvidence
         _ => location.SourceName,
     };
 
+    // Spec 081 T023: the local decode is `UnverifiedJwtClaims`, shared with `NomadEvidence`.
     private static bool TryDecode(string token, out IReadOnlyList<string> audiences, out string? issuer, out DateTimeOffset? expiresAt)
     {
         audiences = [];
         issuer = null;
         expiresAt = null;
-        if (token.Split('.').Length != 3)
+        if (!UnverifiedJwtClaims.TryRead(token, out var claims))
             return false;
-        try
-        {
-            var claims = AuthService.DecodeJwtPayload(token);
-            if (claims.Count == 0)
-                return false;
-            if (claims.TryGetValue("aud", out var aud))
-            {
-                audiences = aud.ValueKind switch
-                {
-                    System.Text.Json.JsonValueKind.String => [aud.GetString()!],
-                    System.Text.Json.JsonValueKind.Array => aud.EnumerateArray()
-                        .Where(a => a.ValueKind == System.Text.Json.JsonValueKind.String)
-                        .Select(a => a.GetString()!)
-                        .ToList(),
-                    _ => [],
-                };
-            }
-            if (claims.TryGetValue("iss", out var iss) && iss.ValueKind == System.Text.Json.JsonValueKind.String)
-                issuer = iss.GetString();
-            if (claims.TryGetValue("exp", out var exp) && exp.TryGetInt64(out var seconds))
-                expiresAt = DateTimeOffset.FromUnixTimeSeconds(seconds);
-            return true;
-        }
-        catch
-        {
-            return false;
-        }
+        audiences = UnverifiedJwtClaims.Audiences(claims);
+        issuer = UnverifiedJwtClaims.Text(claims, "iss");
+        expiresAt = UnverifiedJwtClaims.Time(claims, "exp");
+        return true;
     }
 
     private static string? ReadNamespace(Func<string, bool> exists, Func<string, string> read)
