@@ -48,8 +48,28 @@ public static class DeviceRevocation
 
     /// <summary>Only said when the device read a project that was on the organisation's key.</summary>
     public const string OrganisationKeyCopy =
-        "Organisation-level records (provider credentials, webhook and notification secrets, audit-stream and alert settings) "
-        + "stay under the organisation key and are NOT rotated.";
+        "Organisation-level records (provider credentials, webhook and notification secrets, and the audit-stream credential) "
+        + "stay under the organisation key and are NOT rotated by revoking. "
+        + "The organisation Owner can rotate the organisation key in the console: Settings, Encryption.";
+
+    /// <summary>Said instead of the count when the device's last read of the organisation key is older than its latest rotation (spec 106).</summary>
+    public const string OrganisationKeyRotatedAfterReadCopy =
+        "The organisation key was rotated after this device's last read of it.";
+
+    /// <summary>Said when the count could not be read. A failed read is never printed as 0 (spec 106).</summary>
+    public const string OrganisationKeyCountUnknownCopy =
+        "The number of organisation records a rotation would re-seal could not be determined.";
+
+    private static string OrganisationKeyOfferCopy(int records, int projects) =>
+        $"Rotating the organisation key would re-seal {records} organisation {(records == 1 ? "record" : "records")} "
+        + $"and give {projects} {(projects == 1 ? "project" : "projects")} their own key.";
+
+    /// <summary>What the preview of an organisation-key rotation said. <see cref="Asked"/> is false when the device did not use the key or the key was rotated since.</summary>
+    private sealed record OrganisationKeyCount(bool Asked, int? Records, int? Projects)
+    {
+        public static readonly OrganisationKeyCount NotAsked = new(false, null, null);
+        public bool Known => Records is not null && Projects is not null;
+    }
 
     public const string NotPermittedCopy =
         "You may not rotate those projects. Organisation Owners and Admins can rotate every affected project, and the managers of "
@@ -170,7 +190,12 @@ public static class DeviceRevocation
                 || string.Equals(fingerprint, options.ThisMachineFingerprint, StringComparison.Ordinal));
         var owedCount = exposure?.OwedCount ?? exposure?.Projects?.Count(p => p.Owed == true) ?? 0;
 
-        PrintPreview(Say, exposure, exposureError);
+        // The count is read only when it will be shown. A failure leaves the count unknown, never zero.
+        var organisationKey = OrganisationKeyCount.NotAsked;
+        if (exposure?.UsedOrganisationKey == true && exposure.OrganisationKeyRotatedAfterRead != true)
+            organisationKey = await ReadOrganisationKeyCountAsync(client, ct);
+
+        PrintPreview(Say, exposure, exposureError, organisationKey);
 
         // ── 3. confirm ────────────────────────────────────────────────────────────────────────────
         var rotate = options.Rotate;
@@ -210,7 +235,7 @@ public static class DeviceRevocation
         {
             Fail($"Could not revoke the device: {ex.Message}");
             if (json)
-                output.WriteObject(await DocumentAsync(deviceId, fingerprint, label, isThisMachine, revoked: false, exposure, exposureError, rotate, null, null));
+                output.WriteObject(await DocumentAsync(deviceId, fingerprint, label, isThisMachine, revoked: false, exposure, exposureError, organisationKey, rotate, null, null));
             return ExitFailure;
         }
 
@@ -267,14 +292,32 @@ public static class DeviceRevocation
         }
 
         if (json)
-            output.WriteObject(await DocumentAsync(deviceId, fingerprint, label, isThisMachine, revoked: true, exposure, exposureError, rotate, run, rotationError));
+            output.WriteObject(await DocumentAsync(deviceId, fingerprint, label, isThisMachine, revoked: true, exposure, exposureError, organisationKey, rotate, run, rotationError));
 
         return exit;
     }
 
     // ── the preview ───────────────────────────────────────────────────────────────────────────────
 
-    private static void PrintPreview(Action<string> say, DeviceKeyExposureResponse? exposure, Failure? error)
+    private static async Task<OrganisationKeyCount> ReadOrganisationKeyCountAsync(BellaClient client, CancellationToken ct)
+    {
+        try
+        {
+            var preview = await client.Api.V1.Tenants.Me.EncryptionKey.Rotation.Preview.GetAsync(cancellationToken: ct);
+
+            // A response without the numbers is an unknown, not a zero.
+            return preview?.RecordCount is { } records && preview.InheritingProjectCount is { } projects
+                ? new OrganisationKeyCount(true, records, projects)
+                : new OrganisationKeyCount(true, null, null);
+        }
+        catch (Exception)
+        {
+            // A 403 (not an Owner or Admin, or an API key), a 503 or a transport failure all mean the same here: advice that is unavailable.
+            return new OrganisationKeyCount(true, null, null);
+        }
+    }
+
+    private static void PrintPreview(Action<string> say, DeviceKeyExposureResponse? exposure, Failure? error, OrganisationKeyCount organisationKey)
     {
         if (exposure is null)
         {
@@ -302,7 +345,16 @@ public static class DeviceRevocation
             say(limit);
 
         if (exposure?.UsedOrganisationKey == true)
+        {
             say(OrganisationKeyCopy);
+
+            if (exposure.OrganisationKeyRotatedAfterRead == true)
+                say(OrganisationKeyRotatedAfterReadCopy);
+            else if (organisationKey.Known)
+                say(OrganisationKeyOfferCopy(organisationKey.Records!.Value, organisationKey.Projects!.Value));
+            else
+                say(OrganisationKeyCountUnknownCopy);
+        }
     }
 
     // ── errors and the JSON document ──────────────────────────────────────────────────────────────
@@ -328,6 +380,7 @@ public static class DeviceRevocation
         bool revoked,
         DeviceKeyExposureResponse? exposure,
         Failure? exposureError,
+        OrganisationKeyCount organisationKey,
         bool rotateRequested,
         DeviceKeyRotationRunResponse? run,
         Failure? rotationError)
@@ -347,6 +400,10 @@ public static class DeviceRevocation
             ["revoked"] = revoked,
             ["exposure"] = await WireAsync(exposure),
             ["exposureError"] = Error(exposureError),
+            // Flat members, null when the question was not asked or could not be answered: a failed read is never 0.
+            ["organisationKeyCountKnown"] = organisationKey.Known,
+            ["organisationKeyRecordCount"] = organisationKey.Records,
+            ["organisationKeyInheritingProjectCount"] = organisationKey.Projects,
             ["rotation"] = new JsonObject
             {
                 ["requested"] = rotateRequested,

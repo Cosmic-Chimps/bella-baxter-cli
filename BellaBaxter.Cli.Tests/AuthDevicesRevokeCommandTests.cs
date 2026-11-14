@@ -24,12 +24,20 @@ public class AuthDevicesRevokeCommandTests
     private static readonly Guid RunId = Guid.Parse("99999999-8888-7777-6666-555555555555");
     private static readonly string DevicePath = $"/api/v1/tenants/me/devices/{DeviceId}";
 
-    private static string Exposure(bool usedOrganisationKey = false, int owed = 1, string state = "active") =>
+    private static string Exposure(bool usedOrganisationKey = false, int owed = 1, string state = "active", bool rotatedAfterRead = false) =>
         $$"""
         {"deviceId":"{{DeviceId}}","fingerprint":"{{Fingerprint}}","label":"laptop","state":"{{state}}",
-         "usedOrganisationKey":{{usedOrganisationKey.ToString().ToLowerInvariant()}},"projectCount":1,"owedCount":{{owed}},"widenedProjectCount":0,
+         "usedOrganisationKey":{{usedOrganisationKey.ToString().ToLowerInvariant()}},"organisationKeyRotatedAfterRead":{{rotatedAfterRead.ToString().ToLowerInvariant()}},"projectCount":1,"owedCount":{{owed}},"widenedProjectCount":0,
          "projects":[{"projectId":"{{Guid.NewGuid()}}","projectName":"Alpha","environments":[{"environmentId":"{{Guid.NewGuid()}}","name":"dev"}],
            "usesOrganisationKey":{{usedOrganisationKey.ToString().ToLowerInvariant()}},"coveringReadAt":"2026-11-01T00:00:00Z","owed":{{(owed > 0).ToString().ToLowerInvariant()}},"callerMayRotate":true}]}
+        """;
+
+    private const string PreviewPath = "/api/v1/tenants/me/encryption-key/rotation/preview";
+
+    private static string RotationPreview(int records = 7, int projects = 3) =>
+        $$"""
+        {"providerCredentialCount":{{records - 2}},"webhookSigningSecretCount":1,"notificationChannelCount":1,"auditStreamCredentialCount":0,
+         "recordCount":{{records}},"inheritingProjectCount":{{projects}},"callerMayRotate":true}
         """;
 
     private static readonly string Run =
@@ -392,8 +400,109 @@ public class AuthDevicesRevokeCommandTests
         var text = string.Join("\n", output.Infos);
         Assert.Contains("provider credentials", text, StringComparison.Ordinal);
         Assert.Contains("webhook and notification secrets", text, StringComparison.Ordinal);
-        Assert.Contains("audit-stream and alert settings", text, StringComparison.Ordinal);
+        Assert.Contains("and the audit-stream credential", text, StringComparison.Ordinal);
+        Assert.DoesNotContain("alert settings", text, StringComparison.Ordinal);
         Assert.Contains("NOT rotated", text, StringComparison.Ordinal);
+        Assert.Contains("The organisation Owner can rotate the organisation key in the console: Settings, Encryption.", text, StringComparison.Ordinal);
+    }
+
+    // ── the organisation key (spec 106) ──────────────────────────────────────────────────────────────
+
+    [Fact]
+    public async Task The_organisation_key_count_is_shown_when_the_device_used_the_key()
+    {
+        var server = HealthyServer(Exposure(usedOrganisationKey: true))
+            .On($"GET {PreviewPath}", HttpStatusCode.OK, RotationPreview(records: 7, projects: 3));
+        var output = new CapturingOutput();
+
+        var exit = await RunAsync(server, output, yes: true);
+
+        Assert.Equal(DeviceRevocation.ExitOk, exit);
+        Assert.Contains("Rotating the organisation key would re-seal 7 organisation records and give 3 projects their own key.", output.Infos);
+        Assert.DoesNotContain(output.Infos, i => i.Contains("could not be determined", StringComparison.Ordinal));
+        Assert.True(server.Saw($"GET {PreviewPath}"));
+    }
+
+    [Theory]
+    [InlineData(HttpStatusCode.Forbidden, "forbidden")]
+    [InlineData(HttpStatusCode.ServiceUnavailable, "key-store-unreadable")]
+    public async Task A_failed_count_is_unknown_never_zero_and_the_revoke_still_goes_ahead(HttpStatusCode status, string type)
+    {
+        var server = HealthyServer(Exposure(usedOrganisationKey: true))
+            .On($"GET {PreviewPath}", status, Problem(type, (int)status));
+        var output = new CapturingOutput();
+
+        var exit = await RunAsync(server, output, yes: true);
+
+        Assert.Equal(DeviceRevocation.ExitOk, exit);
+        Assert.Contains("The number of organisation records a rotation would re-seal could not be determined.", output.Infos);
+        Assert.DoesNotContain(output.Infos, i => i.StartsWith("Rotating the organisation key would", StringComparison.Ordinal));
+        Assert.True(server.Saw($"DELETE {DevicePath}"));
+        Assert.Empty(output.Errors);
+    }
+
+    [Fact]
+    public async Task A_rotation_since_the_last_read_is_said_instead_of_a_count_and_the_preview_is_not_asked()
+    {
+        var server = HealthyServer(Exposure(usedOrganisationKey: true, rotatedAfterRead: true));
+        var output = new CapturingOutput();
+
+        var exit = await RunAsync(server, output, yes: true);
+
+        Assert.Equal(DeviceRevocation.ExitOk, exit);
+        Assert.Contains("The organisation key was rotated after this device's last read of it.", output.Infos);
+        Assert.DoesNotContain(output.Infos, i => i.StartsWith("Rotating the organisation key would", StringComparison.Ordinal));
+        Assert.False(server.Saw($"GET {PreviewPath}"), "nothing to count: the offer is hidden");
+    }
+
+    [Fact]
+    public async Task A_device_that_did_not_use_the_organisation_key_neither_asks_for_nor_prints_a_count()
+    {
+        var server = HealthyServer();
+        var output = new CapturingOutput();
+
+        await RunAsync(server, output, yes: true);
+
+        Assert.False(server.Saw($"GET {PreviewPath}"));
+        var text = string.Join("\n", output.Infos);
+        Assert.DoesNotContain("organisation key", text, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Json_carries_the_organisation_key_count_as_flat_members_and_never_asks()
+    {
+        var server = HealthyServer(Exposure(usedOrganisationKey: true))
+            .On($"GET {PreviewPath}", HttpStatusCode.OK, RotationPreview(records: 7, projects: 3));
+        var output = new CapturingOutput();
+
+        var exit = await RunAsync(server, output, json: true, interactive: true);
+
+        Assert.Equal(DeviceRevocation.ExitOk, exit);
+        Assert.False(output.SaidAnything);
+        using var document = JsonDocument.Parse(Assert.Single(output.Documents));
+        var root = document.RootElement;
+        Assert.True(root.GetProperty("organisationKeyCountKnown").GetBoolean());
+        Assert.Equal(7, root.GetProperty("organisationKeyRecordCount").GetInt32());
+        Assert.Equal(3, root.GetProperty("organisationKeyInheritingProjectCount").GetInt32());
+        Assert.True(root.GetProperty("exposure").GetProperty("usedOrganisationKey").GetBoolean());
+        Assert.False(root.GetProperty("exposure").GetProperty("organisationKeyRotatedAfterRead").GetBoolean());
+    }
+
+    [Fact]
+    public async Task Json_carries_a_failed_count_as_null_never_zero()
+    {
+        var server = HealthyServer(Exposure(usedOrganisationKey: true))
+            .On($"GET {PreviewPath}", HttpStatusCode.Forbidden, Problem("forbidden", 403));
+        var output = new CapturingOutput();
+
+        var exit = await RunAsync(server, output, json: true);
+
+        Assert.Equal(DeviceRevocation.ExitOk, exit);
+        using var document = JsonDocument.Parse(Assert.Single(output.Documents));
+        var root = document.RootElement;
+        Assert.False(root.GetProperty("organisationKeyCountKnown").GetBoolean());
+        Assert.Equal(JsonValueKind.Null, root.GetProperty("organisationKeyRecordCount").ValueKind);
+        Assert.Equal(JsonValueKind.Null, root.GetProperty("organisationKeyInheritingProjectCount").ValueKind);
     }
 
     [Fact]
