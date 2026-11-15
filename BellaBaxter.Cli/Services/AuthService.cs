@@ -30,7 +30,7 @@ public class AuthService(ConfigService config, CredentialStore credentials, Http
 
     // ── OAuth2 PKCE browser flow ─────────────────────────────────────────────
 
-    public async Task<StoredTokens> LoginWithBrowserAsync(CancellationToken ct = default)
+    public virtual async Task<StoredTokens> LoginWithBrowserAsync(CancellationToken ct = default)
     {
         // Advisory clients-1 — the tokens belong to the server they are obtained from; recorded so they
         // are never presented anywhere else.

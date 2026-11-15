@@ -34,6 +34,17 @@ public static class CliExceptionHandler
             return 1;
         }
 
+        // Spec 108 (FR-018) — a person with no organisation is told what to do and where: stderr, exit 1, whatever command it was.
+        // Found through wrappers, like the refusal above.
+        for (var inner = ex; inner is not null; inner = inner.InnerException)
+        {
+            if (inner is OrganisationSetupRequiredException setup)
+            {
+                stderr.WriteLine(setup.Message);
+                return 1;
+            }
+        }
+
         // #1618 — any parse error. Spectre's rendering would repeat the whole command line, a token value
         // included. An option the command does not declare gets its own text (the option, never its value; S1, S4);
         // every other parse error gets Spectre's message alone (B2). Stderr, Spectre's exit code (255).

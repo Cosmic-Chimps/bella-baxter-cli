@@ -37,6 +37,15 @@ internal sealed class TokenRefreshHandler(AuthService authService) : DelegatingH
             response = await base.SendAsync(request, ct);
         }
 
+        // Spec 108 (FR-018) — a person with no organisation is refused 403 `organisation-setup-required` on every call that
+        // needs one. Say what to do, not "403". Only that type: any other 403 goes on to the command unchanged.
+        if (response.StatusCode == HttpStatusCode.Forbidden
+            && await OrganisationSetupRefusal.TryReadAsync(response, ct) is { } refusal)
+        {
+            response.Dispose();
+            throw refusal;
+        }
+
         return response;
     }
 

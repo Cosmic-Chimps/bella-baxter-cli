@@ -39,6 +39,8 @@ public class LoginTrustPromptTests : IDisposable
     private readonly IAnsiConsole _originalConsole;
     private readonly Dictionary<string, string?> _original = new();
     private readonly StringWriter _written = new();
+    // Errors go to STDERR (spec 108, R15): the real writer is given its own console for them.
+    private readonly StringWriter _errors = new();
     private readonly TestConsoleInput _input = new();
     private readonly IAnsiConsole _console;
 
@@ -81,6 +83,18 @@ public class LoginTrustPromptTests : IDisposable
         try { Directory.Delete(_dir, recursive: true); } catch { /* best effort */ }
     }
 
+    private IAnsiConsole ErrorConsole()
+    {
+        var console = AnsiConsole.Create(new AnsiConsoleSettings
+        {
+            Ansi = AnsiSupport.No,
+            ColorSystem = ColorSystemSupport.NoColors,
+            Out = new AnsiConsoleOutput(_errors),
+        });
+        console.Profile.Width = 500;
+        return console;
+    }
+
     private (LoginCommand Command, RecordingHandler Handler, ConfigService Config) Build(bool terminal = true)
     {
         var config = new ConfigService(new BellaConfig(Saas), _configFile)
@@ -92,7 +106,8 @@ public class LoginTrustPromptTests : IDisposable
         var credentials = new NoCredentials();
         var auth = new AuthService(config, credentials, new HttpClient(handler));
         var keyContext = new KeyContextService(new BellaClientProvider(config, credentials, new GlobalSettings(), auth), credentials);
-        var command = new LoginCommand(auth, credentials, keyContext, new ZkeService(), config, new HumanOutputWriter());
+        var provider = new BellaClientProvider(config, credentials, new GlobalSettings(), auth);
+        var command = new LoginCommand(auth, credentials, keyContext, new ZkeService(), config, new HumanOutputWriter(ErrorConsole()), provider);
         return (command, handler, config);
     }
 
@@ -117,7 +132,7 @@ public class LoginTrustPromptTests : IDisposable
         Assert.Contains(Path.Combine(Path.GetFileName(_dir), ".bella"), shown, StringComparison.Ordinal); // the file
         Assert.Contains(Saas, shown, StringComparison.Ordinal);                       // the configured server
         Assert.Equal(1, exit);
-        Assert.Contains("did not trust", shown, StringComparison.Ordinal);
+        Assert.Contains("did not trust", _errors.ToString(), StringComparison.Ordinal); // an error: stderr
         Assert.Empty(handler.Requests);                                               // nothing reached the host
         Assert.Empty(config.TrustedOrigins);
     }
@@ -148,7 +163,7 @@ public class LoginTrustPromptTests : IDisposable
 
         Assert.Equal(1, exit);
         Assert.DoesNotContain("Trust ", _written.ToString(), StringComparison.Ordinal); // no question
-        Assert.Contains("bella config trust", _written.ToString(), StringComparison.Ordinal);
+        Assert.Contains("bella config trust", _errors.ToString(), StringComparison.Ordinal); // an error: stderr
         Assert.Empty(handler.Requests);
         Assert.Empty(config.TrustedOrigins);
     }

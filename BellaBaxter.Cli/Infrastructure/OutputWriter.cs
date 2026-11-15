@@ -37,8 +37,25 @@ public interface IOutputWriter
     void WriteInfo(string message);
 }
 
-public class HumanOutputWriter : IOutputWriter
+public class HumanOutputWriter(IAnsiConsole? errorConsole = null) : IOutputWriter
 {
+    /// <summary>
+    /// The console errors are written to: STDERR, as JSON mode already does (spec 108, R15). An error on stdout is read as
+    /// output by anything that pipes the command; on stderr it stays where a script and a person both look for a failure.
+    /// Built per call from <see cref="Console.Error"/>, so a redirected stream is honoured, unless a test supplies one.
+    /// </summary>
+    private IAnsiConsole ErrorConsole()
+    {
+        if (errorConsole is not null)
+            return errorConsole;
+
+        var console = AnsiConsole.Create(new AnsiConsoleSettings { Out = new AnsiConsoleOutput(Console.Error) });
+        // A redirected stream has no width to measure, and Spectre then wraps at 80: a link split across two lines is not a link.
+        if (Console.IsErrorRedirected)
+            console.Profile.Width = 4096;
+        return console;
+    }
+
     /// <summary>Shows the spinner, exactly as before.</summary>
     public async Task StatusAsync(string message, Func<Task> work) =>
         await AnsiConsole.Status().StartAsync(message, async _ => await work());
@@ -81,7 +98,7 @@ public class HumanOutputWriter : IOutputWriter
     public void WriteError(string message, string? code = null)
     {
         var suffix = code is not null ? $" [grey]({Markup.Escape(code)})[/]" : string.Empty;
-        AnsiConsole.MarkupLine($"[red]✗[/] {Markup.Escape(message)}{suffix}");
+        ErrorConsole().MarkupLine($"[red]✗[/] {Markup.Escape(message)}{suffix}");
     }
 
     public void WriteWarning(string message) =>

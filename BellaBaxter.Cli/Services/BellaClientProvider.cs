@@ -327,6 +327,20 @@ public class BellaClientProvider(
     }
 
 
+    /// <summary>
+    /// A client that presents exactly these just-obtained <paramref name="tokens"/>, whatever else the environment holds.
+    /// <c>bella login</c> uses it for its post-login organisation check: the person's own login, to the server it was
+    /// obtained from, never an API key that happens to be exported.
+    /// </summary>
+    public BellaClient CreateClientForTokens(StoredTokens tokens) =>
+        BellaClientFactory.CreateWithBearerToken(
+            config.ApiUrlFor(tokens),
+            tokens.AccessToken,
+            BuildOAuthOuterHandler(),
+            DebugHandler(),
+            bellaClient: CliClientName,
+            appClient: Environment.GetEnvironmentVariable("BELLA_BAXTER_APP_CLIENT"));
+
     public void ApplyOutputModeOverrides(bool jsonFlag)
     {
         if (jsonFlag || Console.IsOutputRedirected)

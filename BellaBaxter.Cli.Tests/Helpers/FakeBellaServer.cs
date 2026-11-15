@@ -58,6 +58,19 @@ public sealed class FakeBellaServer : IDisposable
         return this;
     }
 
+    private (int Status, string Body, string ContentType)? _fallback;
+
+    /// <summary>
+    /// Answers EVERY request that has no route with <paramref name="status"/> and <paramref name="body"/> (default
+    /// content type <c>application/problem+json</c>), instead of the usual 404. Spec 108: a person with no organisation is
+    /// refused 403 <c>organisation-setup-required</c> on every route.
+    /// </summary>
+    public FakeBellaServer Always(int status, string body, string contentType = "application/problem+json")
+    {
+        _fallback = (status, body, contentType);
+        return this;
+    }
+
     /// <summary>
     /// A server that answers what <c>bella run -p sandbox -e dev</c> reads before it fetches secrets: the tenant's ZKE
     /// status (not enforced), the project and the environment. The secret routes are left to each test.
@@ -104,9 +117,10 @@ public sealed class FakeBellaServer : IDisposable
                 }
                 else
                 {
-                    var bytes = Encoding.UTF8.GetBytes("{\"title\":\"Not Found\",\"status\":404}");
-                    ctx.Response.StatusCode = 404;
-                    ctx.Response.ContentType = "application/problem+json";
+                    var fallback = _fallback ?? (404, "{\"title\":\"Not Found\",\"status\":404}", "application/problem+json");
+                    var bytes = Encoding.UTF8.GetBytes(fallback.Body);
+                    ctx.Response.StatusCode = fallback.Status;
+                    ctx.Response.ContentType = fallback.ContentType;
                     ctx.Response.ContentLength64 = bytes.Length;
                     await ctx.Response.OutputStream.WriteAsync(bytes).ConfigureAwait(false);
                 }
