@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using BellaCli.Commands.Auth;
 using BellaCli.Commands.Exec;
 using BellaCli.Commands.Orgs;
 using BellaCli.Commands.Run;
@@ -72,8 +73,31 @@ public class UnknownOptionsAreRejectedTests : IDisposable
             c.AddBranch("shell", sh => sh.AddCommand<ShellOpenCommand>("open"));
             c.AddBranch("secrets", s => s.AddCommand<GetSecretsCommand>("get"));
             c.AddBranch("org", o => o.AddCommand<OrgCurrentCommand>("current"));
+            c.AddBranch("auth", a => a.AddCommand<AuthStatusCommand>("status"));
         });
         return (app, registrar, stderr);
+    }
+
+    /// <summary>
+    /// #1806 — the CI/CD guide runs <c>bella auth status --json</c> in eight places, and strict parsing refused it with exit 255
+    /// because the command declared no options. Parsing must now get as far as building the command (the refusing resolver
+    /// then stops it, which is this test's proof that the parser accepted the flag).
+    /// </summary>
+    [Fact]
+    public void Auth_status_accepts_json_and_still_refuses_an_unknown_option()
+    {
+        string[] accepted = ["auth", "status", "--json"];
+        var (app, registrar, stderr) = Build(accepted);
+        app.Run(accepted);
+        Assert.True(registrar.ResolverBuilt, "the parser refused `auth status --json`; pipelines copied from the CI/CD guide exit 255");
+        Assert.DoesNotContain("Unknown option", stderr.ToString(), StringComparison.Ordinal);
+
+        string[] refused = ["auth", "status", "--no-such-flag"];
+        var (app2, registrar2, stderr2) = Build(refused);
+        var result = app2.Run(refused);
+        Assert.Equal(-1, result.ExitCode);
+        Assert.False(registrar2.ResolverBuilt);
+        Assert.StartsWith("Unknown option '--no-such-flag'.", stderr2.ToString(), StringComparison.Ordinal);
     }
 
     public static TheoryData<string[]> EveryCommandWithAnUnknownOption => new()

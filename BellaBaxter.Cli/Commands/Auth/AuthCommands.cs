@@ -6,14 +6,23 @@ using Spectre.Console.Cli;
 
 namespace BellaCli.Commands.Auth;
 
-public class AuthStatusSettings : CommandSettings { }
+public class AuthStatusSettings : CommandSettings
+{
+    /// <summary>
+    /// #1806 — the JSON object a script reads, even in a terminal. The CLI already chose JSON for an API key or a
+    /// redirected stdout, so pipelines never needed this; but the CI/CD guide wrote it in eight places, and since
+    /// strict parsing (#1618) an undeclared option is refused with exit 255.
+    /// </summary>
+    [CommandOption("--json")]
+    public bool Json { get; init; }
+}
 
 public class AuthStatusCommand(
     CredentialStore credentials,
     ZkeService zke,
     BellaClientProvider provider,
     AuthService auth,
-    IOutputWriter output
+    IOutputWriter baseOutput
 ) : AsyncCommand<AuthStatusSettings>
 {
     protected override async Task<int> ExecuteAsync(
@@ -22,6 +31,11 @@ public class AuthStatusCommand(
         CancellationToken ct
     )
     {
+        // The writer is chosen when the command is built, before its settings exist, so the flag picks it here (as
+        // `bella login --json` does).
+        provider.ApplyOutputModeOverrides(settings.Json);
+        var output = settings.Json && baseOutput is not JsonOutputWriter ? new JsonOutputWriter() : baseOutput;
+
         if (!credentials.IsAuthenticated())
         {
             output.WriteError(

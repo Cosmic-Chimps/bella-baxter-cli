@@ -239,7 +239,9 @@ app.Configure(config =>
         {
             auth.SetDescription("Authentication management commands.");
             auth.AddCommand<AuthStatusCommand>("status")
-                .WithDescription("Show current authentication status.");
+                .WithDescription("Show current authentication status.")
+                .WithExample("auth", "status")
+                .WithExample("auth", "status", "--json");
             auth.AddCommand<AuthRefreshCommand>("refresh")
                 .WithDescription("Manually refresh the OAuth2 access token.");
             auth.AddCommand<AuthSetupCommand>("setup")
