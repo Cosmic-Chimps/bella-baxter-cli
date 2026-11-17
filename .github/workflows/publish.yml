@@ -276,9 +276,13 @@ jobs:
           sparse-checkout: scripts
           persist-credentials: false
 
+      # Only this workflow's own artifacts (cli-<rid> binaries and cli-nuget-package). Without a pattern the step takes
+      # EVERY artifact of the run, including the *.dockerbuild build records docker/build-push-action uploads from
+      # publish_docker, which runs in parallel: when it finished first, the download failed on those records.
       - name: Download all binary artifacts
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
+          pattern: cli-*
           path: binaries
           merge-multiple: true
 
@@ -499,6 +503,7 @@ jobs:
       - name: Download macOS binaries
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
+          pattern: cli-*
           path: binaries
           merge-multiple: true
 
