@@ -73,7 +73,7 @@ public class RunCommand(
 
         [CommandOption("--private-key <url>")]
         [Description(
-            "Private key URL for M2M zero-knowledge decryption. "
+            "Private key URL for the device key used in M2M decryption."
                 + "Schemes: file:///path/key.pem  env://VAR_NAME  (future: aws-kms:// vault:// azure-kv://)"
         )]
         public string? PrivateKey { get; set; }

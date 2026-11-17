@@ -266,7 +266,7 @@ public class SdkRunDeviceKeyForApiKeyTests : KeylessFixture
         Assert.StartsWith("-----BEGIN PRIVATE KEY-----", run.ChildKey, StringComparison.Ordinal);
         Assert.Equal(device.Spki, SpkiOfPem(run.ChildKey!)); // the device file's key, not another
         Assert.Equal(ApiKey, run.ChildApiKey);
-        Assert.Contains("ZKE device key injected", run.Stdout);
+        Assert.Contains("Device key injected", run.Stdout);
         Assert.DoesNotContain(device.Pem, run.Stdout + run.Stderr, StringComparison.Ordinal);
     }
 
@@ -315,7 +315,7 @@ public class SdkRunDeviceKeyForApiKeyTests : KeylessFixture
         Assert.Single(run.Stderr.TrimEnd().Split('\n')); // exactly one line
         Assert.Contains(device.Fingerprint, run.Stderr, StringComparison.Ordinal);
         Assert.Contains("BELLA_BAXTER_PRIVATE_KEY", run.Stderr, StringComparison.Ordinal);
-        Assert.DoesNotContain("ZKE device key injected", run.Stdout);
+        Assert.DoesNotContain("Device key injected", run.Stdout);
         Assert.DoesNotContain(device.Pem, run.Stdout + run.Stderr, StringComparison.Ordinal);
         Assert.DoesNotContain(device.Spki, run.Stdout + run.Stderr, StringComparison.Ordinal); // the fingerprint, never the key
     }

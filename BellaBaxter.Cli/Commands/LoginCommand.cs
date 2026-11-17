@@ -193,8 +193,8 @@ public class LoginCommand(AuthService auth, CredentialStore credentials, KeyCont
             // ZKE hint — show once if device key not yet set up (never in JSON mode: stdout is the document's)
             if (!json && !zke.HasKeypair())
                 AnsiConsole.MarkupLine(
-                    "[dim]💡 Tip: run [cyan]bella auth setup[/] to enable zero-knowledge secret " +
-                    "decryption so your secrets are decrypted locally by the CLI.[/]");
+                    "[dim]💡 Tip: run [cyan]bella auth setup[/] to register this machine as a device, " +
+                    "so your secrets are decrypted locally by the CLI and released only to a registered device.[/]");
 
             return 0;
         }

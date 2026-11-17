@@ -349,7 +349,7 @@ public class SdkRunCommand(
         if (privateKeyPem is not null)
         {
             psi.Environment["BELLA_BAXTER_PRIVATE_KEY"] = privateKeyPem;
-            AnsiConsole.MarkupLine("[dim]🔐 ZKE device key injected into subprocess.[/]");
+            AnsiConsole.MarkupLine("[dim]🔐 Device key injected into subprocess.[/]");
         }
 
         var process = Process.Start(psi);

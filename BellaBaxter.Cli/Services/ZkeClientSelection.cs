@@ -143,7 +143,7 @@ public sealed class ZkeClientSelection(
             var tenantSlug = credentials.LoadTokens()?.OrgSlug;
 
             output.WriteError(
-                ZkeGate.MessageFor(outcome, tenantSlug, IsKeylessKey()) ?? "Refused by ZKE policy.",
+                ZkeGate.MessageFor(outcome, tenantSlug, IsKeylessKey()) ?? "Refused: this tenant requires a registered device.",
                 "zke-required"
             );
             ecdh?.Dispose();
@@ -168,7 +168,7 @@ public sealed class ZkeClientSelection(
             );
 
         if (outcome == ZkeGateOutcome.ProceedWithDevice && announce)
-            output.WriteInfo("🔐 ZKE enabled — secrets will be decrypted locally.");
+            output.WriteInfo("🔐 Device key in use — secrets will be decrypted locally.");
 
         var inUse = outcome == ZkeGateOutcome.ProceedWithDevice;
         return new Selection(client, null, inUse, inUse ? ecdh : null);
