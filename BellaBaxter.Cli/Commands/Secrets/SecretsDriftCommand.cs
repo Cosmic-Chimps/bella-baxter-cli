@@ -21,7 +21,7 @@ public class SecretsDriftCommand(
     IOutputWriter output
 ) : AsyncCommand<SecretsDriftSettings>
 {
-    protected override async Task<int> ExecuteAsync(
+    public override async Task<int> ExecuteAsync(
         CommandContext ctx,
         SecretsDriftSettings settings,
         CancellationToken ct

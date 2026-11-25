@@ -25,7 +25,7 @@ public class ListEnvironmentsCommand(
     IOutputWriter output
 ) : AsyncCommand<ListEnvironmentsSettings>
 {
-    protected override async Task<int> ExecuteAsync(
+    public override async Task<int> ExecuteAsync(
         CommandContext ctx,
         ListEnvironmentsSettings settings,
         CancellationToken ct

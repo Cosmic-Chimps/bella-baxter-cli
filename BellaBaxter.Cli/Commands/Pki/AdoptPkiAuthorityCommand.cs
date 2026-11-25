@@ -77,7 +77,7 @@ public sealed class AdoptPkiAuthorityCommand(BellaClientProvider provider, Conte
         };
     }
 
-    protected override async Task<int> ExecuteAsync(CommandContext ctx, AdoptPkiAuthoritySettings settings, CancellationToken ct)
+    public override async Task<int> ExecuteAsync(CommandContext ctx, AdoptPkiAuthoritySettings settings, CancellationToken ct)
     {
         provider.ApplyOutputModeOverrides(settings.Json);
 

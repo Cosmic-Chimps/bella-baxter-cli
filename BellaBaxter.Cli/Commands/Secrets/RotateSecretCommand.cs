@@ -31,7 +31,7 @@ public class RotateSecretCommand(
     SecretProviderResolver providerResolver
 ) : AsyncCommand<RotateSecretSettings>
 {
-    protected override async Task<int> ExecuteAsync(
+    public override async Task<int> ExecuteAsync(
         CommandContext ctx,
         RotateSecretSettings settings,
         CancellationToken ct

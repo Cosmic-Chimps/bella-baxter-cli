@@ -40,7 +40,7 @@ public class AuthDevicesRevokeCommand(
     IOutputWriter output
 ) : AsyncCommand<AuthDevicesRevokeSettings>
 {
-    protected override async Task<int> ExecuteAsync(
+    public override async Task<int> ExecuteAsync(
         CommandContext context,
         AuthDevicesRevokeSettings settings,
         CancellationToken ct)

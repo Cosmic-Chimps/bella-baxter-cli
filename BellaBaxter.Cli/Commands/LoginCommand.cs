@@ -31,7 +31,7 @@ public class LoginCommand(AuthService auth, CredentialStore credentials, KeyCont
     /// <summary>Test seam: the client the post-login organisation check uses. Null means the real one for the stored login.</summary>
     internal Func<StoredTokens, BellaBaxter.Client.BellaClient>? ClientFactory { get; init; }
 
-    protected override async Task<int> ExecuteAsync(
+    public override async Task<int> ExecuteAsync(
         CommandContext context,
         LoginSettings settings,
         CancellationToken ct

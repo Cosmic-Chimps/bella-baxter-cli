@@ -34,7 +34,7 @@ public class WhoAmICommand(
     IOutputWriter output
 ) : AsyncCommand<WhoAmISettings>
 {
-    protected override async Task<int> ExecuteAsync(
+    public override async Task<int> ExecuteAsync(
         CommandContext context,
         WhoAmISettings settings,
         CancellationToken ct

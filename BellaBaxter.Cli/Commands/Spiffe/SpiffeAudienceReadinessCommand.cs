@@ -57,7 +57,7 @@ public class SpiffeAudienceReadinessCommand(
         return sections.All(s => s!.Verdict == Ready) ? 0 : 2;
     }
 
-    protected override async Task<int> ExecuteAsync(
+    public override async Task<int> ExecuteAsync(
         CommandContext ctx, SpiffeAudienceReadinessSettings settings, CancellationToken ct)
     {
         provider.ApplyOutputModeOverrides(settings.Json);

@@ -89,7 +89,7 @@ public class SetSecretCommand(
         RegexOptions.Compiled
     );
 
-    protected override async Task<int> ExecuteAsync(
+    public override async Task<int> ExecuteAsync(
         CommandContext ctx,
         SetSecretSettings settings,
         CancellationToken ct

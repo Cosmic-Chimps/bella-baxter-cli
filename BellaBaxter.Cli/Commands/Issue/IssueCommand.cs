@@ -74,7 +74,7 @@ public class IssueCommand(
 
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
 
-    protected override async Task<int> ExecuteAsync(
+    public override async Task<int> ExecuteAsync(
         CommandContext context,
         Settings settings,
         CancellationToken ct

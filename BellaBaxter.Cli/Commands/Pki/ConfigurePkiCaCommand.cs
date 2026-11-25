@@ -47,7 +47,7 @@ public class ConfigurePkiCaSettings : CommandSettings
 public class ConfigurePkiCaCommand(BellaClientProvider provider, ContextService context, IOutputWriter output)
     : AsyncCommand<ConfigurePkiCaSettings>
 {
-    protected override async Task<int> ExecuteAsync(CommandContext ctx, ConfigurePkiCaSettings settings, CancellationToken ct)
+    public override async Task<int> ExecuteAsync(CommandContext ctx, ConfigurePkiCaSettings settings, CancellationToken ct)
     {
         provider.ApplyOutputModeOverrides(settings.Json);
 

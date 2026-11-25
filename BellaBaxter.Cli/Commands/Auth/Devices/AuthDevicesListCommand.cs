@@ -28,7 +28,7 @@ public class AuthDevicesListCommand(
     IOutputWriter output
 ) : AsyncCommand<AuthDevicesListSettings>
 {
-    protected override async Task<int> ExecuteAsync(
+    public override async Task<int> ExecuteAsync(
         CommandContext context,
         AuthDevicesListSettings settings,
         CancellationToken ct

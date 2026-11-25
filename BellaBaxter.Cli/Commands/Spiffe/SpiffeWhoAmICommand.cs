@@ -66,7 +66,7 @@ public class SpiffeWhoAmISettings : CommandSettings
 public class SpiffeWhoAmICommand(IOutputWriter output, GlobalSettings global, IHttpClientFactory httpClientFactory)
     : AsyncCommand<SpiffeWhoAmISettings>
 {
-    protected override async Task<int> ExecuteAsync(
+    public override async Task<int> ExecuteAsync(
         CommandContext context, SpiffeWhoAmISettings settings, CancellationToken ct) =>
         SpiffeNodeTypes.Normalize(settings.NodeType) switch
         {

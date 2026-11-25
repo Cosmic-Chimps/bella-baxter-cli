@@ -159,7 +159,7 @@ public class SpiffeAgentCommand(
                 + "will refuse it; mount a projected token requested for Bella (see `bella spiffe whoami`)."
             : null;
 
-    protected override async Task<int> ExecuteAsync(
+    public override async Task<int> ExecuteAsync(
         CommandContext context, SpiffeAgentSettings settings, CancellationToken ct)
     {
         var environmentIdRaw = settings.EnvironmentId

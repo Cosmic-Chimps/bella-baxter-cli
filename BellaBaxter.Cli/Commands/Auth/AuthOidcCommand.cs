@@ -61,7 +61,7 @@ public class AuthOidcSettings : CommandSettings
 public class AuthOidcCommand(WorkloadIdentityService workloadIdentity, ConfigService config, IOutputWriter output)
     : AsyncCommand<AuthOidcSettings>
 {
-    protected override async Task<int> ExecuteAsync(
+    public override async Task<int> ExecuteAsync(
         CommandContext context,
         AuthOidcSettings settings,
         CancellationToken ct

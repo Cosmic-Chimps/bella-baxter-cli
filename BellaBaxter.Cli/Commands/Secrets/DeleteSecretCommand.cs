@@ -35,7 +35,7 @@ public class DeleteSecretCommand(
     SecretProviderResolver providerResolver
 ) : AsyncCommand<DeleteSecretSettings>
 {
-    protected override async Task<int> ExecuteAsync(
+    public override async Task<int> ExecuteAsync(
         CommandContext ctx,
         DeleteSecretSettings settings,
         CancellationToken ct

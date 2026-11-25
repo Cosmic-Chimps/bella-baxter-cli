@@ -22,7 +22,7 @@ public class SpiffeSelectorTypesSettings : CommandSettings
 public class SpiffeSelectorTypesCommand(BellaClientProvider provider, IOutputWriter output)
     : AsyncCommand<SpiffeSelectorTypesSettings>
 {
-    protected override async Task<int> ExecuteAsync(
+    public override async Task<int> ExecuteAsync(
         CommandContext ctx, SpiffeSelectorTypesSettings settings, CancellationToken ct)
     {
         provider.ApplyOutputModeOverrides(settings.Json);

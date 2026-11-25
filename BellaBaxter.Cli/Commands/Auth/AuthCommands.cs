@@ -25,7 +25,7 @@ public class AuthStatusCommand(
     IOutputWriter baseOutput
 ) : AsyncCommand<AuthStatusSettings>
 {
-    protected override async Task<int> ExecuteAsync(
+    public override async Task<int> ExecuteAsync(
         CommandContext context,
         AuthStatusSettings settings,
         CancellationToken ct
@@ -207,7 +207,7 @@ public class AuthRefreshSettings : CommandSettings { }
 public class AuthRefreshCommand(AuthService auth, ConfigService config, IOutputWriter output)
     : AsyncCommand<AuthRefreshSettings>
 {
-    protected override async Task<int> ExecuteAsync(
+    public override async Task<int> ExecuteAsync(
         CommandContext context,
         AuthRefreshSettings settings,
         CancellationToken ct

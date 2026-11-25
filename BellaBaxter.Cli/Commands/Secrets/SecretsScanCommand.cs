@@ -61,7 +61,7 @@ public class SecretsScanCommand(
     // Skip files larger than 2 MB
     private const long MaxFileSizeBytes = 2 * 1024 * 1024;
 
-    protected override async Task<int> ExecuteAsync(
+    public override async Task<int> ExecuteAsync(
         CommandContext ctx,
         SecretsScanSettings settings,
         CancellationToken ct

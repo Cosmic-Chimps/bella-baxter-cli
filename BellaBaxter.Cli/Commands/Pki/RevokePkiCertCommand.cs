@@ -26,7 +26,7 @@ public class RevokePkiCertSettings : CommandSettings
 public class RevokePkiCertCommand(BellaClientProvider provider, ContextService context, IOutputWriter output)
     : AsyncCommand<RevokePkiCertSettings>
 {
-    protected override async Task<int> ExecuteAsync(CommandContext ctx, RevokePkiCertSettings settings, CancellationToken ct)
+    public override async Task<int> ExecuteAsync(CommandContext ctx, RevokePkiCertSettings settings, CancellationToken ct)
     {
         provider.ApplyOutputModeOverrides(settings.Json);
 

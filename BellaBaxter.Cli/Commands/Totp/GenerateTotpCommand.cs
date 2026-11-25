@@ -31,7 +31,7 @@ public class GenerateTotpSettings : CommandSettings
 public class GenerateTotpCommand(BellaClientProvider provider, ContextService context, IOutputWriter output)
     : AsyncCommand<GenerateTotpSettings>
 {
-    protected override async Task<int> ExecuteAsync(CommandContext ctx, GenerateTotpSettings settings, CancellationToken ct)
+    public override async Task<int> ExecuteAsync(CommandContext ctx, GenerateTotpSettings settings, CancellationToken ct)
     {
         provider.ApplyOutputModeOverrides(settings.Json);
 

@@ -44,7 +44,7 @@ public class ShellOpenSettings : CommandSettings
 
 public class ShellOpenCommand(ConfigService config, CredentialStore credentials) : Command<ShellOpenSettings>
 {
-    protected override int Execute(CommandContext context, ShellOpenSettings settings, CancellationToken ct)
+    public override int Execute(CommandContext context, ShellOpenSettings settings, CancellationToken ct)
     {
         // ── Resolve project + env ────────────────────────────────────────────
         string? project = null, env = null;

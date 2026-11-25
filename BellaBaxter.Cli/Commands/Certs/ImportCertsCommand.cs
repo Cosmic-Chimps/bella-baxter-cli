@@ -85,7 +85,7 @@ public class ImportCertsCommand(
     /// </summary>
     private const string CertificateSecretType = "certificate";
 
-    protected override async Task<int> ExecuteAsync(
+    public override async Task<int> ExecuteAsync(
         CommandContext ctx,
         ImportCertsSettings settings,
         CancellationToken ct

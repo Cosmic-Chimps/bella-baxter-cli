@@ -105,7 +105,7 @@ proves the download is intact, not that we published it. `BELLA_SKIP_GPG` is no 
 
 ### Manual download
 
-Download the binary for your platform from the [Releases page](https://github.com/cosmic-chimps/bella-baxter/releases), make it executable, and place it on your `$PATH`:
+Download the binary for your platform from the [Releases page](https://github.com/Cosmic-Chimps/bella-baxter-cli/releases), make it executable, and place it on your `$PATH`:
 
 | Platform | File |
 |---|---|
@@ -119,7 +119,7 @@ Download the binary for your platform from the [Releases page](https://github.co
 
 ```bash
 # Example for Linux x64
-curl -Lo bella https://github.com/cosmic-chimps/bella-baxter/releases/latest/download/cli-linux-x64
+curl -Lo bella https://github.com/Cosmic-Chimps/bella-baxter-cli/releases/latest/download/cli-linux-x64
 chmod +x bella
 sudo mv bella /usr/local/bin/
 ```

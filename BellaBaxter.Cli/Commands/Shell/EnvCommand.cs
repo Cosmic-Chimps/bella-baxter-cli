@@ -42,7 +42,7 @@ public class EnvSettings : CommandSettings
 
 public class EnvCommand(ConfigService config, CredentialStore credentials) : Command<EnvSettings>
 {
-    protected override int Execute(CommandContext context, EnvSettings settings, CancellationToken ct)
+    public override int Execute(CommandContext context, EnvSettings settings, CancellationToken ct)
     {
         var shell = settings.Shell.ToLowerInvariant().Replace("-", "").Replace("_", "");
 

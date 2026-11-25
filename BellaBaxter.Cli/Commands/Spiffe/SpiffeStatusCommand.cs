@@ -32,7 +32,7 @@ public class SpiffeStatusSettings : CommandSettings
 
 public class SpiffeStatusCommand(IOutputWriter output) : AsyncCommand<SpiffeStatusSettings>
 {
-    protected override async Task<int> ExecuteAsync(
+    public override async Task<int> ExecuteAsync(
         CommandContext context, SpiffeStatusSettings settings, CancellationToken ct)
     {
         SvidSocketLocation location;

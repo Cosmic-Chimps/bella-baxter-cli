@@ -12,7 +12,7 @@ public class ConfigShowCommand(ConfigService configService, IOutputWriter output
 {
     public class Settings : CommandSettings { }
 
-    protected override Task<int> ExecuteAsync(CommandContext context, Settings settings, CancellationToken ct)
+    public override Task<int> ExecuteAsync(CommandContext context, Settings settings, CancellationToken ct)
     {
         var configFile = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
@@ -58,7 +58,7 @@ public class ConfigSetServerCommand(ConfigService configService, IOutputWriter o
         public string Url { get; set; } = string.Empty;
     }
 
-    protected override Task<int> ExecuteAsync(CommandContext context, Settings settings, CancellationToken ct)
+    public override Task<int> ExecuteAsync(CommandContext context, Settings settings, CancellationToken ct)
     {
         var url = settings.Url.TrimEnd('/');
 
@@ -109,7 +109,7 @@ public class ConfigTrustCommand(ConfigService configService, IOutputWriter outpu
         public bool Remove { get; set; }
     }
 
-    protected override Task<int> ExecuteAsync(CommandContext context, Settings settings, CancellationToken ct) =>
+    public override Task<int> ExecuteAsync(CommandContext context, Settings settings, CancellationToken ct) =>
         Task.FromResult(Run(settings));
 
     internal int Run(Settings settings)

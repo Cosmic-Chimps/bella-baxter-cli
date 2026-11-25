@@ -62,7 +62,7 @@ public class GetSecretsCommand(
 {
     private static readonly Regex HierarchySeparator = new(@"__|:", RegexOptions.Compiled);
 
-    protected override Task<int> ExecuteAsync(
+    public override Task<int> ExecuteAsync(
         CommandContext ctx,
         GetSecretsSettings settings,
         CancellationToken ct

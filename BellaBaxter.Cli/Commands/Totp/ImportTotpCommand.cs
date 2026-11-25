@@ -47,7 +47,7 @@ public class ImportTotpSettings : CommandSettings
 public class ImportTotpCommand(BellaClientProvider provider, ContextService context, IOutputWriter output)
     : AsyncCommand<ImportTotpSettings>
 {
-    protected override async Task<int> ExecuteAsync(CommandContext ctx, ImportTotpSettings settings, CancellationToken ct)
+    public override async Task<int> ExecuteAsync(CommandContext ctx, ImportTotpSettings settings, CancellationToken ct)
     {
         provider.ApplyOutputModeOverrides(settings.Json);
 

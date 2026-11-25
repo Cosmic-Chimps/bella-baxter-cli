@@ -118,7 +118,7 @@ public class McpCommand(ConfigService config, CredentialStore credentials)
             : trimmed;
     }
 
-    protected override async Task<int> ExecuteAsync(
+    public override async Task<int> ExecuteAsync(
         CommandContext ctx,
         McpSettings settings,
         CancellationToken ct

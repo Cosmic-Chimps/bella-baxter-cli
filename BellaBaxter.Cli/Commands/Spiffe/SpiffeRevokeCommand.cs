@@ -90,7 +90,7 @@ public class SpiffeRevokeCommand(
     IOutputWriter output)
     : AsyncCommand<SpiffeRevokeSettings>
 {
-    protected override async Task<int> ExecuteAsync(
+    public override async Task<int> ExecuteAsync(
         CommandContext ctx, SpiffeRevokeSettings settings, CancellationToken ct)
     {
         provider.ApplyOutputModeOverrides(settings.Json);

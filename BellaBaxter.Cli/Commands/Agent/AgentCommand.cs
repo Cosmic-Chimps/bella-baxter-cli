@@ -83,7 +83,7 @@ public class AgentCommand(BellaClientProvider provider, IOutputWriter output)
           # pid-file: ./app.pid          # PID file to read — omit to skip signalling
         """;
 
-    protected override async Task<int> ExecuteAsync(CommandContext ctx, AgentSettings settings, CancellationToken ct)
+    public override async Task<int> ExecuteAsync(CommandContext ctx, AgentSettings settings, CancellationToken ct)
     {
         if (settings.Init)
             return ScaffoldConfig();

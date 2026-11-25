@@ -46,7 +46,7 @@ public class SpiffeNodeBindingsCommand(
     ContextService context,
     IOutputWriter output) : AsyncCommand<SpiffeNodeBindingsSettings>
 {
-    protected override async Task<int> ExecuteAsync(
+    public override async Task<int> ExecuteAsync(
         CommandContext ctx, SpiffeNodeBindingsSettings settings, CancellationToken ct)
     {
         provider.ApplyOutputModeOverrides(settings.Json);
@@ -168,7 +168,7 @@ public class SpiffeNodeBindingsReleaseCommand(
     public const string Consequence =
         "The next valid identity document for this instance binds afresh, to whichever workload attests first.";
 
-    protected override async Task<int> ExecuteAsync(
+    public override async Task<int> ExecuteAsync(
         CommandContext ctx, SpiffeNodeBindingsReleaseSettings settings, CancellationToken ct)
     {
         provider.ApplyOutputModeOverrides(settings.Json);

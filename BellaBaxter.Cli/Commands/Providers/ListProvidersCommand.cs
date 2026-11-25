@@ -29,7 +29,7 @@ public class ListProvidersCommand(BellaClientProvider provider, IOutputWriter ou
         _ => "📦"
     };
 
-    protected override async Task<int> ExecuteAsync(CommandContext context, ListProvidersSettings settings, CancellationToken ct)
+    public override async Task<int> ExecuteAsync(CommandContext context, ListProvidersSettings settings, CancellationToken ct)
     {
         provider.ApplyOutputModeOverrides(settings.Json);
 

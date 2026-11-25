@@ -24,7 +24,7 @@ public class UpgradeCommand(IOutputWriter output) : AsyncCommand<UpgradeCommand.
         public string? Version { get; set; }
     }
 
-    protected override async Task<int> ExecuteAsync(CommandContext context, Settings settings, CancellationToken ct)
+    public override async Task<int> ExecuteAsync(CommandContext context, Settings settings, CancellationToken ct)
     {
         var currentVersion = Assembly.GetExecutingAssembly()
             .GetCustomAttribute<AssemblyInformationalVersionAttribute>()

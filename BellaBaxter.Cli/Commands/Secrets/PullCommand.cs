@@ -20,7 +20,7 @@ public class PullCommand(
     // fifth copy of the client-selection block (research R12).
     private readonly GetSecretsCommand _inner = new(provider, context, output, zkeSelection);
 
-    protected override Task<int> ExecuteAsync(
+    public override Task<int> ExecuteAsync(
         CommandContext ctx,
         GetSecretsSettings settings,
         CancellationToken ct

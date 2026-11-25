@@ -31,7 +31,7 @@ public class AddProviderToEnvironmentCommand(
     IOutputWriter output
 ) : AsyncCommand<AddProviderToEnvironmentSettings>
 {
-    protected override async Task<int> ExecuteAsync(
+    public override async Task<int> ExecuteAsync(
         CommandContext ctx,
         AddProviderToEnvironmentSettings settings,
         CancellationToken ct

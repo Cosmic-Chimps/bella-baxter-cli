@@ -27,7 +27,7 @@ public class DeleteEnvironmentSettings : CommandSettings
 public class DeleteEnvironmentCommand(BellaClientProvider provider, ContextService context, IOutputWriter output)
     : AsyncCommand<DeleteEnvironmentSettings>
 {
-    protected override async Task<int> ExecuteAsync(CommandContext ctx, DeleteEnvironmentSettings settings, CancellationToken ct)
+    public override async Task<int> ExecuteAsync(CommandContext ctx, DeleteEnvironmentSettings settings, CancellationToken ct)
     {
         provider.ApplyOutputModeOverrides(settings.Json);
 

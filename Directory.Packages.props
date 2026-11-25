@@ -18,31 +18,31 @@
          They arrive with the Microsoft.AspNetCore.App FrameworkReference, and a PackageReference to either is pruned (NU1510, #631). -->
 
     <!-- Console UI -->
-    <PackageVersion Include="Spectre.Console" Version="0.55.2" />
-    <PackageVersion Include="Spectre.Console.Cli" Version="0.55.0" />
+    <PackageVersion Include="Spectre.Console" Version="0.57.2" />
+    <PackageVersion Include="Spectre.Console.Cli" Version="0.57.2" />
     <!-- Tests only: TestConsole, so a prompt and a status display can be exercised for real (#1317). -->
-    <PackageVersion Include="Spectre.Console.Testing" Version="0.55.2" />
+    <PackageVersion Include="Spectre.Console.Testing" Version="0.57.2" />
     <!-- Tests only: CommandAppTester, so the parser is exercised with the shipped configuration (#1618). It moved
          out of Spectre.Console.Testing when Spectre.Console.Cli became its own repository; pinned to the Cli version. -->
-    <PackageVersion Include="Spectre.Console.Cli.Testing" Version="0.55.0" />
+    <PackageVersion Include="Spectre.Console.Cli.Testing" Version="0.57.2" />
 
     <!-- Generated API client transport/serialization (Kiota) -->
-    <PackageVersion Include="Microsoft.Kiota.Http.HttpClientLibrary" Version="1.22.1" />
-    <PackageVersion Include="Microsoft.Kiota.Serialization.Form" Version="1.22.1" />
-    <PackageVersion Include="Microsoft.Kiota.Serialization.Json" Version="1.22.1" />
-    <PackageVersion Include="Microsoft.Kiota.Serialization.Multipart" Version="1.22.1" />
-    <PackageVersion Include="Microsoft.Kiota.Serialization.Text" Version="1.22.1" />
+    <PackageVersion Include="Microsoft.Kiota.Http.HttpClientLibrary" Version="1.22.2" />
+    <PackageVersion Include="Microsoft.Kiota.Serialization.Form" Version="1.22.2" />
+    <PackageVersion Include="Microsoft.Kiota.Serialization.Json" Version="1.22.2" />
+    <PackageVersion Include="Microsoft.Kiota.Serialization.Multipart" Version="1.22.2" />
+    <PackageVersion Include="Microsoft.Kiota.Serialization.Text" Version="1.22.2" />
 
     <!-- MCP server + config formats -->
-    <PackageVersion Include="ModelContextProtocol" Version="1.2.0" />
-    <PackageVersion Include="VYaml" Version="1.3.0" />
-    <PackageVersion Include="VYaml.Annotations" Version="1.3.0" />
+    <PackageVersion Include="ModelContextProtocol" Version="1.4.2" />
+    <PackageVersion Include="VYaml" Version="1.6.1" />
+    <PackageVersion Include="VYaml.Annotations" Version="1.6.1" />
 
     <!-- SPIFFE Workload API (spec 001 US6): gRPC over a Unix socket. Grpc.AspNetCore is the agent's
          server; Grpc.Net.Client is the conformance test's client. Keep the two on one version — they
          speak the same wire protocol and a split would only ever be discovered at runtime. -->
-    <PackageVersion Include="Grpc.AspNetCore" Version="2.71.0" />
-    <PackageVersion Include="Grpc.Net.Client" Version="2.71.0" />
+    <PackageVersion Include="Grpc.AspNetCore" Version="2.85.0" />
+    <PackageVersion Include="Grpc.Net.Client" Version="2.85.0" />
 
     <!-- Bella's own packages. These are referenced ONLY when the SDK sources are absent (the public
          bella-baxter-cli repo); in the monorepo the same two resolve as ProjectReferences. Central
@@ -53,9 +53,9 @@
     <PackageVersion Include="BellaBaxter.Crypto" Version="0.1.2" />
 
     <!-- Test suite. Mirrors the API solution's central pins so the two suites cannot drift apart. -->
-    <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="18.5.0" />
+    <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="18.12.0" />
     <PackageVersion Include="xunit.v3" Version="3.2.2" />
     <PackageVersion Include="xunit.runner.visualstudio" Version="3.1.5" />
-    <PackageVersion Include="coverlet.collector" Version="10.0.0" />
+    <PackageVersion Include="coverlet.collector" Version="10.1.1" />
   </ItemGroup>
 </Project>

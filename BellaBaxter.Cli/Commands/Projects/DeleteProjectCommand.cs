@@ -120,7 +120,7 @@ public class DeleteProjectCommand(BellaClientProvider provider, IOutputWriter ou
         return lines;
     }
 
-    protected override async Task<int> ExecuteAsync(CommandContext context, DeleteProjectSettings settings, CancellationToken ct)
+    public override async Task<int> ExecuteAsync(CommandContext context, DeleteProjectSettings settings, CancellationToken ct)
     {
         provider.ApplyOutputModeOverrides(settings.Json);
 

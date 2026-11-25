@@ -36,7 +36,7 @@ public class UpdateProjectSettings : CommandSettings
 public class UpdateProjectCommand(BellaClientProvider provider, IOutputWriter output)
     : AsyncCommand<UpdateProjectSettings>
 {
-    protected override async Task<int> ExecuteAsync(CommandContext context, UpdateProjectSettings settings, CancellationToken ct)
+    public override async Task<int> ExecuteAsync(CommandContext context, UpdateProjectSettings settings, CancellationToken ct)
     {
         provider.ApplyOutputModeOverrides(settings.Json);
 

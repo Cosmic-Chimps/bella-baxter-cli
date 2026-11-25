@@ -27,7 +27,7 @@ public class CreateEnvironmentCommand(
     IOutputWriter output
 ) : AsyncCommand<CreateEnvironmentSettings>
 {
-    protected override async Task<int> ExecuteAsync(
+    public override async Task<int> ExecuteAsync(
         CommandContext ctx,
         CreateEnvironmentSettings settings,
         CancellationToken ct

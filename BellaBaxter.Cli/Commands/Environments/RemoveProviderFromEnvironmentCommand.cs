@@ -33,7 +33,7 @@ public class RemoveProviderFromEnvironmentCommand(
     IOutputWriter output
 ) : AsyncCommand<RemoveProviderFromEnvironmentSettings>
 {
-    protected override async Task<int> ExecuteAsync(
+    public override async Task<int> ExecuteAsync(
         CommandContext ctx,
         RemoveProviderFromEnvironmentSettings settings,
         CancellationToken ct

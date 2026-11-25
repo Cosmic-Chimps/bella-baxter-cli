@@ -33,7 +33,7 @@ public class SpiffeListCommand(
     ContextService context,
     IOutputWriter output) : AsyncCommand<SpiffeListSettings>
 {
-    protected override async Task<int> ExecuteAsync(
+    public override async Task<int> ExecuteAsync(
         CommandContext ctx, SpiffeListSettings settings, CancellationToken ct)
     {
         provider.ApplyOutputModeOverrides(settings.Json);

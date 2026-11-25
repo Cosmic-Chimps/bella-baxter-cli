@@ -35,7 +35,7 @@ public class ListSecretsCommand(
     ZkeClientSelection zkeSelection
 ) : AsyncCommand<ListSecretsSettings>
 {
-    protected override async Task<int> ExecuteAsync(
+    public override async Task<int> ExecuteAsync(
         CommandContext ctx,
         ListSecretsSettings settings,
         CancellationToken ct

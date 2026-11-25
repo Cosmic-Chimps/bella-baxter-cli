@@ -19,7 +19,7 @@ public class DeprecatedExecCommand(
     IOutputWriter output
 ) : SdkRunCommand(credentials, config, authService, workloadIdentity, zkeSelection, output)
 {
-    protected override async Task<int> ExecuteAsync(
+    public override async Task<int> ExecuteAsync(
         CommandContext context,
         Settings settings,
         CancellationToken ct

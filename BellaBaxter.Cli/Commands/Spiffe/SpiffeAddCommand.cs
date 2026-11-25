@@ -84,7 +84,7 @@ public class SpiffeAddCommand(
     ContextService context,
     IOutputWriter output) : AsyncCommand<SpiffeAddSettings>
 {
-    protected override async Task<int> ExecuteAsync(
+    public override async Task<int> ExecuteAsync(
         CommandContext ctx, SpiffeAddSettings settings, CancellationToken ct)
     {
         provider.ApplyOutputModeOverrides(settings.Json);

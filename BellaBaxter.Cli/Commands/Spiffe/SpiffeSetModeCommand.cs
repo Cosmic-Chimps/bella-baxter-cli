@@ -270,7 +270,7 @@ public class SpiffeSetModeCommand(
     IOutputWriter output)
     : AsyncCommand<SpiffeSetModeSettings>
 {
-    protected override async Task<int> ExecuteAsync(
+    public override async Task<int> ExecuteAsync(
         CommandContext ctx, SpiffeSetModeSettings settings, CancellationToken ct)
     {
         provider.ApplyOutputModeOverrides(settings.Json);
