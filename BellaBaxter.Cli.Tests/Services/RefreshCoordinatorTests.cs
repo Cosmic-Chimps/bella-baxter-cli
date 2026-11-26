@@ -1,3 +1,5 @@
+using System.Net;
+using System.Net.Http.Json;
 using BellaCli.Services;
 
 namespace BellaBaxter.Cli.Tests.Services;
@@ -108,6 +110,145 @@ public class RefreshCoordinatorTests
             await coordinator.RefreshAsync(store.Load, Exchange, NoLock, TestContext.Current.CancellationToken);
 
         Assert.Equal(["rt-0", "rt-1", "rt-2"], presented);
+    }
+
+    // ── #2002 — two `bella` PROCESSES starting at once ───────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// A token endpoint as Keycloak runs it with <c>revokeRefreshToken</c> and <c>refreshTokenMaxReuse=0</c>: a refresh token is
+    /// good ONCE, and presenting a spent one answers 400 invalid_grant and ends the whole session (every later refresh fails
+    /// too, the winner's included: "Session doesn't have required client").
+    /// </summary>
+    private sealed class SingleUseTokenEndpoint : HttpMessageHandler
+    {
+        private readonly object _sync = new();
+        private readonly HashSet<string> _spent = [];
+        private int _issued;
+        private bool _sessionDetached;
+        public int Calls { get; private set; }
+        public int Refusals { get; private set; }
+
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+        {
+            var form = await request.Content!.ReadAsStringAsync(ct);
+            var presented = Uri.UnescapeDataString(form.Split('&').Single(p => p.StartsWith("refresh_token=", StringComparison.Ordinal))["refresh_token=".Length..]);
+            await Task.Delay(150, ct); // a round trip: the window in which an unserialised second process would also refresh
+
+            lock (_sync)
+            {
+                Calls++;
+                if (_sessionDetached || !_spent.Add(presented))
+                {
+                    _sessionDetached = true;
+                    Refusals++;
+                    return new HttpResponseMessage(HttpStatusCode.BadRequest)
+                    {
+                        Content = new StringContent("""{"error":"invalid_grant","error_description":"Token reuse detected"}"""),
+                    };
+                }
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent($$"""{"refresh_token":"rt-{{++_issued}}"}"""),
+                };
+            }
+        }
+    }
+
+    /// <summary>The stored login as the CLI keeps it: a file other processes read WITHOUT the lock and rewrite under it.</summary>
+    private sealed class FileStore(string path)
+    {
+        public StoredTokens? Load() =>
+            File.Exists(path) ? new StoredTokens($"at", File.ReadAllText(path), DateTimeOffset.UtcNow.AddMinutes(-1)) : null;
+
+        public void Save(string refreshToken) => BellaCli.Infrastructure.PrivateFiles.WritePrivateAtomic(path, refreshToken);
+    }
+
+    [Fact]
+    public async Task Two_processes_refreshing_at_once_send_ONE_refresh_and_both_get_the_new_login()
+    {
+        Assert.SkipWhen(OperatingSystem.IsWindows(), "The private-file helpers are Unix-only here.");
+
+        var dir = Path.Combine(Path.GetTempPath(), $"bella-race-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(dir);
+        try
+        {
+            var lockPath = Path.Combine(dir, "tokens.lock");
+            var store = new FileStore(Path.Combine(dir, "tokens.json"));
+            store.Save("rt-0");
+            var keycloak = new SingleUseTokenEndpoint();
+            using var http = new HttpClient(keycloak);
+
+            async Task<StoredTokens> Exchange(StoredTokens current, CancellationToken ct)
+            {
+                using var response = await http.PostAsync("https://auth.example.test/token",
+                    new FormUrlEncodedContent(new Dictionary<string, string> { ["refresh_token"] = current.RefreshToken }), ct);
+                response.EnsureSuccessStatusCode();
+                var next = (await response.Content.ReadFromJsonAsync<System.Text.Json.JsonElement>(ct)).GetProperty("refresh_token").GetString()!;
+                store.Save(next);
+                return store.Load()!;
+            }
+
+            // Each "process" has its OWN in-process gate and shares only the lock FILE, exactly as two `bella` processes do.
+            var processes = Enumerable.Range(0, 2).Select(_ => new RefreshCoordinator(new SemaphoreSlim(1, 1))).ToArray();
+            var results = await Task.WhenAll(processes.SelectMany(p => Enumerable.Range(0, 3).Select(_ =>
+                Task.Run(() => p.RefreshAsync(
+                    store.Load, Exchange, ct => CredentialStore.AcquireExclusiveLockAsync(lockPath, TimeSpan.FromSeconds(20), ct),
+                    TestContext.Current.CancellationToken)))));
+
+            Assert.Equal(1, keycloak.Calls);
+            Assert.Equal(0, keycloak.Refusals);
+            Assert.All(results, r => Assert.Equal("rt-1", r.RefreshToken));
+        }
+        finally
+        {
+            try { Directory.Delete(dir, recursive: true); } catch { /* best effort */ }
+        }
+    }
+
+    [Fact]
+    public async Task A_reader_never_sees_a_half_written_login_while_a_refresh_rewrites_it()
+    {
+        Assert.SkipWhen(OperatingSystem.IsWindows(), "The private-file helpers are Unix-only here.");
+
+        var dir = Path.Combine(Path.GetTempPath(), $"bella-torn-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(dir);
+        try
+        {
+            var path = Path.Combine(dir, "tokens.json");
+            var a = new string('a', 256 * 1024);
+            var b = new string('b', 256 * 1024);
+            BellaCli.Infrastructure.PrivateFiles.WritePrivateAtomic(path, a);
+
+            using var stop = new CancellationTokenSource();
+            var writer = Task.Run(() =>
+            {
+                var flip = false;
+                while (!stop.IsCancellationRequested)
+                {
+                    BellaCli.Infrastructure.PrivateFiles.WritePrivateAtomic(path, flip ? a : b);
+                    flip = !flip;
+                }
+            }, TestContext.Current.CancellationToken);
+
+            var torn = 0;
+            for (var i = 0; i < 400; i++)
+            {
+                var read = File.ReadAllText(path); // what LoadTokens does, with no lock
+                if (read != a && read != b)
+                    torn++;
+            }
+            await stop.CancelAsync();
+            await writer;
+
+            Assert.Equal(0, torn);
+            Assert.Empty(Directory.GetFiles(dir, "*.tmp")); // no temporary file is left behind
+            if (!OperatingSystem.IsWindows())
+                Assert.Equal(UnixFileMode.UserRead | UnixFileMode.UserWrite, File.GetUnixFileMode(path));
+        }
+        finally
+        {
+            try { Directory.Delete(dir, recursive: true); } catch { /* best effort */ }
+        }
     }
 
     [Fact]

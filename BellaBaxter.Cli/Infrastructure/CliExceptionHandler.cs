@@ -34,6 +34,14 @@ public static class CliExceptionHandler
             return 1;
         }
 
+        // #1610 — a session the server refused to renew, escaping a command that does not catch it: one plain sentence on
+        // stderr, exit 1, never "Error: <token endpoint text>" on stdout with 255. Found through wrappers.
+        if (SessionExpiredException.Find(ex) is { } refused)
+        {
+            stderr.WriteLine(refused.Message); // the sentence for its kind (#2002); host and status only, never the body
+            return 1;
+        }
+
         // Spec 108 (FR-018) — a person with no organisation is told what to do and where: stderr, exit 1, whatever command it was.
         // Found through wrappers, like the refusal above.
         for (var inner = ex; inner is not null; inner = inner.InnerException)

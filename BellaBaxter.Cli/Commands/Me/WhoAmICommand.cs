@@ -197,9 +197,16 @@ public class WhoAmICommand(
         }
         catch (Exception ex)
         {
+            if (SessionExpiredException.Find(ex) is { } refused)
+            {
+                // #2002 — the sentence for what the token endpoint said (expired, client rejected, refused), never always "expired".
+                output.WriteError(refused.Message, refused.Code);
+                return 1;
+            }
+
             if (ServerProbe.Classify(ex) == ServerProbeFailure.Rejected)
             {
-                output.WriteError("Session expired. Run 'bella login'.", "session_expired");
+                output.WriteError(SessionExpiredException.Sentence, "session_expired");
                 return 1;
             }
 

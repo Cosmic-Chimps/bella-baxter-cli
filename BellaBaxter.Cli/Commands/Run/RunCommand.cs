@@ -404,6 +404,14 @@ public class RunCommand(
                         // Signal the main loop to restart with the new secrets.
                         restartCh.Writer.TryWrite(fresh);
                     }
+                    catch (SessionExpiredException refused) when (!ct.IsCancellationRequested)
+                    {
+                        // #1610 — the login ran out and cannot be renewed: say so once, on stderr, and stop watching. The
+                        // child keeps running with the secrets it has; it is not this process's to kill. (#2002: the
+                        // sentence is the one for what the server said, not always "expired".)
+                        Console.Error.WriteLine(refused.Message);
+                        return;
+                    }
                     catch (Exception ex) when (!ct.IsCancellationRequested)
                     {
                         Debug(

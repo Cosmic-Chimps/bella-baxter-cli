@@ -185,6 +185,9 @@ public class AgentCommand(BellaClientProvider provider, IOutputWriter output)
                 SignalProcess(config.Process);
             }
             catch (OperationCanceledException) { throw; }
+            // #1610 — a login that ran out cannot be renewed by this process: stop with the one sentence (stderr, exit 1)
+            // instead of printing a poll error every interval forever.
+            catch (SessionExpiredException) { throw; }
             catch (Exception ex)
             {
                 Console.Error.WriteLine($"  ⚠ Poll error ({watch.Source.Project}/{watch.Source.Environment}): {ex.Message}");
@@ -210,6 +213,7 @@ public class AgentCommand(BellaClientProvider provider, IOutputWriter output)
                     foreach (var kvp in parsed)
                         result[kvp.Key] = kvp.Value;
             }
+            catch (SessionExpiredException) { throw; }
             catch (Exception ex)
             {
                 Console.Error.WriteLine($"  ⚠ Could not fetch from {watch.Source.Project}/{watch.Source.Environment}: {ex.Message}");

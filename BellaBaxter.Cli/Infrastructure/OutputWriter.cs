@@ -1,4 +1,5 @@
 using System.Text.Json;
+using BellaCli.Services;
 using Spectre.Console;
 
 namespace BellaCli.Infrastructure;
@@ -97,6 +98,8 @@ public class HumanOutputWriter(IAnsiConsole? errorConsole = null) : IOutputWrite
 
     public void WriteError(string message, string? code = null)
     {
+        // An expired session reads the same on every path: the sentence alone, never a command's prefix around it.
+        message = SessionExpiredException.Normalize(message);
         var suffix = code is not null ? $" [grey]({Markup.Escape(code)})[/]" : string.Empty;
         ErrorConsole().MarkupLine($"[red]✗[/] {Markup.Escape(message)}{suffix}");
     }
@@ -147,7 +150,7 @@ public class JsonOutputWriter : IOutputWriter
         Console.WriteLine(JsonSerializer.Serialize(new { success = true, message }, Options));
 
     public void WriteError(string message, string? code = null) =>
-        Console.Error.WriteLine(JsonSerializer.Serialize(new { error = message, code }, Options));
+        Console.Error.WriteLine(JsonSerializer.Serialize(new { error = SessionExpiredException.Normalize(message), code }, Options));
 
     public void WriteWarning(string message) =>
         Console.Error.WriteLine(JsonSerializer.Serialize(new { warning = message }, Options));

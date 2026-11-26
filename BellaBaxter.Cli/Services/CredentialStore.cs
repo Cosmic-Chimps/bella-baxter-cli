@@ -85,7 +85,9 @@ public class CredentialStore
     {
         var json = JsonSerializer.Serialize(tokens, JsonOptions);
         var encrypted = _protector.Protect(json);
-        PrivateFiles.WritePrivate(TokensFile, encrypted);
+        // Atomic (#2002): every command start reads this file without the refresh lock, so a refresh that rewrites it in place
+        // handed a second `bella` an unreadable file, i.e. "no stored login", while the first one succeeded.
+        PrivateFiles.WritePrivateAtomic(TokensFile, encrypted);
     }
 
     public virtual StoredTokens? LoadTokens()

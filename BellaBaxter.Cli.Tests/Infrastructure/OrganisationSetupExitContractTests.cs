@@ -1,10 +1,7 @@
-using System.Text.Json;
 using BellaBaxter.Cli.Tests.Helpers;
 using BellaBaxter.Cli.Tests.Services;
 using BellaCli.Infrastructure;
 using BellaCli.Services;
-using Microsoft.AspNetCore.DataProtection;
-using Microsoft.Extensions.DependencyInjection;
 
 namespace BellaBaxter.Cli.Tests.Infrastructure;
 
@@ -23,45 +20,8 @@ public class OrganisationSetupExitContractTests
     private static readonly string Refusal =
         $$"""{"type":"organisation-setup-required","title":"The organisation is not set up.","status":403,"detail":"{{Sentence}}","setupUrl":"{{SetupUrl}}"}""";
 
-    /// <summary>
-    /// Writes <c>tokens.json</c> into <paramref name="home"/> exactly as <see cref="CredentialStore"/> does (an encrypted
-    /// blob under a key ring in the same directory), without touching the real user's profile: the store's paths are
-    /// static and read once, so it cannot be pointed at a temporary home from inside the test process.
-    /// </summary>
-    private static void SeedStoredLogin(string home, string serverUrl)
-    {
-        var configDir = Path.Combine(home, ".config", "bella-cli");
-        var keys = Path.Combine(configDir, "keys");
-        Directory.CreateDirectory(keys);
-        if (!OperatingSystem.IsWindows())
-        {
-            File.SetUnixFileMode(configDir, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
-            File.SetUnixFileMode(keys, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
-        }
-
-        var services = new ServiceCollection();
-        services.AddDataProtection()
-            .PersistKeysToFileSystem(new DirectoryInfo(keys))
-            .SetApplicationName("bella-cli");
-        var protector = services.BuildServiceProvider()
-            .GetRequiredService<IDataProtectionProvider>()
-            .CreateProtector("bella-cli.credentials.v1");
-
-        var tokens = new StoredTokens(
-            AccessToken: "access-token-for-the-contract-test",
-            RefreshToken: "refresh-token-for-the-contract-test",
-            ExpiresAt: DateTimeOffset.UtcNow.AddHours(1),
-            Origin: ConfigService.OriginOf(serverUrl));
-        var json = JsonSerializer.Serialize(tokens, new JsonSerializerOptions
-        {
-            WriteIndented = true,
-            PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-        });
-        var file = Path.Combine(configDir, "tokens.json");
-        File.WriteAllText(file, protector.Protect(json));
-        if (!OperatingSystem.IsWindows())
-            File.SetUnixFileMode(file, UnixFileMode.UserRead | UnixFileMode.UserWrite);
-    }
+    private static void SeedStoredLogin(string home, string serverUrl) =>
+        StoredLoginSeed.Write(home, serverUrl, DateTimeOffset.UtcNow.AddHours(1));
 
     [Fact]
     public async Task A_command_answered_organisation_setup_required_exits_1_with_the_sentence_and_link_on_stderr()

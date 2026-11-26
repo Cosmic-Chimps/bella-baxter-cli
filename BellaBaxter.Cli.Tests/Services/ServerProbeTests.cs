@@ -38,7 +38,7 @@ public class ServerProbeTests
         // dead regardless of what the next call would have returned.
         Assert.Equal(
             ServerProbeFailure.Rejected,
-            ServerProbe.Classify(new SessionExpiredException("Session expired."))
+            ServerProbe.Classify(SessionExpiredException.Refused())
         );
     }
 
@@ -73,8 +73,8 @@ public class ServerProbeTests
     {
         // Many commands `catch (InvalidOperationException ex)` and print ex.Message. Introducing
         // the dedicated type must not route around them.
-        var ex = new SessionExpiredException("Session expired. Run 'bella login' to re-authenticate.");
+        var ex = SessionExpiredException.Refused();
         Assert.IsAssignableFrom<InvalidOperationException>(ex);
-        Assert.Contains("bella login", ex.Message);
+        Assert.Equal("Your session expired. Run `bella login`.", ex.Message);
     }
 }

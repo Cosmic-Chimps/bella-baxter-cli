@@ -104,6 +104,40 @@ public static class PrivateFiles
     }
 
     /// <summary>
+    /// <see cref="WritePrivate"/> that a reader in ANOTHER process can never catch half-written (#2002): the contents go to a
+    /// private temporary file next to <paramref name="path"/> and replace it with one rename, so a concurrent reader sees the
+    /// old file or the new one, never an empty or partial one. <see cref="WritePrivate"/> truncates in place, and
+    /// <c>tokens.json</c> is read WITHOUT the refresh lock (every command start reads it), so a reader that landed between the
+    /// truncate and the last byte got an unreadable file, which the store reports as "no stored login".
+    /// </summary>
+    public static void WritePrivateAtomic(string path, string contents)
+    {
+        var temp = $"{path}.{Guid.NewGuid():N}.tmp";
+        try
+        {
+            if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+                File.WriteAllText(temp, contents);
+            else
+            {
+                var options = new FileStreamOptions
+                {
+                    Mode = FileMode.CreateNew,
+                    Access = FileAccess.Write,
+                    UnixCreateMode = FilePermissions, // owner-only from the first byte
+                };
+                using var writer = new StreamWriter(new FileStream(temp, options));
+                writer.Write(contents);
+            }
+            File.Move(temp, path, overwrite: true);
+        }
+        catch
+        {
+            try { File.Delete(temp); } catch { /* best effort */ }
+            throw;
+        }
+    }
+
+    /// <summary>
     /// <see cref="WritePrivate"/> for the callers that already await their write.
     /// </summary>
     /// <remarks>

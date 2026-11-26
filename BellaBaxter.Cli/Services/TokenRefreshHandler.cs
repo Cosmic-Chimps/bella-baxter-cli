@@ -51,17 +51,10 @@ internal sealed class TokenRefreshHandler(AuthService authService) : DelegatingH
 
     private async Task<StoredTokens> RefreshOrThrowAsync(CancellationToken ct)
     {
-        try
-        {
-            return await authService.RefreshAsync(ct);
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException)
-        {
-            throw new SessionExpiredException(
-                "Session expired. Run 'bella login' to re-authenticate.",
-                ex
-            );
-        }
+        // AuthService throws SessionExpiredException when the server REFUSES the refresh (a 4xx from the token endpoint:
+        // idle or maximum lifespan reached, revoked, invalid_grant). Anything else (the server unreachable, a 5xx) is not
+        // an expired session and is left to say what it is: telling someone to sign in again during an outage is wrong.
+        return await authService.RefreshAsync(ct);
     }
 
     private static void SetBearerHeader(HttpRequestMessage request, string accessToken)

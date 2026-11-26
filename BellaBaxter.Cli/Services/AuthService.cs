@@ -79,7 +79,7 @@ public class AuthService(ConfigService config, CredentialStore credentials, Http
     /// every other <c>bella</c> process (#824): with refresh-token rotation a second, concurrent
     /// refresh of the same token ends the login — see <see cref="RefreshCoordinator"/>.
     /// </summary>
-    public Task<StoredTokens> RefreshAsync(CancellationToken ct = default) =>
+    public virtual Task<StoredTokens> RefreshAsync(CancellationToken ct = default) =>
         RefreshCoordinator.Shared.RefreshAsync(
             credentials.LoadTokens,
             ExchangeRefreshTokenAsync,
@@ -103,6 +103,18 @@ public class AuthService(ConfigService config, CredentialStore credentials, Http
         });
 
         var response = await http.PostAsync(authConfig.GetTokenEndpoint(), body, ct);
+
+        // #2002 — the server's refusal of the refresh token, classified EXACTLY (the body is read for its `error` field only and
+        // never shown). Keycloak answers an ended session (idle, maximum lifespan, revoked) 400 invalid_grant, and a client it
+        // does not accept 401; it never answers 403 here, so a 403 (or any other 4xx) comes from something in front of it and says
+        // nothing about the session. 408, 429 and 5xx are an outage or a throttle: they fall through to EnsureSuccessStatusCode.
+        var refusal = await ClassifyRefusalAsync(response, authConfig.GetTokenEndpoint(), ct);
+        if (refusal is not null)
+        {
+            response.Dispose();
+            throw refusal;
+        }
+
         response.EnsureSuccessStatusCode();
 
         var tokenResponse = await response.Content.ReadFromJsonAsync<TokenResponse>(JsonOptions, ct)
@@ -111,6 +123,50 @@ public class AuthService(ConfigService config, CredentialStore credentials, Http
         var tokens = ToStoredTokens(tokenResponse) with { Origin = origin };
         credentials.SaveTokens(tokens);
         return tokens;
+    }
+
+    /// <summary>
+    /// What a non-success answer from the token endpoint to a refresh means; null when it is not a refusal of the token
+    /// (success, 408, 429, 5xx). <c>400 invalid_grant</c> is an expiry; <c>401</c> a client the server does not accept; every
+    /// other 4xx (a 400 with another or no readable <c>error</c>, 403, 404, 418 ...) is "refused" and never an expiry.
+    /// </summary>
+    internal static async Task<SessionExpiredException?> ClassifyRefusalAsync(HttpResponseMessage response, string tokenEndpoint, CancellationToken ct)
+    {
+        var status = (int)response.StatusCode;
+        if (status is < 400 or >= 500 || status is 408 or 429)
+            return null;
+
+        if (status == 400 && await ReadOAuthErrorAsync(response, ct) == "invalid_grant")
+            return SessionExpiredException.Refused();
+
+        var host = Uri.TryCreate(tokenEndpoint, UriKind.Absolute, out var uri) ? uri.Host : "the-sign-in-server";
+        return status == 401
+            ? SessionExpiredException.ClientRejected(host)
+            : SessionExpiredException.ServerRefused(status, host);
+    }
+
+    /// <summary>The OAuth <c>error</c> field of a token-endpoint error body, or null when there is none readable. Nothing else is read or kept.</summary>
+    private static async Task<string?> ReadOAuthErrorAsync(HttpResponseMessage response, CancellationToken ct)
+    {
+        try
+        {
+            await using var stream = await response.Content.ReadAsStreamAsync(ct);
+            var buffer = new byte[16 * 1024]; // an OAuth error is a few dozen bytes; never buffer what a proxy sends back
+            var read = 0;
+            int n;
+            while (read < buffer.Length && (n = await stream.ReadAsync(buffer.AsMemory(read), ct)) > 0)
+                read += n;
+            using var doc = JsonDocument.Parse(buffer.AsMemory(0, read));
+            return doc.RootElement.ValueKind == JsonValueKind.Object
+                && doc.RootElement.TryGetProperty("error", out var error)
+                && error.ValueKind == JsonValueKind.String
+                    ? error.GetString()
+                    : null;
+        }
+        catch (Exception ex) when (ex is JsonException or IOException or InvalidOperationException)
+        {
+            return null;
+        }
     }
 
     // ── Logout ───────────────────────────────────────────────────────────────
@@ -139,13 +195,23 @@ public class AuthService(ConfigService config, CredentialStore credentials, Http
 
     // ── Helpers ──────────────────────────────────────────────────────────────
 
-    private static string BuildAuthorizationUrl(AuthConfig authConfig, string codeChallenge, string callbackUrl)
+    /// <summary>
+    /// #1610 — what a browser login asks for. Deliberately NO <c>offline_access</c>: an offline token is the one session the server's
+    /// limits for <c>bella-cli</c> (12 h idle, 24 h max) bound only through their offline twins, and the CLI has no use for it. A
+    /// normal refresh token (bound to the SSO session) is all it needs; <see cref="RefreshCoordinator"/> and
+    /// <see cref="ExchangeRefreshTokenAsync"/> never relied on an offline one. The server still OFFERS the scope, because Keycloak
+    /// refuses (invalid_scope) a request naming a scope the client lacks: an older CLI that still asks keeps logging in, and its
+    /// offline token is capped by the same limits.
+    /// </summary>
+    internal const string LoginScope = "openid profile email";
+
+    internal static string BuildAuthorizationUrl(AuthConfig authConfig, string codeChallenge, string callbackUrl)
     {
         var q = System.Web.HttpUtility.ParseQueryString(string.Empty);
         q["client_id"] = authConfig.CliClientId;
         q["redirect_uri"] = callbackUrl;
         q["response_type"] = "code";
-        q["scope"] = "openid profile email offline_access";
+        q["scope"] = LoginScope;
         q["code_challenge"] = codeChallenge;
         q["code_challenge_method"] = "S256";
         return $"{authConfig.GetAuthorizationEndpoint()}?{q}";

@@ -58,6 +58,18 @@ public sealed class FakeBellaServer : IDisposable
         return this;
     }
 
+    private readonly ConcurrentDictionary<(string Method, string Path), (int Status, string Body, string ContentType)> _statusRoutes = new();
+
+    /// <summary>
+    /// Answers <paramref name="method"/> <paramref name="path"/> with a fixed <paramref name="status"/> and body (an error from a
+    /// token endpoint, for one). Wins over <see cref="On(string,string,string)"/> for the same route.
+    /// </summary>
+    public FakeBellaServer OnStatus(string method, string path, int status, string body, string contentType = "application/json")
+    {
+        _statusRoutes[(method.ToUpperInvariant(), path)] = (status, body, contentType);
+        return this;
+    }
+
     private (int Status, string Body, string ContentType)? _fallback;
 
     /// <summary>
@@ -107,7 +119,15 @@ public sealed class FakeBellaServer : IDisposable
 
             try
             {
-                if (_routes.TryGetValue((method, path), out var body))
+                if (_statusRoutes.TryGetValue((method, path), out var fixedAnswer))
+                {
+                    var bytes = Encoding.UTF8.GetBytes(fixedAnswer.Body);
+                    ctx.Response.StatusCode = fixedAnswer.Status;
+                    ctx.Response.ContentType = fixedAnswer.ContentType;
+                    ctx.Response.ContentLength64 = bytes.Length;
+                    await ctx.Response.OutputStream.WriteAsync(bytes).ConfigureAwait(false);
+                }
+                else if (_routes.TryGetValue((method, path), out var body))
                 {
                     var bytes = Encoding.UTF8.GetBytes(Envelope(path, ctx.Request.Headers["X-E2E-Public-Key"], body()));
                     ctx.Response.StatusCode = 200;

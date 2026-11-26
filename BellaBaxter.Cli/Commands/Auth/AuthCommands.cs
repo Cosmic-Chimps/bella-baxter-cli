@@ -83,6 +83,11 @@ public class AuthStatusCommand(
             // A refresh token that is expired, revoked or rejected. THIS is an unhealthy session:
             // no command will work until the operator logs in again.
             refreshFailure = ex.Message;
+
+            // #1610 — the server refused to renew: say so in words on stderr (stdout carries the status document), whatever
+            // the mode. The exit code below is 1 as before.
+            if (SessionExpiredException.Find(ex) is { } refused)
+                output.WriteError(refused.Message, refused.Code);
         }
 
         var expired = refreshFailure is not null || tokens.ExpiresAt <= DateTimeOffset.UtcNow;

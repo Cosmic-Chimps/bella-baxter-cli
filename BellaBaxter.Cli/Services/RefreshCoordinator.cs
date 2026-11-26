@@ -4,8 +4,8 @@ namespace BellaCli.Services;
 /// #824 — makes an OAuth refresh safe under refresh-token ROTATION with reuse revocation.
 ///
 /// <para>The <c>bella-baxter</c> realm now sets <c>revokeRefreshToken=true</c> with
-/// <c>refreshTokenMaxReuse=0</c>, and those are REALM settings, so they govern this CLI's offline
-/// session too. Under them a refresh token is spent the moment it is used, and presenting a spent one
+/// <c>refreshTokenMaxReuse=0</c>, and those are REALM settings, so they govern this CLI's
+/// sessions too. Under them a refresh token is spent the moment it is used, and presenting a spent one
 /// is treated by Keycloak as theft: it DETACHES the client session, ending the whole login — measured
 /// against Keycloak 26.6, a race between two refreshes of the same token left even the winner's new
 /// token rejected with "Session doesn't have required client". So two refreshes must never present
