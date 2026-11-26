@@ -6,7 +6,7 @@
     <Nullable>enable</Nullable>
     <AssemblyName>bella</AssemblyName>
     <RootNamespace>BellaBaxter.Cli</RootNamespace>
-    <Version>0.1.2</Version>
+    <Version>0.2.0</Version>
 
     <!-- Global tool support (dev loop: dotnet pack + dotnet tool install -g) -->
     <PackAsTool>true</PackAsTool>
